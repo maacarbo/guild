@@ -94,6 +94,7 @@ Every runtime (Claude Code, OpenCode, future clients) is wrapped in one interfac
 
 ```ts
 interface AgentRuntimeAdapter {
+  readonly name: string;
   provision(spec: AgentSpec): Promise<AgentHandle>;   // compose AGENTS.md, map capabilities, prepare workspace
   run(handle: AgentHandle, assignment: TaskAssignment): AsyncIterable<GuildEvent>;
   deliverAnswer(handle: AgentHandle, answer: Answer): Promise<void>;

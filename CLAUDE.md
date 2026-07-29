@@ -27,7 +27,7 @@ src/
 - The event bus is an adapter. Domain and application code publish through a driven port (e.g. `EventPublisher`); only an adapter knows NATS exists.
 - Board projections (D4) are adapters; the domain model is persistence-ignorant.
 - `AgentRuntimeAdapter` (D3) is a driven port; the Claude Code and OpenCode implementations are adapters. The existing naming already conforms — keep it that way.
-- `@guild/shared` is the **published language** between contexts: event contracts and port types only. It stays dependency-free and contains no behavior.
+- `@guild/shared` is the **published language** between contexts: event contracts, port types, and stateless subject-naming helpers. It stays dependency-free and contains no domain logic.
 - Enforce the dependency rule mechanically (dependency-cruiser or eslint boundaries — pick and pin at M1 bootstrap, record the choice here).
 
 ## DDD
@@ -54,7 +54,7 @@ The UI is a driving adapter of the Orchestration context, not a context.
 - **Port contract tests**: every driven port gets one reusable test suite that all its adapters must pass. This is load-bearing for D3 — the Claude Code and OpenCode adapters pass the *same* `AgentRuntimeAdapter` suite, which is what "hardened against Claude-shape bias" (M3) means in practice.
 - Adapter integration tests run against real infrastructure via docker-compose (NATS, Postgres) — not against mocks of it.
 - Test names state behavior ("retires an idle agent after the demand window closes"), never implementation ("calls delete").
-- Coverage is an outcome, not a target. CI runs typecheck + unit tests on every MR.
+- Coverage is an outcome, not a target. CI runs typecheck on every MR today; unit tests join the pipeline the moment the first suite exists (and note the runner caveat under Guardrails).
 
 ## BDD
 

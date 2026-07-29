@@ -8,7 +8,7 @@ A collaboration-first multi-agent platform: submit a product idea and a team of 
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Development guidelines: hexagonal/DDD layering, TDD/BDD discipline, conventions (mirrored as AGENTS.md) |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | Vision, personas, core flows, MVP cut |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, decision records (D1–D5), agent lifecycle, event contracts, K8s topology |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, decision records (D1–D7), agent lifecycle, event contracts, K8s topology |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M6 with acceptance criteria (mirrored as GitLab milestones/issues) |
 
 ## Repository layout
