@@ -82,7 +82,7 @@ The gateway is the path for **all** runtimes and the single place where the per-
 
 **Operational notes.**
 
-- LiteLLM's Python→Rust hot-path migration is in flight through late 2026; pin versions and gate upgrades through the migration; watch for Anthropic-endpoint, routing, or budget regressions.
+- LiteLLM's Python→Rust hot-path migration is in flight (`/messages` endpoint ~Sept 2026, full server ~Dec 2026 — overlapping M1–M2); pin versions and gate upgrades through the migration; watch for Anthropic-endpoint, routing, or budget regressions.
 - Genuine hard budget stops require Redis **plus** LiteLLM's fail-closed enforcement setting (known accuracy bugs allow overruns otherwise). Until M5 we accept a single-replica gateway (documented SPOF); at M5 either add Redis/Valkey to the stack or re-document the acceptance. The `litellm-operator` (CRDs) is an option for M5 declarative config.
 - Competing gateway benchmarks (Bifrost, Kong, etc.) are vendor-sourced with mock upstreams; gateway overhead is immaterial against inference latency at Guild's scale.
 
@@ -95,7 +95,7 @@ Every runtime (Claude Code, OpenCode, future clients) is wrapped in one interfac
 ```ts
 interface AgentRuntimeAdapter {
   provision(spec: AgentSpec): Promise<AgentHandle>;   // compose AGENTS.md, map capabilities, prepare workspace
-  run(handle: AgentHandle, assignment: TaskAssignment): AsyncIterable<AgentEvent>;
+  run(handle: AgentHandle, assignment: TaskAssignment): AsyncIterable<GuildEvent>;
   deliverAnswer(handle: AgentHandle, answer: Answer): Promise<void>;
   respondToPermission(handle: AgentHandle, requestId: string, decision: PermissionDecision): Promise<void>;
   interrupt(handle: AgentHandle, taskId?: string): Promise<void>;   // stop current work; the agent survives
@@ -130,7 +130,8 @@ JetStream streams (`TASKS`, `QA`, `AGENTS`) are the system of record; the orches
 |---|---|---|
 | **JetStream as truth + Postgres projection** ✔ | Replayable history; subject addressing and pub/sub fan-out come with the bus; one coordination substrate | No production precedent found for this exact shape (2026); projection-rebuild discipline required |
 | Postgres-only with LISTEN/NOTIFY | Fewer moving parts | Couples every component to the DB schema; no replay; no subject addressing |
-| Durable-execution engine (DBOS, Temporal, Dapr Workflow) | Deterministic replay, retries/timers/compensation built in; DBOS is TypeScript-native and Postgres-only | No subject addressing, request-reply, or pub/sub fan-out — Guild would still need a bus on top; Guild's replay need is projection rebuild, not deterministic re-execution |
+| DBOS (durable execution) | TypeScript-native, Postgres-only, active; deterministic replay, retries/timers/compensation built in | No subject addressing, request-reply, or pub/sub fan-out — Guild would still need a bus on top; Guild's replay need is projection rebuild, not deterministic re-execution |
+| Temporal / Dapr Workflow (durable execution) | Battle-tested orchestration, retries/timers/compensation | Same fan-out/addressing gap as DBOS, plus heavier operational footprint and a second programming model |
 
 **Honest precedent note:** no production reference for JetStream-as-source-of-truth with an external projector was found in 2026 literature. Accepted with eyes open.
 

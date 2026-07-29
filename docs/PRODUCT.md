@@ -62,7 +62,7 @@ The team is not static. Demand signals (queue depth per role, stage transitions,
 
 - Additional runtimes (OpenCode, others) — M3
 - Automatic team evolution / hiring policy — M4 (roles are configured manually until then)
-- Agents as Kubernetes Jobs, Helm chart, observability — M5
+- Agents as Kubernetes Jobs, Helm chart, full GenAI-semconv tracing — M5 (gateway spend logging itself ships in M1, see the "In" list)
 - Multi-project concurrency, RBAC/SSO, budgets, audit — M6
 
 ## Non-Goals
