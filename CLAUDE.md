@@ -18,7 +18,7 @@ src/
   domain/        pure model: entities, value objects, aggregates, domain services
   application/   use cases; depends on domain + ports only
   ports/         interfaces owned by the inside (driving and driven)
-  adapters/      infrastructure bindings: NATS, Postgres, LiteLLM, runtime SDKs, HTTP
+  adapters/      infrastructure bindings: Postgres, LiteLLM, Multica REST/WS, HTTP
 ```
 
 **The dependency rule is absolute: `adapters → application → domain`, never outward-in.**
