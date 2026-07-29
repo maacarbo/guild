@@ -1,32 +1,37 @@
 # Guild
 
-A collaboration-first multi-agent platform: submit a product idea and a team of specialist AI agents carries it through the software development lifecycle — analysis, architecture, implementation, testing, deployment — to an app running on Kubernetes. You stay in the loop through a kanban board and a question feed; the team hires and retires specialists as demand evolves.
+**An open-source autonomous-SDLC governance layer for AI agent teams.** Give Guild a product idea; it produces a staged delivery plan, gates each stage on your approval, dispatches contracted work to coding agents running on your self-hosted [Multica](https://github.com/multica-ai/multica) instance, validates every handoff against machine-checkable contracts — never an agent's self-report — and enforces a spend budget with a kill-switch.
+
+Guild deliberately does **not** rebuild the agent platform. Multica ships the board, 14+ CLI runtimes, and skills; Guild is the discipline on top: **stages, gates, contracts, budgets**. Those are precisely the gaps verified absent in Multica (flat gate-free issues — multica#815/#1943; trusted self-reports — multica#1579; cost recorded but never enforced — see `docs/research/`).
+
+Non-commercial by design: built for personal self-hosting, published open source (Apache-2.0 for Guild's own code). Multica itself is source-available — hosting it for third parties requires their commercial license, which Guild's scope deliberately avoids.
 
 ## Documentation
 
 | Doc | Contents |
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | Development guidelines: hexagonal/DDD layering, TDD/BDD discipline, conventions (mirrored as AGENTS.md) |
-| [docs/PRODUCT.md](docs/PRODUCT.md) | Vision, personas, core flows, MVP cut |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, decision records (D1–D7), agent lifecycle, event contracts, K8s topology |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M6 with acceptance criteria (mirrored as GitLab milestones/issues) |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | What Guild does, flows, MVP cut |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D8 (with honest superseded/retained statuses), engagement lifecycle, K8s topology |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M4 with acceptance criteria |
+| [docs/VALIDATION-2026-07-29.md](docs/VALIDATION-2026-07-29.md) | External validation of the original decisions, with sources |
+| [docs/research/](docs/research/) | The multica comparison and source-level investigation that drove the reposition |
 
 ## Repository layout
 
 ```
 packages/
-  shared/         event contracts, types, subject naming — depended on by everything
-  orchestrator/   project lifecycle, staffing, board projection, HTTP API
-  agent-runtime/  agent lifecycle, workspaces, runtime-adapter bridge
-  adapters/       AgentRuntimeAdapter implementations (Claude Code first)
-  ui/             Next.js board + question feed (scaffolded in M2)
-deploy/           docker-compose (dev), Helm chart (M5)
-docs/             product, architecture, roadmap
+  shared/             published language: stages, HandoffContract, ExecutionSubstrate port
+  orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
+  substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
+deploy/               docker-compose (dev); K8s at M3 (Multica Helm + daemon + Guild + LiteLLM)
+docker/daemon/        custom Multica daemon image (M1): CLIs + git + headless login + LiteLLM routing
+docs/                 product, architecture, roadmap, validation evidence, research
 ```
 
 ## Status
 
-**M0 — Foundations.** Scaffold and design only; no runnable feature code yet. See the roadmap for what lands next (M1: core loop MVP).
+**M0 complete — design, validation, and reposition.** M1 (prove the substrate: daemon container end-to-end, API probe, first adapter) is next. No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
 
 ## Development
 
@@ -37,3 +42,9 @@ corepack enable
 pnpm install
 pnpm -r typecheck
 ```
+
+Development discipline is defined in [CLAUDE.md](CLAUDE.md) — hexagonal ports & adapters, DDD ubiquitous language, TDD, BDD. The repo lives on GitHub (source of truth) with a private GitLab mirror.
+
+## License
+
+Guild's code: [Apache-2.0](LICENSE). Multica is a separate project under its own source-available license — review it before deploying.

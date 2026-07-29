@@ -1,68 +1,51 @@
 # Guild — Roadmap
 
-Milestones are sequential; each has a demoable acceptance bar. GitLab milestones + one tracking issue per milestone mirror this document.
+*Repositioned 2026-07-29 (see ARCHITECTURE.md D8). The original six-milestone platform roadmap is in git history; milestones below supersede it.*
 
-## M0 — Foundations ✅ (this session)
+## M0 — Foundations ✅
 
-Monorepo scaffold, product spec, architecture with recorded decisions, CI skeleton, event-contract types.
+Original scaffold, ecosystem validation of D1–D7, multica research, reposition decision, this roadmap. All evidence in `docs/` and `docs/research/`.
 
-## M1 — Core loop MVP
+## M1 — Substrate proven
 
-Idea in, working code out — no UI yet (CLI/API trigger).
+Nothing in Guild matters if the substrate assumptions don't hold; prove them first.
 
-- Orchestrator: project creation, stage planning, task decomposition, board projection to Postgres
-- `agent-runtime` with the Claude Code adapter (headless, SDK version pinned); agents as child processes
-- NATS JetStream via docker-compose; event contracts wired end to end with D4's normative retention/idempotency semantics (LimitsPolicy streams, durable pull consumers, envelope-id dedup, `version` field)
-- LiteLLM gateway (pinned version + image digest) with per-role model policy; **acceptance test: Claude feature parity through the proxy** (prompt caching, extended thinking); spend logging with OTel/Langfuse export
-- Stage-plan approval gate (API-level) and machine-checkable handoff contracts (D6), expressed as executable Gherkin (D7)
-- All code per `CLAUDE.md` discipline: hexagonal/DDD layering with mechanical dependency-rule enforcement, TDD, BDD feature specs, port contract-test suite for `AgentRuntimeAdapter`; single-writer workspace discipline
-- Soft per-engagement budget cap with kill-switch (D3 `interrupt`)
-- Fixed team: business analyst → architect → implementer → tester — context-fresh per engagement
+- Self-host Multica locally (docker-compose), pinned version; review its LICENSE diff procedure
+- **Build and end-to-end test the custom daemon container** (the known-untested piece): multica binary + agent CLIs + git, headless `multica login --token`, claims and completes a real task
+- Verify LiteLLM routing from inside the daemon container (`ANTHROPIC_BASE_URL`): **acceptance test — prompt caching and extended thinking work through the proxy** (carried from old D2)
+- Probe the API surface against the local instance: issue create/assign/comment/cancel, WebSocket events, PAT auth, and the **agent/squad management endpoints (open question 1)**
+- `packages/shared` v2 contracts + `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with a port contract-test suite
 
-**Acceptance:** a demo idea submitted via API produces a repo with passing tests, with human input limited to plan approvals, answering questions (over the API), and final acceptance.
+**Acceptance:** a Guild integration test creates an issue via the port, a containerized daemon agent completes it, the comment/status events arrive over WS, and the spend appears in LiteLLM — all scripted, no manual steps.
 
-## M2 — Human-in-the-loop UI
+## M2 — Core governance loop
 
-- Next.js app: idea intake, kanban board (To Do / In Progress / Review / Done), question feed
-- SSE live updates (behind a client-side transport abstraction); answers routed to the asking agent by correlation id
-- Stage-plan approval in the UI with bounded auto-approve timer; stage acceptance (approve / request changes); optional critic-agent plan review
-- AG-UI payload-mapping evaluation before UI hardening (D5)
+- Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation
+- Plan-approval gate via CLI with bounded auto-approve timer (open question 2: decide comment-mirror UX from use)
+- Contracted dispatch: one Multica issue per engagement, `HandoffContract` (executable Gherkin + checks) authored upstream
+- Guild-run contract validation on completion; bounce with failing criteria on the same issue; Guild-mediated merges, single-writer per engagement
+- Fixed starter team of four roles; role-memory artifacts composed into engagement briefs
 
-**Acceptance:** the entire M1 flow driven from the browser; a question asked by an agent is answered in the feed and demonstrably unblocks that agent.
+**Acceptance:** a demo idea produces a repo with passing tests where every stage was gated and every handoff contract-validated — zero un-contracted advances; the run's decision trail is queryable from Guild's `decisions` table.
 
-## M3 — Runtime & model expansion
+## M3 — Budget enforcement + Kubernetes
 
-- Second runtime adapter: OpenCode (server mode; first task: re-confirm the permissions endpoint against the official OpenAPI spec); adapter interface hardened against Claude-shape bias
-- Per-adapter capability mapping table (runtime-neutral manifest → native mechanisms) as an acceptance deliverable
-- Suspend/resume via serializable handles proven on both runtimes
-- Model backends exercised through LiteLLM: native provider, OpenRouter, local Ollama
-- Per-role model policy configurable per project (capability tier vs. cost)
+- Budget watchdog: per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + stop dispatch), metered from the LiteLLM gateway
+- Full stack on a personal K8s cluster: upstream Multica Helm chart + Guild-contributed daemon Deployment (`runtimeClassName: gvisor`, NetworkPolicy with DNS scoped to the cluster resolver, token via Secret) + Guild conductor + hardened LiteLLM (D2 rules: pinned digest, dedicated namespace, non-privileged SA)
+- Publish the daemon image build as reusable open source (upstream contribution candidate)
 
-**Acceptance:** the M1 demo passes on two different runtimes and three model backends without orchestrator changes.
+**Acceptance:** `helm install` + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation.
 
-## M4 — Dynamic team evolution
+## M4 — Team evolution
 
-- Role-template registry and capability catalog (skills, MCP servers, automations) as data, not code
-- Role-memory artifacts: compact per-role memory composed into each fresh engagement context
-- Hiring policy: queue depth / stage demand triggers hiring; idle agents retired
-- Capability selection at provision time filtered by role fit
+- Dynamic hiring: Guild creates/configures Multica agents and squads on demand from role templates (contingent on the M1 API probe)
+- Role-template registry + capability selection as data; retire idle agents
+- Role-memory artifact maintenance across engagements
 
-**Acceptance:** during a run, the system hires a specialist role that was not in the starting team because demand appeared, and retires it when demand ends — visible on the board.
+**Acceptance:** during a run, a role not present at project start is hired because the plan demanded it, completes contracted work, and is retired — all visible on the Multica board.
 
-## M5 — Kubernetes production
+## Parked (from the original roadmap)
 
-- **Entry gate:** evaluate Kubernetes Agent Sandbox (SandboxTemplate/WarmPool/Claim — pause/resume, persistent storage, hardened runtimes) against Job-per-engagement before building the substrate
-- Helm chart: orchestrator, UI, NATS, LiteLLM, Postgres; agents as Jobs with PVC workspaces and `runtimeClassName` gVisor/Kata (benchmark I/O overhead on representative builds first)
-- Decide Redis/Valkey for LiteLLM budget enforcement vs. documented single-replica SPOF
-- NetworkPolicies (agents → NATS + LiteLLM only; DNS scoped to the cluster resolver); secrets isolated to the hardened gateway pod
-- Observability: full GenAI-semconv OpenTelemetry tracing per task (version-pinned — the semconv is experimental), structured logs, basic dashboards
-
-**Acceptance:** `helm install` on a fresh cluster, then the full M2 flow runs entirely in-cluster.
-
-## M6 — Enterprise hardening
-
-- Multi-project concurrency; full hierarchical per-project budget enforcement at the gateway (Redis + fail-closed setting; the per-engagement kill-switch ships in M1)
-- RBAC/SSO for the UI; audit log of all agent actions and human decisions
-- Delivery hardening: generated apps ship with their own CI and Helm charts
-
-**Acceptance:** two projects run concurrently under different budget ceilings; one hits its ceiling and halts cleanly with a board notification; every action is attributable in the audit log.
+- Runtime/model adapter expansion — Multica owns runtimes now (14+ CLIs shipped)
+- Own UI, own skills catalog — Multica's board and Agent Skills marketplace
+- Enterprise hardening (RBAC/SSO, multi-tenant budgets) — out of scope for personal/non-commercial use; would also cross Multica's license line for hosted use

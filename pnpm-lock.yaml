@@ -8,26 +8,6 @@ importers:
 
   .: {}
 
-  packages/adapters:
-    dependencies:
-      '@guild/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
-  packages/agent-runtime:
-    dependencies:
-      '@guild/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
   packages/orchestrator:
     dependencies:
       '@guild/shared':
@@ -39,6 +19,16 @@ importers:
         version: 5.9.3
 
   packages/shared:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/substrate-multica:
+    dependencies:
+      '@guild/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.6.0

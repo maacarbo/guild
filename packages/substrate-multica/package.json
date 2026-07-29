@@ -1,5 +1,5 @@
 {
-  "name": "@guild/agent-runtime",
+  "name": "@guild/substrate-multica",
   "version": "0.0.1",
   "private": true,
   "type": "module",

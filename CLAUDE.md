@@ -1,17 +1,17 @@
 # Guild — Development Guidelines
 
-Guild is a collaboration-first multi-agent SDLC platform. Read these before writing code; they are normative. Architecture rationale lives in `docs/ARCHITECTURE.md` (decision records D1–D7); this file operationalizes it.
+Guild is an open-source autonomous-SDLC governance layer driving a self-hosted Multica execution substrate (stages, approval gates, handoff contracts, budget enforcement). Read these before writing code; they are normative. Architecture rationale lives in `docs/ARCHITECTURE.md` (decision records D1–D8); this file operationalizes it.
 
 | Doc | Contents |
 |---|---|
-| `docs/PRODUCT.md` | Vision, personas, flows, MVP cut |
-| `docs/ARCHITECTURE.md` | Decision records D1–D7, lifecycle, event contracts, K8s topology |
-| `docs/ROADMAP.md` | Milestones M0–M6 with acceptance criteria |
-| `docs/VALIDATION-*.md` | Historical evidence records — never edit |
+| `docs/PRODUCT.md` | Vision, flows, MVP cut |
+| `docs/ARCHITECTURE.md` | Decision records D1–D8, engagement lifecycle, K8s topology |
+| `docs/ROADMAP.md` | Milestones M0–M4 with acceptance criteria |
+| `docs/VALIDATION-*.md`, `docs/research/` | Historical evidence records — never edit |
 
 ## Architecture: hexagonal (ports & adapters) — D7
 
-Every package with behavior (`orchestrator`, `agent-runtime`, `adapters`) uses this internal layout:
+Every package with behavior (`orchestrator`, `substrate-multica`) uses this internal layout:
 
 ```
 src/
@@ -23,11 +23,10 @@ src/
 
 **The dependency rule is absolute: `adapters → application → domain`, never outward-in.**
 
-- `domain/` imports nothing from outer layers and performs no I/O — no NATS, no Postgres, no HTTP, no SDKs, no environment access.
-- The event bus is an adapter. Domain and application code publish through a driven port (e.g. `EventPublisher`); only an adapter knows NATS exists.
-- Board projections (D4) are adapters; the domain model is persistence-ignorant.
-- `AgentRuntimeAdapter` (D3) is a driven port; the Claude Code and OpenCode implementations are adapters. The existing naming already conforms — keep it that way.
-- `@guild/shared` is the **published language** between contexts: event contracts, port types, and stateless subject-naming helpers. It stays dependency-free and contains no domain logic.
+- `domain/` imports nothing from outer layers and performs no I/O — no HTTP, no Postgres, no SDKs, no environment access.
+- **Multica is an adapter.** Domain and application code speak only the `ExecutionSubstrate` port (`@guild/shared`); `substrate-multica` is an anti-corruption layer — Multica's issue/comment/status vocabulary is translated at the adapter boundary and never leaks into the domain (D8).
+- Persistence is an adapter; the domain model is persistence-ignorant.
+- `@guild/shared` is the **published language** between contexts: stage/plan/engagement types, `HandoffContract`, the `ExecutionSubstrate` port and its event types. It stays dependency-free and contains no domain logic.
 - Enforce the dependency rule mechanically (dependency-cruiser or eslint boundaries — pick and pin at M1 bootstrap, record the choice here).
 
 ## DDD
@@ -36,23 +35,23 @@ src/
 
 | Context | Package | Aggregates / concepts |
 |---|---|---|
-| Orchestration | `orchestrator` | Project, Stage, StagePlan, Task, HandoffContract, board projection |
-| Team | `agent-runtime` + `adapters` | Agent, Role, RoleTemplate, Engagement, Workspace, CapabilityManifest |
-| — (published language) | `shared` | event contracts, adapter port |
+| Governance | `orchestrator` | Plan, Stage, Engagement, HandoffContract, BudgetLedger, decision trail |
+| — (substrate boundary) | `substrate-multica` | anti-corruption adapter for the `ExecutionSubstrate` port |
+| — (published language) | `shared` | stage/contract types, substrate port + events |
 
-The UI is a driving adapter of the Orchestration context, not a context.
+The CLI is a driving adapter of the Governance context, not a context.
 
-- **Ubiquitous language is the vocabulary already in `docs/PRODUCT.md` and `docs/ARCHITECTURE.md`**: hire, retire, engagement, stage, handoff contract, question, board, claim. Code identifiers use these words. If a better word is found, rename docs and code in the same MR — never let them drift.
-- Aggregates guard invariants in the domain layer: task state transitions (`todo → in_progress → review → done`), single-writer-per-workspace (D6.4), one open engagement per agent.
-- Domain events are the contracts in `@guild/shared` — past-tense facts (`task.moved`, `agent.hired`), envelope semantics per D4 (at-least-once, dedup on `id`, `version` field).
+- **Ubiquitous language is the vocabulary already in `docs/PRODUCT.md` and `docs/ARCHITECTURE.md`**: plan, stage, gate, engagement, handoff contract, validate, bounce, accept, hire, retire, budget, kill-switch. Code identifiers use these words. If a better word is found, rename docs and code in the same MR — never let them drift.
+- Aggregates guard invariants in the domain layer: engagement state transitions (`Planned → Gated → Dispatched → Working ⇄ Blocked → Reported → Validated | Bounced → Accepted`), no dispatch without an approved plan, no advance without a validated contract, single-writer per engagement (D6), one open engagement per agent.
+- Contract validation verdicts and gate decisions are appended to the `decisions` table — governance provenance is append-only (D4 status note).
 
 ## TDD
 
 - **Red → green → refactor. No production code without a failing test first.** This includes "trivial" code.
 - Unit tests colocated as `*.test.ts`, targeting `domain/` and `application/` — pure and fast, no infrastructure, no mocking of infrastructure (there is none to mock at those layers).
 - Don't mock what you don't own: wrap third-party things in a port and fake the port.
-- **Port contract tests**: every driven port gets one reusable test suite that all its adapters must pass. This is load-bearing for D3 — the Claude Code and OpenCode adapters pass the *same* `AgentRuntimeAdapter` suite, which is what "hardened against Claude-shape bias" (M3) means in practice.
-- Adapter integration tests run against real infrastructure via docker-compose (NATS, Postgres) — not against mocks of it.
+- **Port contract tests**: every driven port gets one reusable test suite that all its adapters must pass. This is load-bearing for D8 — `substrate-multica` passes the `ExecutionSubstrate` suite, and any future substrate adapter (the D8 fallback path) must pass the same one.
+- Adapter integration tests run against real infrastructure via docker-compose (a local Multica instance, Postgres) — not against mocks of it.
 - Test names state behavior ("retires an idle agent after the demand window closes"), never implementation ("calls delete").
 - Coverage is an outcome, not a target. CI runs typecheck on every MR today; unit tests join the pipeline the moment the first suite exists (and note the runner caveat under Guardrails).
 
@@ -66,13 +65,15 @@ The UI is a driving adapter of the Orchestration context, not a context.
 ## Working conventions
 
 - Node ≥ 22, pnpm via corepack (`corepack enable && pnpm install`); `pnpm -r typecheck` must pass before every commit; `pnpm -r test` once test suites exist.
-- Branch per task, MR into `main`, CI green before merge. Single-writer discipline (D6.4) binds humans and agents alike: one writer per branch.
+- The repo's source of truth is GitHub (`maacarbo/guild`); the GitLab project is a passive mirror — push to both, work (PRs, issues) on GitHub.
+- Branch per task, PR into `main`, CI green before merge. Single-writer discipline (D6) binds humans and agents alike: one writer per branch.
 - Commits: imperative summary line, body explains why, reference the milestone/issue.
 - Docs are normative. A behavior change updates `ARCHITECTURE.md` / `PRODUCT.md` / `ROADMAP.md` in the same MR. A decision change gets a D-record with an alternatives table — no silent reversals.
 - Version pins are deliberate (LiteLLM digest, Claude Agent SDK — see D2/D3): never bump inside an unrelated MR.
 
 ## Guardrails
 
-- Provider credentials exist only in the LiteLLM gateway's config (D2). Never in agent workspaces, code, tests, or fixtures. `.env` files are local-only and gitignored.
-- Anything outward-facing an agent does (push, deploy) goes through the D3 permission surface — do not add side channels.
-- GitLab group shared runners are disabled; CI stays pending until a group runner is registered (tracked in issue #5).
+- Provider credentials exist only in the LiteLLM gateway's config (D2). The daemon container holds only its Multica token and git credentials. Never put keys in agent workspaces, code, tests, or fixtures. `.env` files are local-only and gitignored.
+- Outward-facing effects (merges, deploys) are Guild-mediated (D6): agents report, Guild validates and acts — do not add side channels.
+- **License guardrail (D8):** never host Multica for third parties, embed it in anything sold, or rebrand its UI. Pin the Multica version; review its LICENSE diff on every upgrade before bumping.
+- CI runs on GitHub Actions (`.github/workflows/ci.yml`). The GitLab mirror's `.gitlab-ci.yml` is inert there (group runners disabled) — that's fine, it's a mirror.
