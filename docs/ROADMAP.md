@@ -14,7 +14,8 @@ Idea in, working code out — no UI yet (CLI/API trigger).
 - `agent-runtime` with the Claude Code adapter (headless, SDK version pinned); agents as child processes
 - NATS JetStream via docker-compose; event contracts wired end to end with D4's normative retention/idempotency semantics (LimitsPolicy streams, durable pull consumers, envelope-id dedup, `version` field)
 - LiteLLM gateway (pinned version + image digest) with per-role model policy; **acceptance test: Claude feature parity through the proxy** (prompt caching, extended thinking); spend logging with OTel/Langfuse export
-- Stage-plan approval gate (API-level) and machine-checkable handoff contracts (D6); single-writer workspace discipline
+- Stage-plan approval gate (API-level) and machine-checkable handoff contracts (D6), expressed as executable Gherkin (D7)
+- All code per `CLAUDE.md` discipline: hexagonal/DDD layering with mechanical dependency-rule enforcement, TDD, BDD feature specs, port contract-test suite for `AgentRuntimeAdapter`; single-writer workspace discipline
 - Soft per-engagement budget cap with kill-switch (D3 `interrupt`)
 - Fixed team: business analyst → architect → implementer → tester — context-fresh per engagement
 

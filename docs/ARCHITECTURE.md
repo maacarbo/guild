@@ -1,6 +1,6 @@
 # Guild — Architecture
 
-Status: accepted for M1–M2 scope; decisions D1–D6 recorded below with alternatives considered. Revisit points are listed per decision. Amended 2026-07-29 after external validation against the current agent ecosystem — see [VALIDATION-2026-07-29.md](VALIDATION-2026-07-29.md) for evidence and sources.
+Status: accepted for M1–M2 scope; decisions D1–D7 recorded below with alternatives considered. Revisit points are listed per decision. Amended 2026-07-29 after external validation against the current agent ecosystem — see [VALIDATION-2026-07-29.md](VALIDATION-2026-07-29.md) for evidence and sources.
 
 ## Overview
 
@@ -161,6 +161,20 @@ The dominant measured failure modes of multi-agent systems are specification def
 4. **Single-writer discipline** (resolves former Open Question 1): exactly one writing agent per branch/workspace; parallelism only across non-overlapping branches; merges are orchestrator-mediated.
 
 **Revisit if:** M1 retrospectives show contract authoring costs more than the misalignment it prevents (no current evidence points that way).
+
+### D7 — Code architecture: hexagonal + DDD, developed TDD/BDD (added 2026-07-29)
+
+Every behavioral package (`orchestrator`, `agent-runtime`, `adapters`) is layered `domain / application / ports / adapters` with an absolute inward-only dependency rule; the bus, database, runtimes, and HTTP are adapters. Bounded contexts: **Orchestration** (`orchestrator`) and **Team** (`agent-runtime` + `adapters`), with `@guild/shared` as the published language between them and the UI as a driving adapter. All production code is written test-first (TDD); acceptance criteria are executable Gherkin scenarios (BDD) — which is also how D6's machine-checkable handoff contracts are expressed, so Guild's own discipline and its agents' discipline are one mechanism.
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Hexagonal + DDD, TDD/BDD** ✔ | The roadmap is adapter-heavy (runtime swap M3, substrate swap M5, gateway churn D2) — ports make those swaps mechanical; port contract tests are the enforcement for "hardened against Claude-shape bias"; ubiquitous language already exists in the docs | Layering ceremony while packages are small |
+| Transaction-script / layered monolith | Fastest to first demo | Couples domain to NATS/Postgres exactly where the roadmap demands swappability; retrofit cost lands in M3/M5 |
+| In-code CQRS/ES framework | Symmetry with D4 | D4 already event-sources at the system level; a second framework layer inside services adds concepts without adding capability |
+
+Normative details (layout, dependency rule, test discipline, conventions) live in the root `CLAUDE.md` (mirrored as `AGENTS.md` for other runtimes).
+
+**Revisit if:** M1 retrospective shows the layering ceremony visibly outweighs its benefit at current package size.
 
 ## Agent Lifecycle
 
