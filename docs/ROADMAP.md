@@ -10,13 +10,13 @@ Original scaffold, ecosystem validation of D1–D7, multica research, reposition
 
 Nothing in Guild matters if the substrate assumptions don't hold; prove them first.
 
-- Self-host Multica locally (docker-compose), pinned version; review its LICENSE diff procedure
-- **Build and end-to-end test the custom daemon container** (the known-untested piece): multica binary + agent CLIs + git, headless `multica login --token`, claims and completes a real task
+- **Deploy the Multica control plane (upstream Helm chart, pinned version) and LiteLLM to the home cluster** — this cluster is the dev/staging environment from day one; docker-compose remains only as an offline fallback. Record the LICENSE-diff review procedure with the pin.
+- **Build and end-to-end test the custom daemon container against the live cluster backend** (the known-untested piece): multica binary + agent CLIs + git, headless `multica login --token`, claims and completes a real task
 - Verify LiteLLM routing from inside the daemon container (`ANTHROPIC_BASE_URL`): **acceptance test — prompt caching and extended thinking work through the proxy** (carried from old D2)
-- Probe the API surface against the local instance: issue create/assign/comment/cancel, WebSocket events, PAT auth, and the **agent/squad management endpoints (open question 1)**
+- Probe the API surface against the cluster instance: issue create/assign/comment/cancel, WebSocket events, PAT auth, and the **agent/squad management endpoints (open question 1)**
 - `packages/shared` v2 contracts + `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with a port contract-test suite
 
-**Acceptance:** a Guild integration test creates an issue via the port, a containerized daemon agent completes it, the comment/status events arrive over WS, and the spend appears in LiteLLM — all scripted, no manual steps.
+**Acceptance:** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the comment/status events arrive over WS, and the spend appears in LiteLLM — all scripted, no manual steps.
 
 ## M2 — Core governance loop
 
@@ -31,10 +31,10 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 ## M3 — Budget enforcement + Kubernetes
 
 - Budget watchdog: per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + stop dispatch), metered from the LiteLLM gateway
-- Full stack on a personal K8s cluster: upstream Multica Helm chart + Guild-contributed daemon Deployment (`runtimeClassName: gvisor`, NetworkPolicy with DNS scoped to the cluster resolver, token via Secret) + Guild conductor + hardened LiteLLM (D2 rules: pinned digest, dedicated namespace, non-privileged SA)
+- Complete and harden the in-cluster stack running since M1: Guild conductor Deployment joins the control plane; daemon Deployment hardened (`runtimeClassName: gvisor` — benchmark I/O first, NetworkPolicy with DNS scoped to the cluster resolver, token via Secret); LiteLLM hardened per D2 (pinned digest, dedicated namespace, non-privileged SA)
 - Publish the daemon image build as reusable open source (upstream contribution candidate)
 
-**Acceptance:** `helm install` + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation.
+**Acceptance:** reproducible `helm install` from scratch + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation.
 
 ## M4 — Team evolution
 

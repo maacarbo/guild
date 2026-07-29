@@ -43,7 +43,7 @@ pnpm install
 pnpm -r typecheck
 ```
 
-Development discipline is defined in [CLAUDE.md](CLAUDE.md) — hexagonal ports & adapters, DDD ubiquitous language, TDD, BDD. The repo lives on GitHub (source of truth) with a private GitLab mirror.
+Development discipline is defined in [CLAUDE.md](CLAUDE.md) — hexagonal ports & adapters, DDD ubiquitous language, TDD, BDD.
 
 ## License
 

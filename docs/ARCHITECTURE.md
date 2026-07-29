@@ -99,7 +99,7 @@ Planned → Gated(awaiting approval) → Dispatched → Working ⇄ Blocked(ques
 - **Bounced** work returns to the same issue (session resume gives the agent its prior context plus the failing criteria — the one place resume is desirable).
 - Budget: the watchdog meters gateway spend per engagement tag; soft cap → warn, hard cap → cancel via substrate + stop dispatching.
 
-## Kubernetes topology (target, M3)
+## Kubernetes topology (control plane + first daemon from M1 — the home cluster is dev/staging; conductor joins and hardening completes at M3)
 
 ```mermaid
 flowchart TB

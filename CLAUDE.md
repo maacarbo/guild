@@ -65,7 +65,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 ## Working conventions
 
 - Node ≥ 22, pnpm via corepack (`corepack enable && pnpm install`); `pnpm -r typecheck` must pass before every commit; `pnpm -r test` once test suites exist.
-- The repo's source of truth is GitHub (`maacarbo/guild`); the GitLab project is a passive mirror — push to both, work (PRs, issues) on GitHub.
+- The repo lives on GitHub (`maacarbo/guild`) — PRs, issues, and CI all happen there.
 - Branch per task, PR into `main`, CI green before merge. Single-writer discipline (D6) binds humans and agents alike: one writer per branch.
 - Commits: imperative summary line, body explains why, reference the milestone/issue.
 - Docs are normative. A behavior change updates `ARCHITECTURE.md` / `PRODUCT.md` / `ROADMAP.md` in the same MR. A decision change gets a D-record with an alternatives table — no silent reversals.
@@ -76,4 +76,4 @@ The CLI is a driving adapter of the Governance context, not a context.
 - Provider credentials exist only in the LiteLLM gateway's config (D2). The daemon container holds only its Multica token and git credentials. Never put keys in agent workspaces, code, tests, or fixtures. `.env` files are local-only and gitignored.
 - Outward-facing effects (merges, deploys) are Guild-mediated (D6): agents report, Guild validates and acts — do not add side channels.
 - **License guardrail (D8):** never host Multica for third parties, embed it in anything sold, or rebrand its UI. Pin the Multica version; review its LICENSE diff on every upgrade before bumping.
-- CI runs on GitHub Actions (`.github/workflows/ci.yml`). The GitLab mirror's `.gitlab-ci.yml` is inert there (group runners disabled) — that's fine, it's a mirror.
+- CI runs on GitHub Actions (`.github/workflows/ci.yml`).

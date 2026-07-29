@@ -1,4 +1,4 @@
 # deploy/
 
-- **M1:** docker-compose for the full local stack — self-hosted Multica (pinned version), LiteLLM, Guild Postgres.
-- **M3:** Kubernetes — upstream Multica Helm chart (control plane only; verified it ships no daemon template) + Guild-contributed daemon Deployment (custom image, `runtimeClassName: gvisor`, scoped NetworkPolicy) + Guild conductor + hardened LiteLLM. Topology in `docs/ARCHITECTURE.md`.
+- **M1:** Multica control plane (upstream Helm chart, pinned — verified it ships no daemon template) + LiteLLM on the home cluster, which serves as dev/staging from day one; Guild-built daemon container tested against it. docker-compose kept only as an offline fallback.
+- **M3:** Guild conductor Deployment joins the cluster; daemon hardening (`runtimeClassName: gvisor`, scoped NetworkPolicy); LiteLLM hardened per D2. Topology in `docs/ARCHITECTURE.md`.
