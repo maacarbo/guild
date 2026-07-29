@@ -8,10 +8,12 @@ export type ActorId = { kind: "agent"; agentId: string } | { kind: "user" };
 export interface EventEnvelope<TType extends string, TPayload> {
   id: string;
   type: TType;
+  /** schema version; additive changes preferred, consumers upcast on breaking changes */
+  version: number;
   projectId: string;
   /** id of the event that caused this one */
   causationId?: string;
-  /** groups a request/response exchange, e.g. question → answer */
+  /** groups a request/response exchange, e.g. question → answer, permission request → decision */
   correlationId?: string;
   occurredAt: string;
   actor: ActorId;
@@ -38,6 +40,16 @@ export type AgentHired = EventEnvelope<"agent.hired", { agentId: string; role: s
 export type AgentProgress = EventEnvelope<"agent.progress", { agentId: string; taskId: string; note: string }>;
 export type AgentRetired = EventEnvelope<"agent.retired", { agentId: string; reason: string }>;
 
+/** outward-facing or policy-gated action; requires a reply via AgentRuntimeAdapter.respondToPermission */
+export type PermissionRequested = EventEnvelope<
+  "agent.permission_requested",
+  { agentId: string; requestId: string; action: string; taskId?: string }
+>;
+export type PermissionDecided = EventEnvelope<
+  "agent.permission_decided",
+  { agentId: string; requestId: string; allowed: boolean; note?: string }
+>;
+
 export type GuildEvent =
   | TaskCreated
   | TaskClaimed
@@ -47,7 +59,9 @@ export type GuildEvent =
   | QuestionAnswered
   | AgentHired
   | AgentProgress
-  | AgentRetired;
+  | AgentRetired
+  | PermissionRequested
+  | PermissionDecided;
 
 export const subjects = {
   task: (projectId: string, event: string) => `guild.${projectId}.task.${event}`,
