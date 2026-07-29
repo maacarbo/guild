@@ -111,7 +111,7 @@ flowchart TB
     subgraph ns2["namespace: guild-system"]
         GC[guild conductor Deployment]
         GPG[(guild postgres)]
-        LLM2[LiteLLM Deployment - hardened per D2]
+        LLM2[LiteLLM - existing shared instance, ns litellm, hardened per D2]
     end
     subgraph ns3["namespace: guild-daemons"]
         D1[daemon Deployment - custom image, runtimeClassName: gvisor]
@@ -135,3 +135,5 @@ flowchart TB
 2. Plan-approval UX: CLI-only vs. also mirroring the plan as a Multica issue the operator approves by comment. Decide in M2 (where the gate is built) from actual use.
 3. Where generated products live — child repos vs. monorepo of outputs (carried over; decide before M2 delivery stage).
 4. Whether Multica's usage/timeline API exposes enough per-task cost for the watchdog to cross-check the gateway numbers (nice-to-have reconciliation).
+5. Multica Postgres placement on the home cluster: house rule says no in-cluster databases (`dbsrv01`, one DB/role per app — pgvector unverified there, host is thin) vs. an explicit in-cluster exception (`nfs-filesrv02`, no volume expansion — size up front). Operator decision, pre-M1-deploy.
+6. M1 exposure: internal-only/port-forward (recommended) vs. hostname work — `*.bitstrum.com` currently resolves to NPM, not the in-cluster Envoy Gateway (cutover was rolled back 2026-07-20). Operator decision, pre-M1-deploy.
