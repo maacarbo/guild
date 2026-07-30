@@ -4,6 +4,8 @@ Status: **repositioned 2026-07-29** — Guild is now the autonomous-SDLC governa
 
 ## Overview
 
+Component-by-component detail and every data/event flow (sequence diagrams, data-ownership table, trust boundaries): [OVERVIEW.md](OVERVIEW.md).
+
 ```mermaid
 flowchart LR
     OP((Operator))
