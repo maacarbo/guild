@@ -34,8 +34,8 @@ packages/
   shared/             published language: stages, HandoffContract, ExecutionSubstrate port
   orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
   substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
-deploy/               deployment options (compose / any-K8s / hardened reference), secrets flow, storage rules (planned: compose at M1a-0, manifests at M1a-1)
-docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1a-0) — pinned CLIs + git + headless login + LiteLLM routing
+deploy/               deployment options (compose / any-K8s / hardened reference), secrets flow, storage rules (planned: compose at M1, manifests at M3)
+docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1) — pinned CLIs + git + headless login + LiteLLM routing
 docs/                 product, architecture, roadmap, validation evidence, research
 ```
 

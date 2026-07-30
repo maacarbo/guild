@@ -7,7 +7,7 @@ Guild is built to be installable by anyone; the author's home cluster is only th
 - Everything as compose services; Multica officially supports compose self-hosting.
 - Validator sandboxes run as ephemeral `docker run` containers — the conductor's validator runner has a Docker driver alongside the K8s Job driver (same image, same zero-credentials contract).
 - Requirements: Docker + Compose, provider API key(s), a git host token and a product repo. **No Kubernetes anywhere.**
-- This is also M1a-0's capability-proof vehicle: the shipped quickstart compose *is* the stack our own milestone exercises — it can't rot into aspirational documentation.
+- This is also M1's capability-proof vehicle and the M1–M2 shipping target: the quickstart compose *is* the stack our own milestones exercise — it can't rot into aspirational documentation.
 - *(planned: `compose/` lands in M1 — the primary dev and shipping target through M2; `v0.1.0` ships on this tier)*
 
 ## Tier 2 — Any Kubernetes (k3s, kind, managed cloud, …)

@@ -14,7 +14,7 @@ One page that shows every component and every data/event flow between them. Deci
 | 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
 | 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
 | 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
-| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor per the Talos node-image plan (one labeled worker first; cluster-wide at M3) | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
+| 9 | **Multica daemon** | custom container (Guild-built) — compose service on Tier 1, K8s Deployment on Tier 2/3; runtime sandboxing where supported (Tier 3 reference: gVisor via the Talos node-image plan) | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
@@ -197,13 +197,13 @@ sequenceDiagram
     participant C as Conductor
     participant R as Product repo
     participant G as Guild PG
-    participant V as Validator Job
+    participant V as Validator sandbox
     CLIs->>DM: work done (self-report)
     DM->>R: push engagement branch
     DM->>BE: status done
     BE-->>C: WS event
     C->>R: resolve branch head ONCE → commitSha
-    C->>V: spawn ephemeral Job (daemon image, zero Guild creds)
+    C->>V: spawn ephemeral sandbox — K8s Job or docker run (daemon image, zero Guild creds)
     V->>R: detached checkout at commitSha
     V->>V: run checks — Gherkin + commands, per-check timeouts
     V-->>C: exit codes + captured evidence
@@ -259,6 +259,6 @@ Multica records cost; only the gateway's numbers can *enforce* it — that is Li
 
 - **Operator ↔ Guild**: the only place authority enters; gates and acceptance are theirs.
 - **Guild ↔ Multica**: one port (`ExecutionSubstrate`); Multica's vocabulary and Multica's trust in agent self-reports both stop at the adapter.
-- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; scoped egress + least-privilege from M1, gVisor per the Talos node-image plan (one labeled worker first; cluster-wide at M3).
-- **Validator ↔ Guild**: the validator executes agent-authored checks — hostile input — so it is a trust-peer of the daemon (ephemeral Job, zero Guild credentials); it can fail work but never signs for Guild.
+- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; compose-era (M1–M2) bounds are the container boundary + explicit approvals + `max_budget` caps; the K8s controls (scoped egress, least-privilege, runtime sandboxing — Tier 3 reference: gVisor via the Talos node-image plan) land with the M3 lift.
+- **Validator ↔ Guild**: the validator executes agent-authored checks — hostile input — so it is a trust-peer of the daemon (ephemeral sandbox: K8s Job or `docker run`, zero Guild credentials); it can fail work but never signs for Guild.
 - **Gateway ↔ providers**: the only key holder; every model token, in and out, is metered here.

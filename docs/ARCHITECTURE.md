@@ -42,7 +42,7 @@ Guild is one service. It plans, gates, dispatches, validates, and enforces budge
 | `packages/shared` | Published language: stage/plan/engagement types, `HandoffContract`, the `ExecutionSubstrate` port and its event types. Dependency-free. |
 | `packages/orchestrator` | The Guild conductor: stage planner, approval gate, contract validator, budget watchdog. Hexagonal per D7 — Multica and LiteLLM live behind ports. |
 | `packages/substrate-multica` | `ExecutionSubstrate` adapter over Multica's REST/WS API (PAT auth) — issues, assignment, comments, status/usage events. |
-| `deploy/` | dev-mode docs: isolated cluster namespaces (kubectl-first), secrets flow, datastore modes; compose for M1a-0 capability proof (planned: manifests at M1a-1, Flux resources at M3). |
+| `deploy/` | deployment options (compose / any-K8s / hardened reference), secrets flow, storage rules (planned: compose at M1, manifests at M3). |
 | `docker/daemon/` (M1) | The custom Multica daemon image Guild contributes: `multica` binary, agent CLIs, git, headless token login, LiteLLM env routing. |
 
 ## Decision Records
