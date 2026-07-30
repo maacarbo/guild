@@ -19,6 +19,14 @@ Non-commercial by design: built for personal self-hosting, published open source
 | [docs/research/external-reviews-2026-07-30.md](docs/research/external-reviews-2026-07-30.md) | Four independent non-Anthropic model reviews — all blockers dispositioned: [disposition table](docs/research/external-reviews-disposition.md) |
 | [docs/research/](docs/research/) | Full evidence trail: multica comparison, source-level investigation, review responses |
 
+## Deployment
+
+Three supported tiers, lowest barrier first — full details in [deploy/README.md](deploy/README.md):
+
+1. **Docker Compose** — any machine with Docker, no Kubernetes; also the stack our own M1 milestone exercises continuously.
+2. **Any Kubernetes** — vanilla manifests: any StorageClass or external databases (dual-mode), plain `kubectl` secrets, hardening (NetworkPolicies, gVisor) recommended where your infra supports it, never assumed.
+3. **Hardened reference** — the author's cluster (Flux, Cilium FQDN egress, gVisor on Talos), documented as a worked example of tier 2 with everything turned on. Required for nobody.
+
 ## Repository layout
 
 ```
@@ -26,7 +34,7 @@ packages/
   shared/             published language: stages, HandoffContract, ExecutionSubstrate port
   orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
   substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
-deploy/               dev-mode docs: isolated cluster namespaces (kubectl-first), secrets flow, datastore modes (planned: manifests at M1)
+deploy/               deployment options (compose / any-K8s / hardened reference), secrets flow, storage rules (planned: compose at M1a-0, manifests at M1a-1)
 docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1a-0) — pinned CLIs + git + headless login + LiteLLM routing
 docs/                 product, architecture, roadmap, validation evidence, research
 ```

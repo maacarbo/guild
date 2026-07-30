@@ -1,24 +1,41 @@
-# deploy/
+# deploy/ — Deployment options
 
-- **M1–M2 (dev mode):** direct `kubectl`/`helm` into dedicated dev namespaces on the home cluster — a **fully isolated stack, zero pre-existing services used** (test like a new user would): pinned upstream Multica chart (ships no daemon template), isolated LiteLLM with cloud routes, port-forward exposure. Dev namespaces are outside Flux's purview; **never ad-hoc-edit Flux-managed resources** (e.g. the shared `litellm` namespace) — reconciliation reverts them. docker-compose kept only as an offline fallback.
-- **Datastores are dual-mode, both documented:** (a) in-cluster — Multica Postgres (pgvector), LiteLLM DB, Guild Postgres as K8s instances with documented PVCs (here: `nfs-filesrv02`; size up front, expansion disabled); (b) external — values/connection-string overrides, one DB + one role per app, pgvector requirement noted. Dev defaults to (a); promotion picks the permanent mode; both remain supported.
+Guild is built to be installable by anyone; the author's home cluster is only the **reference environment**. The full stack is the same everywhere — Multica control plane (backend, frontend, Postgres/pgvector), LiteLLM gateway (+ key/spend DB), the Guild daemon container, the Guild conductor (+ Postgres), and ephemeral validator sandboxes — deployable at three tiers, lowest barrier first.
 
-## Dev secrets flow (the documented new-user path — ESO is barred by the isolation rule)
+## Tier 1 — Docker Compose (the floor: any machine with Docker)
 
-Dev-namespace Secrets are created directly by the operator (`kubectl create secret generic --from-env-file=...`); this **is** the supported path for dev and for new users, not a shortcut. Required Secrets (names are normative; the M3 ExternalSecrets must render identical names so promotion is a source swap, not a rename):
+- Everything as compose services; Multica officially supports compose self-hosting.
+- Validator sandboxes run as ephemeral `docker run` containers — the conductor's validator runner has a Docker driver alongside the K8s Job driver (same image, same zero-credentials contract).
+- Requirements: Docker + Compose, provider API key(s), a git host token and a product repo. **No Kubernetes anywhere.**
+- This is also M1a-0's capability-proof vehicle: the shipped quickstart compose *is* the stack our own milestone exercises — it can't rot into aspirational documentation.
+- *(planned: `compose/` lands in M1a-0)*
 
-| Secret | Namespace | Keys |
+## Tier 2 — Any Kubernetes (k3s, kind, managed cloud, …)
+
+- Plain manifests (Helm later if demand exists) with **only vanilla assumptions**: any default StorageClass — or external datastores via the dual-mode design (connection-string overrides, one DB + one role per app, pgvector required for Multica); Secrets created with plain `kubectl` under the normative names below (any secrets operator can render the same names); validator sandboxes as K8s Jobs.
+- **Recommended where the infrastructure supports it, never assumed**: deny-by-default NetworkPolicies for the daemon namespace (FQDN-based egress if the CNI can do it), RuntimeClass sandboxing (gVisor/Kata) for daemon + validator pods, `automountServiceAccountToken: false` + PSA `restricted` everywhere. Where an environment can't provide one of these, that's a documented residual risk, not a broken install.
+- Nothing assumes a specific CNI, storage driver, ingress controller, or GitOps tooling.
+- *(planned: `k8s/` manifests land in M1a-1)*
+
+## Tier 3 — Hardened reference (the author's cluster — a worked example, required for nobody)
+
+One concrete instance of Tier 2 with every recommendation turned on, so the hardening advice has a proven implementation: Flux GitOps (M3 promotion), Cilium `toFQDNs` egress + mandatory DNS-proxy rule (CIDR allowlists rejected as unmaintainable), gVisor via Talos system extension on labeled workers, ESO→Bitwarden secrets rendering the same normative Secret names, NFS-backed PVCs with the storage ground rules below.
+
+## Dev/new-user secrets flow (normative names, all tiers)
+
+Secrets are created directly by the operator (`kubectl create secret generic --from-env-file=...`, or `.env` files in Tier 1); this **is** the supported path. Names are normative so any later secrets operator (Tier 3 uses ESO) is a source swap, not a rename:
+
+| Secret | Component | Keys |
 |---|---|---|
-| `multica-app` | multica dev ns | Multica backend config (JWT secret, DB creds) |
-| `guild-daemon` | multica dev ns | `MULTICA_DAEMON_TOKEN` (`mdt_…`), git credentials (HTTPS token), agent-CLI env |
-| `litellm-app` | litellm dev ns | `ANTHROPIC_API_KEY` (+ optional OpenRouter), master key, DB creds |
-| `guild-conductor` | guild dev ns | Multica PAT (`mul_…`), LiteLLM admin key (for key minting), Guild PG creds |
+| `multica-app` | Multica backend | backend config (JWT secret, DB creds) |
+| `guild-daemon` | daemon | `MULTICA_DAEMON_TOKEN` (`mdt_…`), git credentials (HTTPS token), agent-CLI env |
+| `litellm-app` | gateway | `ANTHROPIC_API_KEY` (+ optional OpenRouter), master key, DB creds |
+| `guild-conductor` | conductor | Multica PAT (`mul_…`), LiteLLM admin key (key minting), Guild PG creds |
 
-Env-files live outside the repo (gitignored pattern documented per Secret); no registry pull-secret needed while images are public — revisit if the daemon image goes private.
+Env-files live outside the repo (gitignored pattern documented per Secret); no registry pull-secret needed while images are public.
 
-## NFS & Postgres ground rules (dev)
+## Storage ground rules
 
-- Every Postgres: **single replica, `Recreate` strategy** — never two writers on one NFS-backed PVC.
-- NFS: sync export + hard mounts for database PVCs, or use `local-path` for dev databases; **agent workspaces default to `emptyDir`** — losing a session on pod restart is a survivable, priced event (self-contained bounce comments cover it).
-- Nightly `pg_dump` CronJob for Guild PG and the LiteLLM DB (governance provenance and spend records are the two things worth keeping).
-- **M3 (promotion):** Guild conductor joins the cluster; daemon hardening (`runtimeClassName: gvisor`, scoped NetworkPolicy); LiteLLM hardened per D2; then the proven stack is committed to `home-lab/k8s-cluster` as Flux-managed resources and ad-hoc dev resources are removed. Topology in `docs/ARCHITECTURE.md`.
+Generic (all tiers): every Postgres is **single replica** with a `Recreate`-style update policy — never two writers on one volume; back up what matters (Guild PG governance provenance, LiteLLM spend records) — a nightly `pg_dump` is enough at this scale; agent workspaces default to ephemeral (`emptyDir` / anonymous volumes) — losing a session on restart is a survivable, priced event (bounce comments are self-contained).
+
+Reference-environment specifics (Tier 3, NFS): sync export + hard mounts for database PVCs or use node-local storage for dev databases; size PVCs up front — the reference storage class has volume expansion disabled.

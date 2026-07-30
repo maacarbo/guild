@@ -19,7 +19,7 @@ One page that shows every component and every data/event flow between them. Deci
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
 | 13 | **Product repo(s)** | git hosting — repo-per-project on the operator's GitHub (OQ3 resolved 2026-07-30) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated, fast-forward-only to the validated SHA |
-| 14 | **Contract validator** | ephemeral K8s Job from the daemon image, spawned per validation | nothing — reads a detached checkout, emits exit codes + evidence | second least-trusted workload: zero Guild credentials, registry-only egress; the conductor writes the verdict |
+| 14 | **Contract validator** | ephemeral sandbox from the daemon image, spawned per validation (K8s Job on Tier 2/3; `docker run` on Tier 1 compose) | nothing — reads a detached checkout, emits exit codes + evidence | second least-trusted workload: zero Guild credentials, registry-only egress; the conductor writes the verdict |
 
 ## System map
 

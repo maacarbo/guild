@@ -2,6 +2,8 @@
 
 *Repositioned 2026-07-29 (see ARCHITECTURE.md D8). The original six-milestone platform roadmap is in git history; milestones below supersede it.*
 
+**Audience note (2026-07-30):** milestones are the **author's execution plan on the reference environment** (the Tier 3 cluster in `deploy/README.md`) — but each milestone's *deliverables* are the portable artifacts other users install: M1a-0 ships the Tier 1 compose quickstart, M1a-1 ships the generic Tier 2 K8s manifests (with the hardened bits as an overlay), M3's GitOps promotion is reference-environment-only and required for nobody. Bullets naming concrete homelab infrastructure (Talos, Cilium, NFS classes) describe the reference implementation of a generic requirement, not a product dependency.
+
 ## M0 — Foundations ✅
 
 Original scaffold, ecosystem validation of D1–D7, multica research, reposition decision, this roadmap. All evidence in `docs/` and `docs/research/`.
@@ -16,7 +18,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 
 Everything the capability matrix needs can be proven against a compose stack; cluster infra adds nothing to these answers:
 
-- Compose stack: pinned Multica + isolated LiteLLM; scratch GitHub repo
+- Compose stack: pinned Multica + isolated LiteLLM; scratch GitHub repo. **Deliverable: this compose stack is the shipped Tier 1 quickstart** (`deploy/README.md`) — new users install what the milestone proves
 - Daemon container e2e (Claude Code only, amd64, creds at runtime): claims + completes a task, pushes an engagement branch
 - Gateway proofs: prompt caching + extended thinking via LiteLLM logs/headers; **virtual key minted with `max_budget` stops serving at cap** — record how the 429 classifies in Multica
 - Spend attribution: per-engagement key → task → attributable spend read back
@@ -24,7 +26,7 @@ Everything the capability matrix needs can be proven against a compose stack; cl
 
 #### M1a-1 — Cluster lift
 
-- Lift the proven compose stack into the isolated dev namespaces; re-validate the transport rows of the matrix (WS behavior through the cluster network, PVC-backed workspaces)
+- Lift the proven compose stack into the isolated dev namespaces; re-validate the transport rows of the matrix (WS behavior through the cluster network, PVC-backed workspaces). **Deliverable: the Tier 2 generic K8s manifests** — vanilla assumptions only — with the reference cluster's hardening as a separate overlay
 - Hardening: deny-by-default **CiliumNetworkPolicy with `toFQDNs`** for git hosts + the mandatory DNS-proxy rule (**probe: L7 DNS policy actually active**); non-privileged SAs with `automountServiceAccountToken: false`; PSA `restricted` namespace labels; scoped `mdt_` token
 - gVisor per the Talos reality (schematic extension on one labeled worker + RuntimeClass + nodeSelector + smoke test) — start it, don't block on it
 - Dev secrets flow per `deploy/README.md` (the documented new-user path — ESO is barred by the isolation rule)
