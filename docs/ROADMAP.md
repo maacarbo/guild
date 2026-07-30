@@ -2,21 +2,19 @@
 
 *Repositioned 2026-07-29 (see ARCHITECTURE.md D8). The original six-milestone platform roadmap is in git history; milestones below supersede it.*
 
-**Audience note (2026-07-30):** milestones are the **author's execution plan on the reference environment** (the Tier 3 cluster in `deploy/README.md`) — but each milestone's *deliverables* are the portable artifacts other users install: M1a-0 ships the Tier 1 compose quickstart, M1a-1 ships the generic Tier 2 K8s manifests (with the hardened bits as an overlay), M3's GitOps promotion is reference-environment-only and required for nobody. Bullets naming concrete homelab infrastructure (Talos, Cilium, NFS classes) describe the reference implementation of a generic requirement, not a product dependency.
+**Audience note (2026-07-30):** milestones are the **author's execution plan** — but each milestone's *deliverables* are the portable artifacts other users install: M1 ships the Tier 1 compose quickstart, M3 ships the generic Tier 2 K8s manifests (with the Tier 3 hardened bits as an overlay); M3's GitOps promotion is reference-environment-only and required for nobody. Bullets naming concrete homelab infrastructure (Talos, Cilium, NFS classes) describe the reference implementation of a generic requirement, not a product dependency.
+
+**Sequencing decision (operator, 2026-07-30, supersedes the kubectl-dev-namespaces plan for M1–M2): simple to complex.** The full application is built, working, and **shipped on Docker Compose first** (M1–M2); Kubernetes begins only after functional completeness (M3). The governance loop is functionally identical on compose — gates, contracts, `docker run` validator sandboxes, gateway `max_budget` caps — so the cluster adds operational hardening later, never features.
 
 ## M0 — Foundations ✅
 
 Original scaffold, ecosystem validation of D1–D7, multica research, reposition decision, this roadmap. All evidence in `docs/` and `docs/research/`.
 
-## M1 — Substrate proven
+## M1 — Substrate proven (on Docker Compose)
 
-Nothing in Guild matters if the substrate assumptions don't hold; prove them first. Restructured 2026-07-30 (external review: too many first-of-kind risks in one lump) into **two phases with separate exit criteria**, so a failure in one doesn't stall the other and partial success still informs design.
+Nothing in Guild matters if the substrate assumptions don't hold; prove them first — entirely on the compose stack. (History: the external review split M1 into phases; the Anthropic review moved the proof to the workstation; the 2026-07-30 sequencing decision made compose the primary target through M2, moving the cluster lift to M3.)
 
-### M1a — Substrate proof (split 2026-07-30, Anthropic review: prove behavior on the workstation first, lift to the cluster second)
-
-#### M1a-0 — Capability proof (docker-compose on the workstation — no cluster dependency)
-
-Everything the capability matrix needs can be proven against a compose stack; cluster infra adds nothing to these answers:
+### M1a — Capability proof
 
 - Compose stack: pinned Multica + isolated LiteLLM; scratch GitHub repo. **Deliverable: this compose stack is the shipped Tier 1 quickstart** (`deploy/README.md`) — new users install what the milestone proves
 - Daemon container e2e (Claude Code only, amd64, creds at runtime): claims + completes a task, pushes an engagement branch
@@ -24,19 +22,12 @@ Everything the capability matrix needs can be proven against a compose stack; cl
 - Spend attribution: per-engagement key → task → attributable spend read back
 - API probes: issue create/assign/comment/cancel; **cancel kills the forked CLI and stops gateway traffic**; WS events (+ REST read endpoints for reconciliation); **does a top-level conductor-PAT comment trigger the implementing agent** (bounce delivery — currently unverified and load-bearing); **do replies on closed issues still enqueue tasks** (termination protocol); **does bounce survive a daemon restart** (continuity floor); agent/squad management endpoints (**best-effort** — the idle-pool fallback stands either way)
 
-#### M1a-1 — Cluster lift
+#### Standing M1–M2 rules
 
-- Lift the proven compose stack into the isolated dev namespaces; re-validate the transport rows of the matrix (WS behavior through the cluster network, PVC-backed workspaces). **Deliverable: the Tier 2 generic K8s manifests** — vanilla assumptions only — with the reference cluster's hardening as a separate overlay
-- Hardening: deny-by-default **CiliumNetworkPolicy with `toFQDNs`** for git hosts + the mandatory DNS-proxy rule (**probe: L7 DNS policy actually active**); non-privileged SAs with `automountServiceAccountToken: false`; PSA `restricted` namespace labels; scoped `mdt_` token
-- gVisor per the Talos reality (schematic extension on one labeled worker + RuntimeClass + nodeSelector + smoke test) — start it, don't block on it
-- Dev secrets flow per `deploy/README.md` (the documented new-user path — ESO is barred by the isolation rule)
-- NFS/Postgres checks: single-replica `Recreate` for every PG, sync export + hard mounts (or node-local for dev), nightly `pg_dump` CronJob for Guild PG + LiteLLM DB; agent workspaces default to `emptyDir` (resume loss is a survivable, priced event)
-
-#### Standing M1a rules (both phases)
-
-- **Dev mode** — operator's call (2026-07-30): direct `kubectl`/`helm`, GitOps only at the last stage; dev namespaces outside Flux's purview; the cluster's Flux-only rule binds everything Flux already manages. Pinned Multica version everywhere (compose and cluster); record the LICENSE-diff review procedure with the pin.
-- **Full isolation — test like a new user**: zero pre-existing homelab services — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs. Dev gateway = isolated LiteLLM, cloud routes only, own DB for virtual keys/spend; local-model backends documented as an option. Port-forward exposure only.
-- Datastores: **in-cluster mode implemented** (Multica pgvector Postgres, LiteLLM DB, Guild Postgres; documented PVCs on `nfs-filesrv02`, sized generously — no volume expansion); **external mode documented-only** and first exercised at the M3 promotion.
+- **Compose-first dev** — everything runs as an isolated compose project on the workstation; no cluster dependency exists before M3. Pinned Multica version; record the LICENSE-diff review procedure with the pin.
+- **Full isolation — test like a new user**: zero pre-existing homelab services — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs. Dev gateway = isolated LiteLLM, cloud routes only, own DB for virtual keys/spend; local-model backends documented as an option.
+- Datastores: **containerized mode implemented** (Multica pgvector Postgres, LiteLLM DB, Guild Postgres as compose services with named volumes); **external mode documented-only** (connection-string overrides) until the M3 lift exercises it.
+- Compose-era hardening floor: dedicated compose network, non-root containers, no unnecessary host mounts — with the real blast-radius bounds being the explicit-approval default and the gateway `max_budget` caps. The Kubernetes controls (NetworkPolicies, PSA, gVisor) land with the M3 lift.
 
 **M1a exit criteria:** every probe/build item above has a recorded pass/fail entry in the **capability matrix** (`docs/research/`), including explicit failure-path behavior: failed token login, missing CLI, proxy-unsupported features, WS disconnect mid-task. A failed item with a documented workaround still exits; an untested item does not.
 
@@ -46,7 +37,7 @@ Everything the capability matrix needs can be proven against a compose stack; cl
 - `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with the `ExecutionSubstrate` port contract-test suite; adapter errors mapped to the stable `SubstrateErrorCategory` set; the suite doubles as the **substrate conformance suite** — mandatory-green on every Multica pin bump and daemon image rebuild
 - **First proof of the core mechanism**: validate a hand-written `HandoffContract` against the branch the integration test produced (SHA-pinned, validator-Job pattern) — the differentiator gets its first demonstration here, not in M2
 
-**M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, the spend appears in LiteLLM **attributed to the engagement's virtual key**, and a hand-written contract validates against the produced branch. **"Scripted, no manual steps" means: one idempotent entrypoint run over standing infrastructure** — it may assume the dev stack exists; it may not assume any prior test state.
+**M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the compose stack, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, the spend appears in LiteLLM **attributed to the engagement's virtual key**, and a hand-written contract validates against the produced branch (via the `docker run` validator driver). **"Scripted, no manual steps" means: one idempotent entrypoint run over standing infrastructure** — it may assume the compose stack is up; it may not assume any prior test state.
 
 ## M2 — Core governance loop (split 2026-07-30, Anthropic review: the differentiator gets a proof point before the whole product)
 
@@ -63,17 +54,21 @@ Everything the capability matrix needs can be proven against a compose stack; cl
 - Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation; plan versioning + re-gate on amendment
 - Plan-approval gate via CLI — explicit approval by default, auto-approve timer as per-project opt-in (open question 2: decide comment-mirror UX from use)
 - Fixed starter team of four roles; multi-stage, multi-engagement orchestration (role-memory artifacts deferred wholesale to M4 — briefs carry `priorDecisions` explicitly until then)
+- Budget watchdog (application code — needs no cluster): per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + lock dispatch), metered from the LiteLLM gateway; an induced overspend halts the pipeline cleanly with a visible explanation
 
-**M2 acceptance:** a demo idea produces a repo with passing tests where every stage was gated and every handoff contract-validated — zero un-contracted advances; the run's decision trail is queryable from Guild's `decisions` table.
+**M2 acceptance — the full application, working and shipped:** a demo idea produces a repo with passing tests where every stage was gated and every handoff contract-validated — zero un-contracted advances; the run's decision trail is queryable from Guild's `decisions` table; an induced overspend halts cleanly. **Ship it: tag `v0.1.0` and publish the Tier 1 quickstart** — anyone with Docker, API keys, and a git token can run Guild.
 
-## M3 — Budget enforcement + Kubernetes
+## M3 — Kubernetes: lift, hardening, promotion
 
-- Budget watchdog: per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + stop dispatch), metered from the LiteLLM gateway
-- Complete and harden the in-cluster stack running since M1: Guild conductor Deployment joins the control plane; daemon gVisor goes cluster-wide (schematic extension via the promotion runbook — the egress design is already the M1a-1 CiliumNetworkPolicy `toFQDNs` + DNS-proxy setup, unchanged); LiteLLM hardened per D2 (pinned digest, dedicated namespace, non-privileged SA)
+Only after the application works. Nothing here adds a feature; everything adds an operational quality.
+
+- Lift the proven compose stack to Kubernetes; re-validate the capability matrix's transport rows (WS through the cluster network, PVC-backed volumes). **Deliverable: the Tier 2 generic K8s manifests** — vanilla assumptions only — with the reference cluster's hardening as a separate overlay
+- Hardening (reference implementations of generic requirements): deny-by-default **CiliumNetworkPolicy with `toFQDNs`** + the mandatory DNS-proxy rule (**probe: L7 DNS policy actually active**); non-privileged SAs with `automountServiceAccountToken: false`; PSA `restricted` labels; scoped `mdt_` token; gVisor per the Talos reality (schematic extension on one labeled worker + RuntimeClass + nodeSelector + smoke test), cluster-wide via the promotion runbook; LiteLLM hardened per D2
+- Storage: single-replica `Recreate` for every PG, NFS ground rules per `deploy/README.md`, nightly `pg_dump` CronJob, workspaces `emptyDir`; first exercise of the external-datastore mode
 - Publish the daemon image build as reusable open source (upstream contribution candidate)
-- **GitOps promotion — the last stage for infrastructure**: commit the proven stack to `home-lab/k8s-cluster` as Flux-managed resources (Multica `HelmRelease` + `HelmRepository`, daemon Deployment, Guild conductor, ESO-backed secrets), making the deferred calls here: Multica Postgres final placement (`dbsrv01` per house rule vs. documented in-cluster exception), exposure/DNS, and gateway topology (fold Guild's routes into the shared LiteLLM vs. keep the separate instance). Remove all ad-hoc dev resources after cutover.
+- **GitOps promotion — the last stage for infrastructure**: commit the proven stack to `home-lab/k8s-cluster` as Flux-managed resources (Multica `HelmRelease` + `HelmRepository`, daemon Deployment, Guild conductor, ESO-backed secrets rendering the normative Secret names), making the deferred calls here: Multica Postgres final placement, exposure/DNS, gateway topology (fold Guild's routes into the shared LiteLLM vs. keep the separate instance). Remove all ad-hoc dev resources after cutover.
 
-**Acceptance:** Flux reconciles the whole stack from git on a clean cluster + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation; zero ad-hoc resources remain.
+**Acceptance:** Flux reconciles the whole stack from git on a clean cluster + the M2 flow entirely in-cluster; zero ad-hoc resources remain.
 
 ## M4 — Team evolution
 

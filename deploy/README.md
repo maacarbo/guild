@@ -8,14 +8,14 @@ Guild is built to be installable by anyone; the author's home cluster is only th
 - Validator sandboxes run as ephemeral `docker run` containers — the conductor's validator runner has a Docker driver alongside the K8s Job driver (same image, same zero-credentials contract).
 - Requirements: Docker + Compose, provider API key(s), a git host token and a product repo. **No Kubernetes anywhere.**
 - This is also M1a-0's capability-proof vehicle: the shipped quickstart compose *is* the stack our own milestone exercises — it can't rot into aspirational documentation.
-- *(planned: `compose/` lands in M1a-0)*
+- *(planned: `compose/` lands in M1 — the primary dev and shipping target through M2; `v0.1.0` ships on this tier)*
 
 ## Tier 2 — Any Kubernetes (k3s, kind, managed cloud, …)
 
 - Plain manifests (Helm later if demand exists) with **only vanilla assumptions**: any default StorageClass — or external datastores via the dual-mode design (connection-string overrides, one DB + one role per app, pgvector required for Multica); Secrets created with plain `kubectl` under the normative names below (any secrets operator can render the same names); validator sandboxes as K8s Jobs.
 - **Recommended where the infrastructure supports it, never assumed**: deny-by-default NetworkPolicies for the daemon namespace (FQDN-based egress if the CNI can do it), RuntimeClass sandboxing (gVisor/Kata) for daemon + validator pods, `automountServiceAccountToken: false` + PSA `restricted` everywhere. Where an environment can't provide one of these, that's a documented residual risk, not a broken install.
 - Nothing assumes a specific CNI, storage driver, ingress controller, or GitOps tooling.
-- *(planned: `k8s/` manifests land in M1a-1)*
+- *(planned: `k8s/` manifests land at M3 — after the application ships functionally on Tier 1)*
 
 ## Tier 3 — Hardened reference (the author's cluster — a worked example, required for nobody)
 

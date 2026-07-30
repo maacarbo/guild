@@ -45,7 +45,7 @@ Guild hires by demand: creating/configuring Multica agents and squads for roles 
 ## MVP Cut
 
 **In (M1–M2):**
-- Self-hosted Multica substrate in isolated dev namespaces on the home cluster (docker-compose only as offline fallback), including the custom daemon container Guild contributes
+- Self-hosted Multica substrate on an isolated Docker-Compose stack — simple to complex; Kubernetes only at M3 — including the custom daemon container Guild contributes
 - Guild core loop: idea → staged plan → approval gate → contracted dispatch → validation → advance
 - Fixed starter team of four roles; one Multica issue per engagement
 - LiteLLM-routed daemon image; spend visible per engagement

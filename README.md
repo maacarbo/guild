@@ -41,7 +41,7 @@ docs/                 product, architecture, roadmap, validation evidence, resea
 
 ## Status
 
-*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** M1a-0 (prove the substrate on a compose stack: daemon container end-to-end, API probes, spend attribution) is next. No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
+*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** Simple to complex: the full application ships on Docker Compose first (M1–M2, ending in `v0.1.0`); Kubernetes follows at M3. Next up: M1a — prove the substrate on the compose stack (daemon container end-to-end, API probes, spend attribution). No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
 
 ## Development
 
