@@ -38,7 +38,7 @@ Verbatim from the former ROADMAP M3 (removed 2026-07-30):
 
 ## Personal open questions (formerly ARCHITECTURE.md OQ6/OQ7, plus the OQ5 placement clause)
 
-> 6. Final exposure: `*.bitstrum.com` currently resolves to NPM, not the in-cluster Envoy Gateway (cutover rolled back 2026-07-20). Dev phase is port-forward/internal-only; decide at the (personal) promotion.
+> 6. Final exposure: `*.bitstrum.com` currently resolves to NPM, not the in-cluster Envoy Gateway (cutover rolled back 2026-07-20). Dev phase is port-forward/internal-only; decide at the M3 *[label as of extraction — now: this personal promotion]* promotion.
 >
 > 7. Gateway topology at promotion: fold Guild's `anthropic/*` routes into the shared Flux-managed LiteLLM (ns `litellm`, shared with Home Assistant voice) vs. keep Guild's separate instance permanently.
 >
