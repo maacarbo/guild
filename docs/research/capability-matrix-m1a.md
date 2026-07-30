@@ -233,3 +233,27 @@ needed on this evidence.
 5. **The daemon container is the sandbox** (P3): agents run with
    `--permission-mode bypassPermissions`. Tier 1's security floor statement
    stands; never run the daemon image outside a container.
+
+## Addendum 2026-07-30 — P16: OpenCode e2e (gates the D9 default flip)
+
+Same stack, daemon image rebuilt with OpenCode `1.18.10` added (pinned build
+arg; autoupdate disabled in the baked `opencode.json`, which declares the
+LiteLLM gateway as a custom `litellm` provider with
+`{env:GUILD_DAEMON_VIRTUAL_KEY}`).
+
+| # | Probe | Verdict |
+|---|-------|---------|
+| P16 | OpenCode e2e: registers as its own runtime, claims + completes a task via the gateway, pushes engagement branch | **PASS** |
+
+- Recreated daemon registered **two** runtime rows from one container —
+  `Opencode (guild-daemon-1)` and `Claude (guild-daemon-1)` — confirming
+  one-row-per-CLI multi-runtime registration live (previously source-only).
+- Agent `probe-opencode` with model `litellm/or-claude-haiku-4-5`
+  (`provider/model`-qualified, as OpenCode requires): task `555f8277`
+  completed in ~40s; branch `agent/probe-opencode/555f8277` pushed;
+  `OPENCODE.md` content byte-exact.
+- Metering intact: spend landed on the same LiteLLM virtual key; Multica
+  usage recorded (17,434 in / 1,226 out, `task_count` 1).
+- Recreate-orphaning behaved exactly as P9b documented (old runtime rows
+  lingered online through the heartbeat window; old agents orphaned — dev
+  stack accepts this; conductor repair sequence unchanged).
