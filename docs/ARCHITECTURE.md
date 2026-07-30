@@ -113,7 +113,7 @@ flowchart TB
     subgraph ns2["namespace: guild-system"]
         GC[guild conductor Deployment]
         GPG[(guild postgres)]
-        LLM2[LiteLLM - existing shared instance, ns litellm, hardened per D2]
+        LLM2[LiteLLM - isolated Guild instance, hardened per D2 - fold-in vs separate is OQ7]
     end
     subgraph ns3["namespace: guild-daemons"]
         D1[daemon Deployment - custom image, runtimeClassName: gvisor]

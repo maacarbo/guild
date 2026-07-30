@@ -45,13 +45,13 @@ Guild hires by demand: creating/configuring Multica agents and squads for roles 
 ## MVP Cut
 
 **In (M1–M2):**
-- Self-hosted Multica substrate (docker-compose locally), including the custom daemon container Guild contributes
+- Self-hosted Multica substrate in isolated dev namespaces on the home cluster (docker-compose only as offline fallback), including the custom daemon container Guild contributes
 - Guild core loop: idea → staged plan → approval gate → contracted dispatch → validation → advance
 - Fixed starter team of four roles; one Multica issue per engagement
 - LiteLLM-routed daemon image; spend visible per engagement
 - CLI-driven; Multica's board is the only UI
 
-**Out (M3+):** Kubernetes deployment, budget kill-switch automation, dynamic team evolution.
+**Out (M3+):** GitOps promotion and hardening of the cluster stack, budget kill-switch automation, dynamic team evolution.
 
 **Out (indefinitely):** own kanban UI, own runtime adapters, own skills catalog (Multica ships all three); commercial hosting of any kind.
 

@@ -8,12 +8,12 @@ One page that shows every component and every data/event flow between them. Deci
 |---|---|---|---|---|
 | 1 | **Operator** | human | final say: plan approvals, answers, stage acceptance | the only non-automated authority |
 | 2 | **Guild CLI** | local binary | — (driving adapter) | talks only to the conductor |
-| 3 | **Guild conductor** (`packages/orchestrator`) | K8s Deployment (dev: namespace `guild-dev`) | stage planner, approval gate, contract validator, budget watchdog | never trusts agent self-reports (D6) |
+| 3 | **Guild conductor** (`packages/orchestrator`) | K8s Deployment (dedicated dev namespace) | stage planner, approval gate, contract validator, budget watchdog | never trusts agent self-reports (D6) |
 | 4 | **Guild Postgres** | in-cluster (dev) or external — dual-mode | stage plans, engagement states, append-only `decisions` (gates, verdicts, budget events) | governance provenance |
 | 5 | **`substrate-multica` adapter** | library inside the conductor | translation only — no state | anti-corruption layer (D8): Multica vocabulary stops here |
 | 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
 | 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
-| 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
+| 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
 | 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor at M3 | agent workspaces (PVC); forks agent CLIs as subprocesses | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (claude, opencode, …) | subprocesses inside the daemon | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
@@ -26,17 +26,17 @@ One page that shows every component and every data/event flow between them. Deci
 flowchart LR
     OP((1 Operator))
     CLI[2 Guild CLI]
-    subgraph GD["guild-dev namespace"]
+    subgraph GD["guild dev namespace (names illustrative)"]
         COND[3 Conductor<br/>planner / gate / validator / watchdog]
         GPG[(4 Guild PG)]
     end
-    subgraph MD["multica-dev namespace"]
+    subgraph MD["multica dev namespace"]
         BE[6 Multica backend]
         FE[7 Board UI]
         MPG[(8 Multica PG)]
         DM[9 Daemon container<br/>10 agent CLIs inside]
     end
-    subgraph LD["litellm-dev namespace"]
+    subgraph LD["litellm dev namespace"]
         LLM[11 LiteLLM]
         LDB[(keys + spend)]
     end
@@ -49,7 +49,7 @@ flowchart LR
     COND -->|5 adapter: REST create/assign/comment/cancel| BE
     BE -->|WebSocket events| COND
     BE --> MPG
-    DM -->|poll ~3s, claim, report| BE
+    DM -->|poll, claim, report| BE
     DM -->|clone / push branches| REPO
     DM -->|base-URL env| LLM --> PROV
     LLM --> LDB
@@ -91,8 +91,10 @@ sequenceDiagram
     CLI->>C: create project
     C->>C: planner: stages, roles,<br/>engagements, budgets
     C->>G: persist StagePlan
-    C-->>OP: plan for approval (bounded auto-approve timer)
-    OP->>C: approve / amend
+    C-->>CLI: plan for approval (bounded auto-approve timer)
+    CLI-->>OP: present plan
+    OP->>CLI: approve / amend
+    CLI->>C: gate decision
     C->>G: append gate decision
 ```
 
@@ -133,8 +135,8 @@ sequenceDiagram
     CLIs->>DM: blocked — question in comment
     DM->>BE: set status blocked + comment
     BE-->>C: WS event
-    C-->>OP: surface open blocker (CLI); board shows it too
-    OP->>BE: reply (board comment or CLI→API)
+    C-->>OP: surface open blocker (CLI), board shows it too
+    OP->>BE: reply (board comment)
     BE->>BE: deterministic routing: reply → parent comment's author agent
     BE->>DM: enqueue follow-up task (same agent + issue)
     DM->>CLIs: session resume + reply injected into prompt
@@ -160,7 +162,7 @@ sequenceDiagram
     C->>C: run HandoffContract:<br/>Gherkin + checks, in Guild's own environment
     C->>G: append verdict
     alt contract passes
-        C->>BE: comment verdict; advance
+        C->>BE: comment verdict, advance
         C->>R: Guild-mediated merge
     else contract fails
         C->>BE: bounce — failing criteria commented on the SAME issue
@@ -197,7 +199,7 @@ Multica records cost; only the gateway's numbers can *enforce* it — that is Li
 
 | Data | Lives in | Written by | Read by |
 |---|---|---|---|
-| Stage plans, gate decisions, contract verdicts, budget ledger | Guild PG (`decisions` is append-only) | conductor | conductor, operator via CLI |
+| Stage plans, engagement states, gate decisions, contract verdicts, budget ledger | Guild PG (`decisions` is append-only) | conductor | conductor, operator via CLI |
 | Issues, comments, timeline, task queue, agent sessions | Multica PG | Multica backend/daemon | conductor (via WS/REST), operator (board) |
 | Cost *recording* per task | Multica PG (`task_usage`) | Multica | optional cross-check only |
 | Virtual keys, authoritative spend | LiteLLM DB | gateway | watchdog (enforcement) |
