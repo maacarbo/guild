@@ -5,7 +5,7 @@ Guild is an open-source autonomous-SDLC governance layer driving a self-hosted M
 | Doc | Contents |
 |---|---|
 | `docs/PRODUCT.md` | Vision, flows, MVP cut |
-| `docs/ARCHITECTURE.md` | Decision records D1–D8, engagement lifecycle, K8s topology |
+| `docs/ARCHITECTURE.md` | Decision records D1–D8, engagement lifecycle, deployment topology |
 | `docs/ROADMAP.md` | Milestones M0–M4 with acceptance criteria |
 | `docs/VALIDATION-*.md`, `docs/research/` | Historical evidence records — never edit |
 

@@ -37,26 +37,26 @@ When an agent reports done, **Guild validates the contract itself** — it never
 Agents raise blockers as Multica comments; Multica's verified server-side routing delivers the operator's reply to the asking agent with session continuity. Guild watches the stream and surfaces open blockers per stage — it does not rebuild the conversation UI.
 
 ### 6. Budget watchdog
-Agent CLIs inside the daemon image route through a LiteLLM gateway; spend is attributed per engagement via a virtual key minted at dispatch — a mechanism M1 proves end-to-end. Enforcement is layered: each engagement key carries a **hard `max_budget`** the gateway enforces automatically from M1a (the model simply stops serving at cap), and the M3 watchdog adds soft-cap warnings plus the **project-level ceiling** whose breach cancels running work via the Multica API and locks dispatch. Multica records cost; Guild *enforces* it.
+Agent CLIs inside the daemon image route through a LiteLLM gateway; spend is attributed per engagement via a virtual key minted at dispatch — a mechanism M1 proves end-to-end. Enforcement is layered: each engagement key carries a **hard `max_budget`** the gateway enforces automatically from M1a (the model simply stops serving at cap), and the M2b watchdog adds soft-cap warnings plus the **project-level ceiling** whose breach cancels running work via the Multica API and locks dispatch. Multica records cost; Guild *enforces* it.
 
-### 7. Team evolution (later)
+### 7. Team evolution (M3)
 Guild hires by demand: creating/configuring Multica agents and squads for roles the plan requires, composing role context files and role-memory artifacts per engagement. (Pending verification of Multica's agent-management API surface — see open questions.)
 
 ## MVP Cut
 
 **In (M1–M2):**
-- Self-hosted Multica substrate on an isolated Docker-Compose stack — simple to complex; Kubernetes only at M3 — including the custom daemon container Guild contributes
+- Self-hosted Multica substrate on an isolated Docker-Compose stack — simple to complex; Kubernetes only as the optional last milestone (M4), if needed — including the custom daemon container Guild contributes
 - Guild core loop: idea → staged plan → approval gate → contracted dispatch → validation → advance
 - Fixed starter team of four roles; one Multica issue per engagement
 - LiteLLM-routed daemon image; spend visible per engagement
 - CLI-driven; Multica's board is the only UI
 
-**Out (M3+):** GitOps promotion and hardening of the cluster stack, budget kill-switch automation, dynamic team evolution.
+**Out (post-`v0.1.0`):** dynamic team evolution (M3 — completes the product on the same compose stack); the optional generic Kubernetes lift and hardening (M4, only if needed). The budget kill-switch is *in* the MVP (M2b watchdog — reorganisation 2026-07-30 fixed this stale label); the author-cluster GitOps material moved to a personal runbook outside the product.
 
 **Out (indefinitely):** own kanban UI, own runtime adapters, own skills catalog (Multica ships all three); commercial hosting of any kind.
 
 ## Success Criteria
 
 1. A demo idea goes from submission to a repo with passing tests where **every** stage was plan-gated and **every** handoff was contract-validated — zero un-contracted advances.
-2. An induced overspend halts the pipeline cleanly with a visible explanation (M3).
-3. A role not present at project start is hired mid-run because the plan demanded it (M4).
+2. An induced overspend halts the pipeline cleanly with a visible explanation (M2).
+3. A role not present at project start is hired mid-run because the plan demanded it (M3).

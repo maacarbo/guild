@@ -13,7 +13,7 @@ Non-commercial by design: built for personal self-hosting, published open source
 | [CLAUDE.md](CLAUDE.md) | Development guidelines: hexagonal/DDD layering, TDD/BDD discipline, conventions (mirrored as AGENTS.md) |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | What Guild does, flows, MVP cut |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | The map: every component and every data/event flow, with diagrams |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D8 (with honest superseded/retained statuses), engagement lifecycle, K8s topology |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D8 (with honest superseded/retained statuses), engagement lifecycle, deployment topology |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M4 with acceptance criteria |
 | [docs/VALIDATION-2026-07-29.md](docs/VALIDATION-2026-07-29.md) | External validation of the original decisions, with sources |
 | [docs/research/external-reviews-2026-07-30.md](docs/research/external-reviews-2026-07-30.md) | Four independent non-Anthropic model reviews — all blockers dispositioned: [disposition table](docs/research/external-reviews-disposition.md) |
@@ -21,11 +21,12 @@ Non-commercial by design: built for personal self-hosting, published open source
 
 ## Deployment
 
-Three supported tiers, lowest barrier first — full details in [deploy/README.md](deploy/README.md):
+Two supported deployment targets, lowest barrier first — full details in [deploy/README.md](deploy/README.md):
 
-1. **Docker Compose** — any machine with Docker, no Kubernetes; also the stack our own M1 milestone exercises continuously.
-2. **Any Kubernetes** — vanilla manifests: any StorageClass or external databases (dual-mode), plain `kubectl` secrets, hardening (NetworkPolicies, gVisor) recommended where your infra supports it, never assumed.
-3. **Hardened reference** — the author's cluster (Flux, Cilium FQDN egress, gVisor on Talos), documented as a worked example of tier 2 with everything turned on. Required for nobody.
+1. **Docker Compose** — any machine with Docker, no Kubernetes; the tier every functional milestone (M1–M3, through the feature-complete product) ships on and exercises continuously.
+2. **Any Kubernetes** *(optional, last — pursued only if needed, at M4)* — vanilla manifests: any StorageClass or external databases (dual-mode), plain `kubectl` secrets, hardening (NetworkPolicies, gVisor) recommended where your infra supports it, never assumed.
+
+(The author's hardened cluster is documented as a personal, non-normative runbook — required for nobody.)
 
 ## Repository layout
 
@@ -34,14 +35,14 @@ packages/
   shared/             published language: stages, HandoffContract, ExecutionSubstrate port
   orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
   substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
-deploy/               deployment options (compose / any-K8s / hardened reference), secrets flow, storage rules (planned: compose at M1, manifests at M3)
+deploy/               deployment options (compose / any-K8s), secrets flow, storage rules (planned: compose at M1; optional generic manifests at M4)
 docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1) — pinned CLIs + git + headless login + LiteLLM routing
 docs/                 product, architecture, roadmap, validation evidence, research
 ```
 
 ## Status
 
-*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** Simple to complex: the full application ships on Docker Compose first (M1–M2, ending in `v0.1.0`); Kubernetes follows at M3. Next up: M1a — prove the substrate on the compose stack (daemon container end-to-end, API probes, spend attribution). No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
+*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** Functionality first: the full product ships on Docker Compose (M1–M3 — `v0.1.0` at M2; team evolution completes the feature set at M3, `v0.2.0`); Kubernetes is an optional last milestone (M4), generic-only, pursued only if needed. Next up: M1a — prove the substrate on the compose stack (daemon container end-to-end, API probes, spend attribution). No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
 
 ## Development
 

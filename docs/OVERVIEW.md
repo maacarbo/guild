@@ -1,6 +1,6 @@
 # Guild — Component & Flow Overview
 
-One page that shows every component and every data/event flow between them. Decisions and rationale live in [ARCHITECTURE.md](ARCHITECTURE.md) (D1–D8); this page is the map. Topology shown is the **isolated dev stack** — running as **Docker Compose services through M1–M2** (same components, same trust boundaries; the namespace groupings drawn here are the Kubernetes form the M3 lift moves into). Zero pre-existing services either way; the lift changes where things run, not how they talk.
+One page that shows every component and every data/event flow between them. Decisions and rationale live in [ARCHITECTURE.md](ARCHITECTURE.md) (D1–D8); this page is the map. Topology shown is the **isolated dev stack** — running as **Docker Compose services through M1–M3** (same components, same trust boundaries; the namespace groupings drawn here are the Kubernetes form the optional M4 lift would move into). Zero pre-existing services either way; the lift changes where things run, not how they talk.
 
 ## Components
 
@@ -8,18 +8,18 @@ One page that shows every component and every data/event flow between them. Deci
 |---|---|---|---|---|
 | 1 | **Operator** | human | final say: plan approvals, answers, stage acceptance | the only non-automated authority |
 | 2 | **Guild CLI** | local binary | — (driving adapter) | talks only to the conductor |
-| 3 | **Guild conductor** (`packages/orchestrator`) | K8s Deployment (dedicated dev namespace) | stage planner, approval gate, contract validator, budget watchdog | never trusts agent self-reports (D6) |
-| 4 | **Guild Postgres** | in-cluster (dev) or external — dual-mode | stage plans, engagement states, append-only `decisions` (gates, verdicts, budget events) | governance provenance |
+| 3 | **Guild conductor** (`packages/orchestrator`) | compose service (M1–M3); K8s Deployment after the optional M4 lift | stage planner, approval gate, contract validator, budget watchdog | never trusts agent self-reports (D6) |
+| 4 | **Guild Postgres** | compose service (dev) or external — dual-mode | stage plans, engagement states, append-only `decisions` (gates, verdicts, budget events) | governance provenance |
 | 5 | **`substrate-multica` adapter** | library inside the conductor | translation only — no state | anti-corruption layer (D8): Multica vocabulary stops here |
-| 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
-| 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
-| 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
-| 9 | **Multica daemon** | custom container (Guild-built) — compose service on Tier 1, K8s Deployment on Tier 2/3; runtime sandboxing where supported (Tier 3 reference: gVisor via the Talos node-image plan) | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
+| 6 | **Multica backend** | compose service (M1–M3); K8s Deployment on the optional M4 lift | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
+| 7 | **Multica frontend (board)** | compose service (M1–M3); K8s Deployment on the optional M4 lift | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
+| 8 | **Multica Postgres** (pgvector) | compose service (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
+| 9 | **Multica daemon** | custom container (Guild-built) — compose service on Tier 1, K8s Deployment on Tier 2; runtime sandboxing where supported (gVisor/Kata) | agent workspaces (ephemeral volume / PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
-| 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
+| 11 | **LiteLLM gateway** (isolated dev instance) | compose service (M1–M3; K8s Deployment on the optional M4 lift) + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
 | 13 | **Product repo(s)** | git hosting — repo-per-project on the operator's GitHub (OQ3 resolved 2026-07-30) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated, fast-forward-only to the validated SHA |
-| 14 | **Contract validator** | ephemeral sandbox from the daemon image, spawned per validation (K8s Job on Tier 2/3; `docker run` on Tier 1 compose) | nothing — reads a detached checkout, emits exit codes + evidence | second least-trusted workload: zero Guild credentials, registry-only egress; the conductor writes the verdict |
+| 14 | **Contract validator** | ephemeral sandbox from the daemon image, spawned per validation (K8s Job on Kubernetes; `docker run` on Tier 1 compose) | nothing — reads a detached checkout, emits exit codes + evidence | second least-trusted workload: zero Guild credentials, registry-only egress; the conductor writes the verdict |
 
 ## System map
 
@@ -38,7 +38,7 @@ flowchart LR
     end
     subgraph DD["daemon dev namespace"]
         DM[9 Daemon container<br/>10 agent CLIs inside]
-        VJ[14 Validator Jobs]
+        VJ[14 Validator sandboxes]
     end
     subgraph LD["litellm dev namespace"]
         LLM[11 LiteLLM]
@@ -70,7 +70,7 @@ The system map compresses the agent layer into boxes 9–10; this is what's insi
 ```mermaid
 flowchart TB
     RT["Guild role template<br/>role, runtime CLI, model tier,<br/>skills, context brief"]
-    ST["Staffing<br/>M1-M2: fixed starter team<br/>M4: demand-driven hiring via API"]
+    ST["Staffing<br/>M1-M2: fixed starter team<br/>M3: demand-driven hiring via API"]
     AG["Multica agent (registry entry)<br/>runtime + model set per agent<br/>Multica supports 14+ CLIs"]
     TQ["task claimed for this agent"]
     DM["Daemon container<br/>all chosen runtime CLIs baked into the image,<br/>auto-detected on PATH"]
@@ -90,7 +90,7 @@ flowchart TB
 - **Role → runtime → model is data, not code**: want Codex for the implementer and Claude Code for the architect? Two role templates with different `runtime` values; staffing creates two Multica agents; the daemon forks whichever CLI each task's agent specifies. Verified Multica mechanics: agents carry a per-agent runtime + model choice, and the daemon auto-detects installed CLIs.
 - **Per-task spawn, not per-agent servers**: nothing idles between engagements; "spinning up an agent" costs a process fork, and context-freshness falls out of it (one issue per engagement, D6/lifecycle above).
 - **Adding a runtime = three moves**: install the CLI in the daemon image (`docker/daemon/`), add its provider route to the gateway if it needs one, reference it in a role template. Nothing in the conductor changes — runtime identity never crosses the `ExecutionSubstrate` port.
-- **Placement & scale**: multiple daemons can register as separate Multica runtimes (tasks carry a runtime binding — the session-resume gating in the research doc is keyed on it), so heavy roles can get their own daemon Deployment later without design change.
+- **Placement & scale**: multiple daemons can register as separate Multica runtimes (an inference from the verified per-task runtime binding — the session-resume gating in the research doc is keyed on it; the end-to-end registration mechanics are an M1a probe), so heavy roles can get their own daemon service (compose) or Deployment (K8s) later without design change.
 - **Why only LiteLLM showed up as "the gateway"**: it is the *model* layer under every runtime — one policy and one budget regardless of which CLI is doing the work. The *agent* layer is this section.
 
 ## Engagement lifecycle (states owned by the conductor, stored in Guild PG)
@@ -221,7 +221,7 @@ sequenceDiagram
 
 The self-report is treated as hostile input (D6): the agent saying "done" starts validation, it never concludes it.
 
-### F7 · Budget watchdog → kill-switch (M3)
+### F7 · Budget watchdog → kill-switch (M2b)
 
 ```mermaid
 sequenceDiagram
@@ -253,12 +253,12 @@ Multica records cost; only the gateway's numbers can *enforce* it — that is Li
 | Cost *recording* per task | Multica PG (`task_usage`) | Multica | optional cross-check only |
 | Virtual keys, authoritative spend | LiteLLM DB | gateway | watchdog (enforcement) |
 | Generated code, contract artifacts, branches | product repo | agents (one writer per branch), Guild (merges) | validator, downstream roles (trace visibility, D6) |
-| Agent workspaces | daemon PVC | daemon/CLIs | daemon |
+| Agent workspaces | daemon ephemeral volume (compose) / PVC (K8s) | daemon/CLIs | daemon |
 
 ## Trust boundaries, one line each
 
 - **Operator ↔ Guild**: the only place authority enters; gates and acceptance are theirs.
 - **Guild ↔ Multica**: one port (`ExecutionSubstrate`); Multica's vocabulary and Multica's trust in agent self-reports both stop at the adapter.
-- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; compose-era (M1–M2) bounds are the container boundary + explicit approvals + `max_budget` caps; the K8s controls (scoped egress, least-privilege, runtime sandboxing — Tier 3 reference: gVisor via the Talos node-image plan) land with the M3 lift.
+- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; compose-era (M1–M3) bounds are the container boundary + explicit approvals + `max_budget` caps; the K8s controls (scoped egress, least-privilege, runtime sandboxing) land with the optional M4 lift, if pursued — until then their absence is a documented residual risk (`deploy/README.md` security floor).
 - **Validator ↔ Guild**: the validator executes agent-authored checks — hostile input — so it is a trust-peer of the daemon (ephemeral sandbox: K8s Job or `docker run`, zero Guild credentials); it can fail work but never signs for Guild.
 - **Gateway ↔ providers**: the only key holder; every model token, in and out, is metered here.
