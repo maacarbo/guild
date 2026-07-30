@@ -37,7 +37,7 @@ When an agent reports done, **Guild validates the contract itself** — it never
 Agents raise blockers as Multica comments; Multica's verified server-side routing delivers the operator's reply to the asking agent with session continuity. Guild watches the stream and surfaces open blockers per stage — it does not rebuild the conversation UI.
 
 ### 6. Budget watchdog
-Agent CLIs inside the daemon image route through a LiteLLM gateway, giving Guild real-time spend per engagement. A soft per-engagement cap and a per-project ceiling trigger the kill-switch: Guild stops dispatching and cancels running work via the Multica API. Multica records cost; Guild *enforces* it.
+Agent CLIs inside the daemon image route through a LiteLLM gateway; spend is attributed per engagement via a virtual key minted at dispatch — a mechanism M1 proves end-to-end before the watchdog relies on it. A soft per-engagement cap and a per-project ceiling trigger the kill-switch: Guild stops dispatching and cancels running work via the Multica API. Multica records cost; Guild *enforces* it.
 
 ### 7. Team evolution (later)
 Guild hires by demand: creating/configuring Multica agents and squads for roles the plan requires, composing role context files and role-memory artifacts per engagement. (Pending verification of Multica's agent-management API surface — see open questions.)

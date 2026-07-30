@@ -33,7 +33,11 @@ export interface WorkItemSpec {
   engagementId: string;
   role: string;
   title: string;
-  /** engagement brief: instructions + contract, composed by the conductor */
+  /**
+   * serialized EngagementBrief: role context + instructions + contract +
+   * prior decisions + artifact refs + constraints, composed by the conductor —
+   * dropping any of these reproduces the fresh-context loss the brief exists to prevent
+   */
   body: string;
 }
 

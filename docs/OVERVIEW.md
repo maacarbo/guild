@@ -14,11 +14,11 @@ One page that shows every component and every data/event flow between them. Deci
 | 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
 | 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
 | 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
-| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor at M3 | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
+| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor from M1 if available on the nodes, mandatory by M3 | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
-| 13 | **Product repo(s)** | git hosting (open question 3) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated |
+| 13 | **Product repo(s)** | git hosting — repo-per-project on the operator's GitHub (OQ3 resolved 2026-07-30) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated |
 
 ## System map
 
@@ -101,8 +101,10 @@ stateDiagram-v2
     Blocked --> Working: answer routed back
     Working --> Reported: agent says done
     Reported --> Validated: contract passes (Guild-run)
+    Reported --> Reported: validator_error — validation retried, work never bounced
     Reported --> Bounced: contract fails
-    Bounced --> Working: same issue, session resumes with failing criteria
+    Bounced --> Working: re-dispatched, same issue — session resumes with failing criteria (count ≤ MAX_BOUNCES)
+    Bounced --> [*]: bounce limit reached — operator escalation (cancel or rescope)
     Validated --> Accepted: operator accepts stage
     Accepted --> [*]
 ```
@@ -141,7 +143,7 @@ sequenceDiagram
     participant CLIs as Agent CLI
     participant LLM as LiteLLM
     C->>A: dispatch engagement
-    A->>BE: create issue (brief = instructions + contract), assign agent
+    A->>BE: create issue (brief = role context + instructions + contract + prior decisions + artifacts), assign agent
     DM->>BE: poll, claim task
     DM->>CLIs: fork CLI — new issue ⇒ fresh session (context-fresh by construction)
     CLIs->>LLM: model calls (base-URL env)
@@ -197,6 +199,8 @@ sequenceDiagram
     else contract fails
         C->>BE: bounce — failing criteria commented on the SAME issue
         Note over BE,CLIs: same issue ⇒ session resumes with prior context + failures
+    else validator error
+        C->>C: retry validation — infrastructure faults never bounce the work
     end
 ```
 
@@ -240,5 +244,5 @@ Multica records cost; only the gateway's numbers can *enforce* it — that is Li
 
 - **Operator ↔ Guild**: the only place authority enters; gates and acceptance are theirs.
 - **Guild ↔ Multica**: one port (`ExecutionSubstrate`); Multica's vocabulary and Multica's trust in agent self-reports both stop at the adapter.
-- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys, gVisor + scoped egress at M3.
+- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; scoped egress + least-privilege from M1, gVisor from M1 if available (mandatory by M3).
 - **Gateway ↔ providers**: the only key holder; every model token, in and out, is metered here.
