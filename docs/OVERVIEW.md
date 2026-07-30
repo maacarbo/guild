@@ -14,7 +14,7 @@ One page that shows every component and every data/event flow between them. Deci
 | 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
 | 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
 | 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
-| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor from M1 if available on the nodes, mandatory by M3 | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
+| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor per the Talos node-image plan (one labeled worker first; cluster-wide at M3) | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
@@ -35,7 +35,10 @@ flowchart LR
         BE[6 Multica backend]
         FE[7 Board UI]
         MPG[(8 Multica PG)]
+    end
+    subgraph DD["daemon dev namespace"]
         DM[9 Daemon container<br/>10 agent CLIs inside]
+        VJ[14 Validator Jobs]
     end
     subgraph LD["litellm dev namespace"]
         LLM[11 LiteLLM]
@@ -107,7 +110,8 @@ stateDiagram-v2
     Bounced --> Working: re-dispatched, same issue — self-contained bounce comment (count ≤ MAX_BOUNCES)
     Bounced --> Escalated: bounce limit reached
     Escalated --> [*]: operator cancels or rescopes
-    Working --> Cancelled: budget hard cap / operator / stage rejected
+    Gated --> Cancelled: stage rejected at the gate
+    Working --> Cancelled: budget hard cap / operator
     Cancelled --> [*]: key revoked, item closed
     Validated --> Accepted: operator accepts stage
     Accepted --> [*]: key revoked, item closed
@@ -146,8 +150,11 @@ sequenceDiagram
     participant DM as Daemon
     participant CLIs as Agent CLI
     participant LLM as LiteLLM
+    C->>C: persist dispatch-intent row (saga — see ARCHITECTURE.md conductor runtime semantics)
+    C->>A: findWorkItem(engagementId) — idempotency guard
     C->>A: dispatch engagement
     A->>BE: create issue (brief = role context + instructions + contract + prior decisions + artifacts), assign agent
+    Note over C,BE: on any (re)connect the conductor reconciles from reads — the WS stream is a latency optimization
     DM->>BE: poll, claim task
     DM->>CLIs: fork CLI — new issue ⇒ fresh session (context-fresh by construction)
     CLIs->>LLM: model calls (base-URL env)

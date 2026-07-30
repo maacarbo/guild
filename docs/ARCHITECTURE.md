@@ -42,7 +42,7 @@ Guild is one service. It plans, gates, dispatches, validates, and enforces budge
 | `packages/shared` | Published language: stage/plan/engagement types, `HandoffContract`, the `ExecutionSubstrate` port and its event types. Dependency-free. |
 | `packages/orchestrator` | The Guild conductor: stage planner, approval gate, contract validator, budget watchdog. Hexagonal per D7 — Multica and LiteLLM live behind ports. |
 | `packages/substrate-multica` | `ExecutionSubstrate` adapter over Multica's REST/WS API (PAT auth) — issues, assignment, comments, status/usage events. |
-| `deploy/` | docker-compose for the full local stack; K8s manifests at M3: upstream Multica Helm chart + custom daemon Deployment + Guild + LiteLLM. |
+| `deploy/` | dev-mode docs: isolated cluster namespaces (kubectl-first), secrets flow, datastore modes; compose for M1a-0 capability proof (planned: manifests at M1a-1, Flux resources at M3). |
 | `docker/daemon/` (M1) | The custom Multica daemon image Guild contributes: `multica` binary, agent CLIs, git, headless token login, LiteLLM env routing. |
 
 ## Decision Records
@@ -136,10 +136,13 @@ flowchart TB
     subgraph ns2["namespace: guild-system"]
         GC[guild conductor Deployment]
         GPG[(guild postgres)]
+    end
+    subgraph ns4["namespace: litellm-guild"]
         LLM2[LiteLLM - isolated Guild instance, hardened per D2 - fold-in vs separate is OQ7]
     end
     subgraph ns3["namespace: guild-daemons"]
         D1[daemon Deployment - custom image, runtimeClassName: gvisor]
+        VJ[validator Jobs - ephemeral, zero Guild creds]
     end
     ING[Ingress] --> FE
     GC --> BE

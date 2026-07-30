@@ -13,6 +13,7 @@
 
 import type { EngagementBrief } from "./stages.js";
 import type { ContractVerdict } from "./contract.js";
+import type { CancellationReason } from "./governance.js";
 
 export interface WorkItemRef {
   substrate: string;
@@ -92,7 +93,7 @@ export interface ExecutionSubstrate {
    * trigger agents, or whether threading via inReplyTo is required)
    */
   requestRework(item: WorkItemRef, verdict: ContractVerdict): Promise<void>;
-  cancel(item: WorkItemRef, reason: string): Promise<void>;
+  cancel(item: WorkItemRef, reason: CancellationReason): Promise<void>;
   /** termination protocol: terminal engagement state ⇒ revoke virtual key + close/lock the item */
   close(item: WorkItemRef): Promise<void>;
   watch(projectScope: string): AsyncIterable<SubstrateEvent>;

@@ -42,7 +42,7 @@ src/
 The CLI is a driving adapter of the Governance context, not a context.
 
 - **Ubiquitous language is the vocabulary already in `docs/PRODUCT.md` and `docs/ARCHITECTURE.md`**: plan, stage, gate, engagement, handoff contract, validate, bounce, accept, hire, retire, budget, kill-switch. Code identifiers use these words. If a better word is found, rename docs and code in the same MR — never let them drift.
-- Aggregates guard invariants in the domain layer: engagement state transitions (`Planned → Gated → Dispatched → Working ⇄ Blocked → Reported → Validated | Bounced → Accepted`), no dispatch without an approved plan, no advance without a validated contract, single-writer per engagement (D6), one open engagement per agent.
+- Aggregates guard invariants in the domain layer: engagement state transitions (`Planned → Gated → Dispatched → Working ⇄ Blocked → Reported → Validated | Bounced → Accepted`, with terminal off-path exits `Cancelled` and `Escalated` — see `EngagementState`), no dispatch without an approved plan (of the approved `planVersion`), no advance without a validated contract, single-writer per engagement (D6), one open engagement per agent.
 - Contract validation verdicts and gate decisions are appended to the `decisions` table — governance provenance is append-only (D4 status note).
 
 ## TDD
@@ -64,7 +64,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 
 ## Working conventions
 
-- Node ≥ 22, pnpm via corepack (`corepack enable && pnpm install`); `pnpm -r typecheck` must pass before every commit; `pnpm -r test` once test suites exist.
+- Node ≥ 22, pnpm 10 (`npm install -g pnpm@10` — corepack is no longer bundled with Node ≥ 25); `pnpm -r typecheck` must pass before every commit; `pnpm -r test` once test suites exist.
 - The repo lives on GitHub (`maacarbo/guild`) — PRs, issues, and CI all happen there.
 - Branch per task, PR into `main`, CI green before merge. Single-writer discipline (D6) binds humans and agents alike: one writer per branch.
 - Commits: imperative summary line, body explains why, reference the milestone/issue.

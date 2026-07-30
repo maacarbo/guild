@@ -67,7 +67,7 @@ Everything the capability matrix needs can be proven against a compose stack; cl
 ## M3 — Budget enforcement + Kubernetes
 
 - Budget watchdog: per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + stop dispatch), metered from the LiteLLM gateway
-- Complete and harden the in-cluster stack running since M1: Guild conductor Deployment joins the control plane; daemon Deployment hardened (`runtimeClassName: gvisor` — benchmark I/O first, NetworkPolicy with DNS scoped to the cluster resolver, token via Secret); LiteLLM hardened per D2 (pinned digest, dedicated namespace, non-privileged SA)
+- Complete and harden the in-cluster stack running since M1: Guild conductor Deployment joins the control plane; daemon gVisor goes cluster-wide (schematic extension via the promotion runbook — the egress design is already the M1a-1 CiliumNetworkPolicy `toFQDNs` + DNS-proxy setup, unchanged); LiteLLM hardened per D2 (pinned digest, dedicated namespace, non-privileged SA)
 - Publish the daemon image build as reusable open source (upstream contribution candidate)
 - **GitOps promotion — the last stage for infrastructure**: commit the proven stack to `home-lab/k8s-cluster` as Flux-managed resources (Multica `HelmRelease` + `HelmRepository`, daemon Deployment, Guild conductor, ESO-backed secrets), making the deferred calls here: Multica Postgres final placement (`dbsrv01` per house rule vs. documented in-cluster exception), exposure/DNS, and gateway topology (fold Guild's routes into the shared LiteLLM vs. keep the separate instance). Remove all ad-hoc dev resources after cutover.
 
