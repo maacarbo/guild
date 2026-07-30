@@ -10,9 +10,9 @@ Original scaffold, ecosystem validation of D1–D7, multica research, reposition
 
 Nothing in Guild matters if the substrate assumptions don't hold; prove them first.
 
-- **Bring the Multica control plane onto the home cluster through its GitOps process** — the cluster is Flux-managed with a hard no-ad-hoc-`helm install` rule, so the pinned upstream chart is wrapped in a `HelmRelease` (+ new `HelmRepository`) committed to the separate `home-lab/k8s-cluster` repo. The cluster is dev/staging from day one; docker-compose remains only as an offline fallback. Record the LICENSE-diff review procedure with the pin.
-- **Resolve two placement decisions before the deploy** (cluster profile, 2026-07-29): Multica's Postgres — house rule is *no databases in-cluster* (one DB/role per app on `dbsrv01`, where pgvector support is unverified and the host is thin) vs. an explicit in-cluster exception on `nfs-filesrv02` (size generously — volume expansion is disabled); and M1 exposure — recommended internal-only/port-forward, deferring the `*.bitstrum.com` DNS-cutover question (wildcard currently points at NPM, not the in-cluster Gateway).
-- **Gateway: reuse the cluster's existing LiteLLM instance** (ns `litellm`, currently Ollama+OpenRouter only — no Anthropic route exists): add `anthropic/*` models + a Guild-scoped virtual key. Shared-instance change (Home Assistant voice depends on it) — explicit sign-off required.
+- **Deploy Multica directly with `kubectl`/`helm` into a dedicated dev namespace** — operator's call (2026-07-30): app-first speed during development, GitOps only at the last stage. Dev namespaces stay outside Flux's purview, so nothing is pruned or reverted; the cluster's Flux-only rule continues to bind everything Flux already manages. Pinned chart version; record the LICENSE-diff review procedure with the pin.
+- Dev-phase placement (final calls deferred to the M3 GitOps promotion): the chart's own in-cluster Postgres on `nfs-filesrv02` (size generously — volume expansion is disabled); exposure via port-forward / internal Gateway IP only.
+- **Dev gateway: a Guild-scoped LiteLLM instance deployed ad-hoc in the dev namespace** (`anthropic/*` + Ollama routes). The shared instance (ns `litellm`, Home Assistant voice) is Flux-managed — ad-hoc edits to it would be reverted on reconcile and are off-limits; whether Guild's routes fold into it is decided at promotion.
 - **Build and end-to-end test the custom daemon container against the live cluster backend** (the known-untested piece): multica binary + agent CLIs + git, headless `multica login --token`, claims and completes a real task
 - Verify LiteLLM routing from inside the daemon container (`ANTHROPIC_BASE_URL`): **acceptance test — prompt caching and extended thinking work through the proxy** (carried from old D2)
 - Probe the API surface against the cluster instance: issue create/assign/comment/cancel, WebSocket events, PAT auth, and the **agent/squad management endpoints (open question 1)**
@@ -35,8 +35,9 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 - Budget watchdog: per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + stop dispatch), metered from the LiteLLM gateway
 - Complete and harden the in-cluster stack running since M1: Guild conductor Deployment joins the control plane; daemon Deployment hardened (`runtimeClassName: gvisor` — benchmark I/O first, NetworkPolicy with DNS scoped to the cluster resolver, token via Secret); LiteLLM hardened per D2 (pinned digest, dedicated namespace, non-privileged SA)
 - Publish the daemon image build as reusable open source (upstream contribution candidate)
+- **GitOps promotion — the last stage for infrastructure**: commit the proven stack to `home-lab/k8s-cluster` as Flux-managed resources (Multica `HelmRelease` + `HelmRepository`, daemon Deployment, Guild conductor, ESO-backed secrets), making the deferred calls here: Multica Postgres final placement (`dbsrv01` per house rule vs. documented in-cluster exception), exposure/DNS, and gateway topology (fold Guild's routes into the shared LiteLLM vs. keep the separate instance). Remove all ad-hoc dev resources after cutover.
 
-**Acceptance:** reproducible `helm install` from scratch + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation.
+**Acceptance:** Flux reconciles the whole stack from git on a clean cluster + the M2 flow entirely in-cluster; an induced overspend halts the pipeline cleanly with a visible explanation; zero ad-hoc resources remain.
 
 ## M4 — Team evolution
 
