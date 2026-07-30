@@ -25,7 +25,7 @@ Built personal-use-first: one operator-owner who submits ideas, approves plans, 
 The operator submits an idea via the Guild CLI/API. Guild's planner decomposes it into SDLC stages (analysis → architecture → implementation → test → delivery), each with roles, scoped work items, and budget allocation.
 
 ### 2. Plan approval gate
-Before any stage spends tokens, its plan is posted for approval with a bounded auto-approve timer — silence is consent after the window. Specification defects are the largest measured failure source in multi-agent systems; the gate catches them at their cheapest point.
+Before any stage spends tokens, its plan is posted for approval. **Approval is explicit by default** — a bounded auto-approve timer is available as a per-project opt-in for runs you're actively supervising, never the default, so a flawed, expensive plan can't approve itself while you sleep. Specification defects are the largest measured failure source in multi-agent systems; the gate catches them at their cheapest point.
 
 ### 3. Contracted dispatch
 For each approved stage, Guild creates **one Multica issue per engagement** — which, by Multica's verified session mechanics, gives every engagement a fresh LLM context (no accumulated-context degradation). Each issue carries a **machine-checkable handoff contract**: acceptance criteria authored upstream, expressed as executable Gherkin plus concrete checks (tests pass, artifacts exist).

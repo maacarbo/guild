@@ -95,7 +95,7 @@ flowchart TB
 stateDiagram-v2
     [*] --> Planned
     Planned --> Gated: plan posted to operator
-    Gated --> Dispatched: approved (or auto-approve timer)
+    Gated --> Dispatched: approved (timer only if opted in)
     Dispatched --> Working: daemon claims task
     Working --> Blocked: agent raises question
     Blocked --> Working: answer routed back
@@ -121,7 +121,7 @@ sequenceDiagram
     CLI->>C: create project
     C->>C: planner: stages, roles,<br/>engagements, budgets
     C->>G: persist StagePlan
-    C-->>CLI: plan for approval (bounded auto-approve timer)
+    C-->>CLI: plan for approval (explicit by default, timer opt-in)
     CLI-->>OP: present plan
     OP->>CLI: approve / amend
     CLI->>C: gate decision
@@ -146,7 +146,7 @@ sequenceDiagram
     DM->>CLIs: fork CLI — new issue ⇒ fresh session (context-fresh by construction)
     CLIs->>LLM: model calls (base-URL env)
     LLM-->>CLIs: completions
-    LLM->>LLM: record spend on Guild-scoped key
+    LLM->>LLM: record spend on the engagement's virtual key
     DM->>BE: status + progress comments
     BE-->>A: WebSocket events
     A-->>C: SubstrateEvents (status / comment / usage)
@@ -211,7 +211,7 @@ sequenceDiagram
     participant A as substrate-multica
     participant BE as Multica backend
     participant OP as Operator
-    C->>LLM: read spend per Guild-scoped key/tag
+    C->>LLM: read spend per engagement virtual key
     alt soft cap reached
         C->>BE: warning comment on engagement
         C-->>OP: warn

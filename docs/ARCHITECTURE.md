@@ -84,8 +84,18 @@ Multica's board is the UI. Guild ships a CLI first; plan approval works through 
 Unchanged in substance, elevated in role: the plan-approval gate, machine-checkable handoff contracts, trace visibility, and single-writer discipline are no longer one decision among eight — they are the product. Concrete grounding added by the research: multica#1579 (trusted self-report failure) is the documented real-world case for contract validation; multica#815 and #1943 are the community demand for stages and gates. Contract mechanics:
 
 - A `HandoffContract` = executable Gherkin acceptance criteria + concrete checks (command exit codes, artifact existence), authored by the upstream role *before* implementation.
-- **Guild runs the validation** — in its own environment, never the implementing agent's session — and posts the verdict as a comment on the engagement issue. Self-reports are hostile input.
+- **Guild runs the validation** — never the implementing agent's session — and posts the verdict as a comment on the engagement issue. Self-reports are hostile input.
 - Single-writer: one engagement = one Multica issue = one agent = one branch; merges are Guild-mediated.
+- **Plan approval is explicit by default** — the bounded auto-approve timer is a per-project opt-in for actively supervised runs, never the default (external review 2026-07-30: silence-as-consent lets a flawed, expensive plan approve itself while a solo operator sleeps).
+
+**Contract execution semantics (added 2026-07-30, external review — "Guild's own environment" is now specified, not asserted):**
+
+- Validation runs in a **conductor-controlled validator environment**: a fresh, isolated workspace in Guild's namespace that clones the engagement branch — never the daemon's workspace.
+- Every command check runs from the clone root (or its declared repo-relative `cwd`) with a **mandatory timeout**; stdout/stderr are captured as evidence and referenced from the verdict.
+- Outcomes are three-valued: **passed**, **failed** (acceptance failure → bounce), and **validator_error** (infrastructure fault → retry validation; the work is never bounced for the validator's own failure).
+- Verdicts carry the contract id + version and per-check results into the append-only `decisions` table (types: `packages/shared/src/contract.ts`).
+
+**Bounce rules (normative):** contracts are **immutable once dispatched** — an amendment is a new engagement, not an edit; a bounce returns to the same agent + issue (Multica session resume delivers prior context plus the failing criteria); bounce spend draws from the same engagement budget; after **two bounces** the next failure escalates to the operator instead of re-dispatching (`MAX_BOUNCES` in `packages/shared/src/governance.ts`).
 
 ### D7 — Hexagonal + DDD, TDD/BDD — **RETAINED**
 
@@ -99,7 +109,7 @@ Planned → Gated(awaiting approval) → Dispatched → Working ⇄ Blocked(ques
 
 - **Context-fresh by construction:** one Multica issue per engagement; Multica's verified session mechanics (resume is scoped to the same agent+issue+workdir) mean a new issue always starts a fresh LLM context. Role continuity comes from role-memory artifacts composed into the engagement brief, never from accumulated conversation.
 - **Bounced** work returns to the same issue (session resume gives the agent its prior context plus the failing criteria — the one place resume is desirable).
-- Budget: the watchdog meters gateway spend per engagement tag; soft cap → warn, hard cap → cancel via substrate + stop dispatching.
+- Budget: the watchdog meters gateway spend per engagement; soft cap → warn, hard cap → cancel via substrate + stop dispatching. **Attribution mechanism (2026-07-30, external review — a container-wide base-URL env carries no engagement identity):** primary design is a **per-engagement LiteLLM virtual key minted at dispatch**; fallbacks are per-agent keys (role-level attribution) or header injection via a thin proxy. **M1 must prove one mechanism end to end before the watchdog is built** — until then the budget feature is unproven. Semantics: money is integer cents; caps trigger at `spent >= cap`; hard cap cancels in-flight work and locks dispatch; the gateway is the source of truth when telemetry lags (Multica `task_usage` is optional reconciliation only).
 
 ## Kubernetes topology (control plane + first daemon from M1 — the home cluster is dev/staging; conductor joins and hardening completes at M3)
 
@@ -129,13 +139,14 @@ flowchart TB
 - Multica control plane via its upstream Helm chart (verified: backend/frontend/postgres/ingress only — no daemon template exists).
 - **Daemon Deployment is Guild's contribution**: custom image (multica binary + agent CLIs + git), headless `multica login --token` from a Secret, `runtimeClassName: gvisor` (Multica adds no sandboxing of its own — verified; the pod boundary is the only boundary, so harden it), NetworkPolicy egress limited to the Multica backend, LiteLLM, and git hosts, DNS scoped to the cluster resolver.
 - Provider keys live only in LiteLLM's secret; the daemon holds only its Multica token and git credentials.
-- The end-to-end daemon container is **untested** — building and proving it is the first M1 task, before anything depends on it.
+- The end-to-end daemon container is **untested** — building and proving it is the first M1 task, before anything depends on it. **MVP image scope: Claude Code only** (amd64; credentials enter at runtime, never baked in); further runtimes are added per role when a role needs them.
+- **Dev mode carries the cheap half of the hardening from day one** (2026-07-30, external review): dedicated namespaces, deny-by-default NetworkPolicies (daemon egress: Multica backend, gateway, declared git hosts only), non-privileged service accounts, and the narrower `mdt_` daemon token where its scope suffices. gVisor availability on the Talos nodes is checked in early M1 — adopted immediately if present; otherwise it lands, mandatory, at the M3 promotion.
 
 ## Open Questions
 
-1. Multica's agent/squad **management** API surface (create/configure agents programmatically) — required for M4 hiring, unverified; resolve by probing the API against a local instance early in M1.
+1. Multica's agent/squad **management** API surface (create/configure agents programmatically) — required for M4 hiring, unverified; resolve by probing the API against a local instance early in M1. **Fallback pre-declared (2026-07-30):** if runtime agent creation proves unusable, "dynamic hiring" means selecting from a pre-registered idle pool of role agents — same product outcome, known-supported registry mechanics.
 2. Plan-approval UX: CLI-only vs. also mirroring the plan as a Multica issue the operator approves by comment. Decide in M2 (where the gate is built) from actual use.
-3. Where generated products live — child repos vs. monorepo of outputs (carried over; decide before M2 delivery stage).
+3. ~~Where generated products live~~ — **resolved 2026-07-30 for MVP**: one git repository per project on the operator's GitHub (created at project start; M1's integration test uses a scratch repo); the daemon pushes engagement branches there. An in-cluster forge (e.g. Gitea) stays a documented fully-local alternative for later.
 4. Whether Multica's usage/timeline API exposes enough per-task cost for the watchdog to cross-check the gateway numbers (nice-to-have reconciliation).
 5. ~~Multica Postgres placement~~ — **reframed 2026-07-30 as a dual-mode requirement, not a choice**: the deploy supports and documents both in-cluster datastores (K8s Postgres instances with documented PVs) and external datastores (connection-string overrides, one DB/role per app, pgvector noted). Dev runs fully isolated in-cluster ("test like a new user" — zero pre-existing homelab services used); the M3 promotion picks this cluster's permanent mode. Both modes remain supported for other users.
 6. Final exposure: `*.bitstrum.com` currently resolves to NPM, not the in-cluster Envoy Gateway (cutover rolled back 2026-07-20). Dev phase is port-forward/internal-only; decide at the M3 promotion.

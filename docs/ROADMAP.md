@@ -8,23 +8,34 @@ Original scaffold, ecosystem validation of D1–D7, multica research, reposition
 
 ## M1 — Substrate proven
 
-Nothing in Guild matters if the substrate assumptions don't hold; prove them first.
+Nothing in Guild matters if the substrate assumptions don't hold; prove them first. Restructured 2026-07-30 (external review: too many first-of-kind risks in one lump) into **two phases with separate exit criteria**, so a failure in one doesn't stall the other and partial success still informs design.
 
-- **Deploy Multica directly with `kubectl`/`helm` into a dedicated dev namespace** — operator's call (2026-07-30): app-first speed during development, GitOps only at the last stage. Dev namespaces stay outside Flux's purview, so nothing is pruned or reverted; the cluster's Flux-only rule continues to bind everything Flux already manages. Pinned chart version; record the LICENSE-diff review procedure with the pin.
-- **Full isolation — test like a new user** (operator decision 2026-07-30): the dev stack uses **zero pre-existing homelab services** — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs. Everything Guild needs ships in its own dev namespaces.
-- **Dual-mode datastores, both documented from day one**: the deploy supports (a) **in-cluster** datastores — Multica's Postgres (pgvector), LiteLLM's key/spend DB, and Guild's Postgres as K8s instances with documented PVCs (on this cluster: `nfs-filesrv02`, sized generously — volume expansion is disabled) — this is the dev default; and (b) **external** datastores — documented connection-string/values overrides, one DB + one role per app, pgvector requirement for Multica called out. The M3 promotion picks the permanent mode; both stay supported for other users.
-- **Dev gateway: an isolated LiteLLM instance in the dev namespace**, cloud routes only by default (`anthropic/*`, optionally OpenRouter) with its own in-cluster DB for virtual keys/spend; local-model backends (e.g. Ollama) are a documented option, not a dependency. Exposure via port-forward / internal Gateway IP only.
-- **Build and end-to-end test the custom daemon container against the live cluster backend** (the known-untested piece): multica binary + agent CLIs + git, headless `multica login --token`, claims and completes a real task
-- Verify LiteLLM routing from inside the daemon container (`ANTHROPIC_BASE_URL`): **acceptance test — prompt caching and extended thinking work through the proxy** (carried from old D2)
-- Probe the API surface against the cluster instance: issue create/assign/comment/cancel, WebSocket events, PAT auth, and the **agent/squad management endpoints (open question 1)**
-- `packages/shared` v2 contracts + `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with a port contract-test suite
+### M1a — Substrate & infrastructure proof
 
-**Acceptance:** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the comment/status events arrive over WS, and the spend appears in LiteLLM — all scripted, no manual steps.
+- **Deploy Multica directly with `kubectl`/`helm` into a dedicated dev namespace** — operator's call (2026-07-30): app-first speed during development, GitOps only at the last stage. Dev namespaces stay outside Flux's purview; the cluster's Flux-only rule continues to bind everything Flux already manages. Pinned chart version; record the LICENSE-diff review procedure with the pin.
+- **Full isolation — test like a new user**: zero pre-existing homelab services — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs.
+- Datastores: **in-cluster mode implemented** (Multica pgvector Postgres, LiteLLM DB, Guild Postgres; documented PVCs on `nfs-filesrv02`, sized generously — no volume expansion); **external mode documented-only** (connection-string/values overrides, one DB + role per app, pgvector noted) and first exercised at the M3 promotion.
+- **Dev-mode hardening from day one** (external review): deny-by-default NetworkPolicies (daemon egress: Multica backend, gateway, declared git hosts), non-privileged service accounts, scoped `mdt_` daemon token where sufficient; check gVisor availability on the Talos nodes — adopt now if present, else mandatory at M3.
+- **Dev gateway: isolated LiteLLM instance**, cloud routes only (`anthropic/*`, optionally OpenRouter), own in-cluster DB for virtual keys/spend; local-model backends documented as an option. Port-forward exposure only.
+- **Build and e2e-test the custom daemon container** against the live backend — **image scope: Claude Code only** (amd64, credentials at runtime): headless `multica login --token`, claims and completes a real task, pushes an engagement branch to a scratch GitHub repo (open question 3 resolution).
+- Gateway verification **at the gateway, not through the black-box daemon**: prompt caching and extended thinking observably work via LiteLLM logs/headers.
+- **Spend-attribution proof**: mint a per-engagement virtual key, run a task through it, read attributable spend back — one mechanism proven end to end before any watchdog code exists.
+- API probe on the cluster instance: issue create/assign/comment/**cancel — including verifying that cancel actually kills the forked CLI process and stops gateway traffic**, WS events, PAT auth, and the agent/squad management endpoints (open question 1).
+
+**M1a exit criteria:** each probe/build item has a recorded pass/fail **capability matrix** (`docs/research/`), including explicit failure-path behavior: failed token login, missing CLI, proxy-unsupported features, WS disconnect mid-task. A failed item with a documented workaround still exits; an untested item does not.
+
+### M1b — Contracts & adapter shaping
+
+- `packages/shared` v2 contracts (governance events, contract execution semantics, substrate error categories — landed 2026-07-30) refined against the M1a capability matrix
+- `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with the `ExecutionSubstrate` port contract-test suite; adapter errors mapped to the stable `SubstrateErrorCategory` set
+
+**M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, and the spend appears in LiteLLM **attributed to the engagement's virtual key** — all scripted, no manual steps.
 
 ## M2 — Core governance loop
 
 - Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation
-- Plan-approval gate via CLI with bounded auto-approve timer (open question 2: decide comment-mirror UX from use)
+- Plan-approval gate via CLI — explicit approval by default, auto-approve timer as per-project opt-in (open question 2: decide comment-mirror UX from use)
+- Bounce/retry per D6 rules: contracts immutable after dispatch, same agent+issue on bounce, `MAX_BOUNCES` then operator escalation; typed engagement briefs carry prior decisions across the fresh-context reset
 - Contracted dispatch: one Multica issue per engagement, `HandoffContract` (executable Gherkin + checks) authored upstream
 - Guild-run contract validation on completion; bounce with failing criteria on the same issue; Guild-mediated merges, single-writer per engagement
 - Fixed starter team of four roles; role-memory artifacts composed into engagement briefs
@@ -42,7 +53,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 
 ## M4 — Team evolution
 
-- Dynamic hiring: Guild creates/configures Multica agents and squads on demand from role templates (contingent on the M1 API probe)
+- Dynamic hiring: Guild creates/configures Multica agents and squads on demand from role templates (contingent on the M1 API probe; **pre-declared fallback**: selection from a pre-registered idle pool of role agents if runtime creation is unusable — same outcome, known-supported mechanics)
 - Role-template registry + capability selection as data; retire idle agents
 - Role-memory artifact maintenance across engagements
 

@@ -11,6 +11,24 @@ export interface WorkItemRef {
   externalId: string;
 }
 
+/**
+ * Stable error categories on the substrate boundary — application code depends
+ * on these, never on Multica-specific failure text (added 2026-07-30, external review).
+ */
+export type SubstrateErrorCategory =
+  | "auth"
+  | "not_found"
+  | "unsupported_capability"
+  | "conflict"
+  | "transport"
+  | "desync";
+
+export interface SubstrateError {
+  category: SubstrateErrorCategory;
+  message: string;
+  retryable: boolean;
+}
+
 export interface WorkItemSpec {
   engagementId: string;
   role: string;
