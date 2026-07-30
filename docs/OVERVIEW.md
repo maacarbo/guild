@@ -18,7 +18,8 @@ One page that shows every component and every data/event flow between them. Deci
 | 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
-| 13 | **Product repo(s)** | git hosting — repo-per-project on the operator's GitHub (OQ3 resolved 2026-07-30) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated |
+| 13 | **Product repo(s)** | git hosting — repo-per-project on the operator's GitHub (OQ3 resolved 2026-07-30) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated, fast-forward-only to the validated SHA |
+| 14 | **Contract validator** | ephemeral K8s Job from the daemon image, spawned per validation | nothing — reads a detached checkout, emits exit codes + evidence | second least-trusted workload: zero Guild credentials, registry-only egress; the conductor writes the verdict |
 
 ## System map
 
@@ -103,10 +104,13 @@ stateDiagram-v2
     Reported --> Validated: contract passes (Guild-run)
     Reported --> Reported: validator_error — validation retried, work never bounced
     Reported --> Bounced: contract fails
-    Bounced --> Working: re-dispatched, same issue — session resumes with failing criteria (count ≤ MAX_BOUNCES)
-    Bounced --> [*]: bounce limit reached — operator escalation (cancel or rescope)
+    Bounced --> Working: re-dispatched, same issue — self-contained bounce comment (count ≤ MAX_BOUNCES)
+    Bounced --> Escalated: bounce limit reached
+    Escalated --> [*]: operator cancels or rescopes
+    Working --> Cancelled: budget hard cap / operator / stage rejected
+    Cancelled --> [*]: key revoked, item closed
     Validated --> Accepted: operator accepts stage
-    Accepted --> [*]
+    Accepted --> [*]: key revoked, item closed
 ```
 
 ## Flows
@@ -186,16 +190,20 @@ sequenceDiagram
     participant C as Conductor
     participant R as Product repo
     participant G as Guild PG
+    participant V as Validator Job
     CLIs->>DM: work done (self-report)
     DM->>R: push engagement branch
     DM->>BE: status done
     BE-->>C: WS event
-    C->>R: clone branch
-    C->>C: run HandoffContract:<br/>Gherkin + checks, in Guild's own environment
-    C->>G: append verdict
+    C->>R: resolve branch head ONCE → commitSha
+    C->>V: spawn ephemeral Job (daemon image, zero Guild creds)
+    V->>R: detached checkout at commitSha
+    V->>V: run checks — Gherkin + commands, per-check timeouts
+    V-->>C: exit codes + captured evidence
+    C->>G: conductor writes the verdict (validator can fail work, never sign for Guild)
     alt contract passes
         C->>BE: comment verdict, advance
-        C->>R: Guild-mediated merge
+        C->>R: fast-forward-only merge to the validated commitSha
     else contract fails
         C->>BE: bounce — failing criteria commented on the SAME issue
         Note over BE,CLIs: same issue ⇒ session resumes with prior context + failures
@@ -244,5 +252,6 @@ Multica records cost; only the gateway's numbers can *enforce* it — that is Li
 
 - **Operator ↔ Guild**: the only place authority enters; gates and acceptance are theirs.
 - **Guild ↔ Multica**: one port (`ExecutionSubstrate`); Multica's vocabulary and Multica's trust in agent self-reports both stop at the adapter.
-- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; scoped egress + least-privilege from M1, gVisor from M1 if available (mandatory by M3).
+- **Daemon ↔ everything**: least-trusted (runs generated code); no provider keys; scoped egress + least-privilege from M1, gVisor per the Talos node-image plan (one labeled worker first; cluster-wide at M3).
+- **Validator ↔ Guild**: the validator executes agent-authored checks — hostile input — so it is a trust-peer of the daemon (ephemeral Job, zero Guild credentials); it can fail work but never signs for Guild.
 - **Gateway ↔ providers**: the only key holder; every model token, in and out, is metered here.

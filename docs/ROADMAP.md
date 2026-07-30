@@ -10,37 +10,59 @@ Original scaffold, ecosystem validation of D1–D7, multica research, reposition
 
 Nothing in Guild matters if the substrate assumptions don't hold; prove them first. Restructured 2026-07-30 (external review: too many first-of-kind risks in one lump) into **two phases with separate exit criteria**, so a failure in one doesn't stall the other and partial success still informs design.
 
-### M1a — Substrate & infrastructure proof
+### M1a — Substrate proof (split 2026-07-30, Anthropic review: prove behavior on the workstation first, lift to the cluster second)
 
-- **Deploy Multica directly with `kubectl`/`helm` into a dedicated dev namespace** — operator's call (2026-07-30): app-first speed during development, GitOps only at the last stage. Dev namespaces stay outside Flux's purview; the cluster's Flux-only rule continues to bind everything Flux already manages. Pinned chart version; record the LICENSE-diff review procedure with the pin.
-- **Full isolation — test like a new user**: zero pre-existing homelab services — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs.
-- Datastores: **in-cluster mode implemented** (Multica pgvector Postgres, LiteLLM DB, Guild Postgres; documented PVCs on `nfs-filesrv02`, sized generously — no volume expansion); **external mode documented-only** (connection-string/values overrides, one DB + role per app, pgvector noted) and first exercised at the M3 promotion.
-- **Dev-mode hardening from day one** (external review): deny-by-default NetworkPolicies (daemon egress: Multica backend, gateway, declared git hosts), non-privileged service accounts, scoped `mdt_` daemon token where sufficient; check gVisor availability on the Talos nodes — adopt now if present, else mandatory at M3.
-- **Dev gateway: isolated LiteLLM instance**, cloud routes only (`anthropic/*`, optionally OpenRouter), own in-cluster DB for virtual keys/spend; local-model backends documented as an option. Port-forward exposure only.
-- **Build and e2e-test the custom daemon container** against the live backend — **image scope: Claude Code only** (amd64, credentials at runtime): headless `multica login --token`, claims and completes a real task, pushes an engagement branch to a scratch GitHub repo (open question 3 resolution).
-- Gateway verification **at the gateway, not through the black-box daemon**: prompt caching and extended thinking observably work via LiteLLM logs/headers.
-- **Spend-attribution proof**: mint a per-engagement virtual key, run a task through it, read attributable spend back — one mechanism proven end to end before any watchdog code exists.
-- API probe on the cluster instance: issue create/assign/comment/**cancel — including verifying that cancel actually kills the forked CLI process and stops gateway traffic**, WS events, PAT auth, and the agent/squad management endpoints (open question 1).
+#### M1a-0 — Capability proof (docker-compose on the workstation — no cluster dependency)
 
-**M1a exit criteria:** each probe/build item has a recorded pass/fail **capability matrix** (`docs/research/`), including explicit failure-path behavior: failed token login, missing CLI, proxy-unsupported features, WS disconnect mid-task. A failed item with a documented workaround still exits; an untested item does not.
+Everything the capability matrix needs can be proven against a compose stack; cluster infra adds nothing to these answers:
+
+- Compose stack: pinned Multica + isolated LiteLLM; scratch GitHub repo
+- Daemon container e2e (Claude Code only, amd64, creds at runtime): claims + completes a task, pushes an engagement branch
+- Gateway proofs: prompt caching + extended thinking via LiteLLM logs/headers; **virtual key minted with `max_budget` stops serving at cap** — record how the 429 classifies in Multica
+- Spend attribution: per-engagement key → task → attributable spend read back
+- API probes: issue create/assign/comment/cancel; **cancel kills the forked CLI and stops gateway traffic**; WS events (+ REST read endpoints for reconciliation); **does a top-level conductor-PAT comment trigger the implementing agent** (bounce delivery — currently unverified and load-bearing); **do replies on closed issues still enqueue tasks** (termination protocol); **does bounce survive a daemon restart** (continuity floor); agent/squad management endpoints (**best-effort** — the idle-pool fallback stands either way)
+
+#### M1a-1 — Cluster lift
+
+- Lift the proven compose stack into the isolated dev namespaces; re-validate the transport rows of the matrix (WS behavior through the cluster network, PVC-backed workspaces)
+- Hardening: deny-by-default **CiliumNetworkPolicy with `toFQDNs`** for git hosts + the mandatory DNS-proxy rule (**probe: L7 DNS policy actually active**); non-privileged SAs with `automountServiceAccountToken: false`; PSA `restricted` namespace labels; scoped `mdt_` token
+- gVisor per the Talos reality (schematic extension on one labeled worker + RuntimeClass + nodeSelector + smoke test) — start it, don't block on it
+- Dev secrets flow per `deploy/README.md` (the documented new-user path — ESO is barred by the isolation rule)
+- NFS/Postgres checks: single-replica `Recreate` for every PG, sync export + hard mounts (or node-local for dev), nightly `pg_dump` CronJob for Guild PG + LiteLLM DB; agent workspaces default to `emptyDir` (resume loss is a survivable, priced event)
+
+#### Standing M1a rules (both phases)
+
+- **Dev mode** — operator's call (2026-07-30): direct `kubectl`/`helm`, GitOps only at the last stage; dev namespaces outside Flux's purview; the cluster's Flux-only rule binds everything Flux already manages. Pinned Multica version everywhere (compose and cluster); record the LICENSE-diff review procedure with the pin.
+- **Full isolation — test like a new user**: zero pre-existing homelab services — not the shared LiteLLM, not `dbsrv01`, not the Ollama VMs. Dev gateway = isolated LiteLLM, cloud routes only, own DB for virtual keys/spend; local-model backends documented as an option. Port-forward exposure only.
+- Datastores: **in-cluster mode implemented** (Multica pgvector Postgres, LiteLLM DB, Guild Postgres; documented PVCs on `nfs-filesrv02`, sized generously — no volume expansion); **external mode documented-only** and first exercised at the M3 promotion.
+
+**M1a exit criteria:** every probe/build item above has a recorded pass/fail entry in the **capability matrix** (`docs/research/`), including explicit failure-path behavior: failed token login, missing CLI, proxy-unsupported features, WS disconnect mid-task. A failed item with a documented workaround still exits; an untested item does not.
 
 ### M1b — Contracts & adapter shaping
 
-- `packages/shared` v2 contracts (governance events, contract execution semantics, substrate error categories — landed 2026-07-30) refined against the M1a capability matrix
-- `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with the `ExecutionSubstrate` port contract-test suite; adapter errors mapped to the stable `SubstrateErrorCategory` set
+- `packages/shared` v2 contracts (governance events, contract execution semantics, substrate error categories, port reads/rework/close — landed 2026-07-30) refined against the M1a capability matrix
+- `substrate-multica` adapter for the verified endpoints, TDD per CLAUDE.md with the `ExecutionSubstrate` port contract-test suite; adapter errors mapped to the stable `SubstrateErrorCategory` set; the suite doubles as the **substrate conformance suite** — mandatory-green on every Multica pin bump and daemon image rebuild
+- **First proof of the core mechanism**: validate a hand-written `HandoffContract` against the branch the integration test produced (SHA-pinned, validator-Job pattern) — the differentiator gets its first demonstration here, not in M2
 
-**M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, and the spend appears in LiteLLM **attributed to the engagement's virtual key** — all scripted, no manual steps.
+**M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the cluster instance, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, the spend appears in LiteLLM **attributed to the engagement's virtual key**, and a hand-written contract validates against the produced branch. **"Scripted, no manual steps" means: one idempotent entrypoint run over standing infrastructure** — it may assume the dev stack exists; it may not assume any prior test state.
 
-## M2 — Core governance loop
+## M2 — Core governance loop (split 2026-07-30, Anthropic review: the differentiator gets a proof point before the whole product)
 
-- Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation
+### M2a — One real engagement, governed
+
+- Hand-authored `StagePlan` (no planner yet): one stage, one role, one engagement
+- Full governed path: explicit gate → saga dispatch (virtual key with `max_budget`, brief, contract) → agent works → SHA-pinned validator-Job validation → **a real bounce with a real fix** → fast-forward merge → accept → termination protocol
+- Reconciliation proven: kill the conductor mid-engagement, restart, watch it recover from reads
+
+**M2a acceptance:** one engagement completes the entire governed lifecycle including one genuine bounce-and-recover, with every transition in the `decisions` table.
+
+### M2b — The planner and the team
+
+- Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation; plan versioning + re-gate on amendment
 - Plan-approval gate via CLI — explicit approval by default, auto-approve timer as per-project opt-in (open question 2: decide comment-mirror UX from use)
-- Bounce/retry per D6 rules: contracts immutable after dispatch, same agent+issue on bounce, `MAX_BOUNCES` then operator escalation; typed engagement briefs carry prior decisions across the fresh-context reset
-- Contracted dispatch: one Multica issue per engagement, `HandoffContract` (executable Gherkin + checks) authored upstream
-- Guild-run contract validation on completion; bounce with failing criteria on the same issue; Guild-mediated merges, single-writer per engagement
-- Fixed starter team of four roles; role-memory artifacts composed into engagement briefs
+- Fixed starter team of four roles; multi-stage, multi-engagement orchestration (role-memory artifacts deferred wholesale to M4 — briefs carry `priorDecisions` explicitly until then)
 
-**Acceptance:** a demo idea produces a repo with passing tests where every stage was gated and every handoff contract-validated — zero un-contracted advances; the run's decision trail is queryable from Guild's `decisions` table.
+**M2 acceptance:** a demo idea produces a repo with passing tests where every stage was gated and every handoff contract-validated — zero un-contracted advances; the run's decision trail is queryable from Guild's `decisions` table.
 
 ## M3 — Budget enforcement + Kubernetes
 

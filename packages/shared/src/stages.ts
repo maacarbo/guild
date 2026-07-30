@@ -18,14 +18,19 @@ export type EngagementState =
   | "reported"
   | "validated"
   | "bounced"
-  | "accepted";
+  | "accepted"
+  /** terminal: cancelled (budget hard cap, operator, stage rejection) — key revoked, item closed */
+  | "cancelled"
+  /** terminal-pending-operator: bounce limit reached; operator cancels or rescopes */
+  | "escalated";
 
 /**
  * Everything an agent needs to start context-fresh (Multica gives a new issue a
  * fresh LLM session): upstream decisions must ride in the brief or they are lost.
+ * Identity note: EngagementPlan.engagementId is the single owner; the brief is
+ * always transported alongside it (WorkItemSpec) and carries no separate id.
  */
 export interface EngagementBrief {
-  engagementId: string;
   /** role template + role-memory artifact, composed by the conductor */
   roleContext: string;
   instructions: string;
@@ -38,19 +43,31 @@ export interface EngagementBrief {
 }
 
 export interface EngagementPlan {
+  /** single owner of the engagement identity */
   engagementId: string;
   /** invariant: one open engagement per agent — enforced by the planner before dispatch */
   role: string;
   title: string;
   brief: EngagementBrief;
+  /** enforced cap: minted into the engagement's gateway virtual key as max_budget at dispatch */
   budgetCents: number;
 }
 
 export interface StagePlan {
   projectId: string;
   stageId: string;
+  /**
+   * bumped on every amendment; a gate approves exactly (stageId, planVersion) —
+   * amending re-gates. Mirrors the contract-immutability rule of D6.
+   */
+  planVersion: number;
   kind: StageKind;
   objective: string;
   engagements: EngagementPlan[];
+  /**
+   * advisory allocation for planning; enforcement happens at engagement caps
+   * (virtual-key max_budget) and the project cap (ProjectBudget) — stage-level
+   * enforcement is deliberately not built until a real need appears
+   */
   budgetCents: number;
 }

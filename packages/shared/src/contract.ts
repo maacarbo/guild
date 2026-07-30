@@ -50,8 +50,16 @@ export interface CheckResult {
 }
 
 export interface ContractVerdict {
+  /** anchor into the decisions table — which engagement this verdict judges */
+  engagementId: string;
   contractId: string;
   contractVersion: number;
+  /**
+   * the exact commit validated — resolved ONCE when the agent reports done;
+   * validation checks out this SHA detached; merge is fast-forward-only to
+   * exactly this SHA; a moved head means a new report, never a re-judgment
+   */
+  commitSha: string;
   /** "failed" bounces the work; "validator_error" retries validation and never bounces */
   outcome: "passed" | "failed" | "validator_error";
   results: CheckResult[];

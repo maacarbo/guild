@@ -16,7 +16,8 @@ Non-commercial by design: built for personal self-hosting, published open source
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D8 (with honest superseded/retained statuses), engagement lifecycle, K8s topology |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M4 with acceptance criteria |
 | [docs/VALIDATION-2026-07-29.md](docs/VALIDATION-2026-07-29.md) | External validation of the original decisions, with sources |
-| [docs/research/](docs/research/) | The multica comparison and source-level investigation that drove the reposition |
+| [docs/research/external-reviews-2026-07-30.md](docs/research/external-reviews-2026-07-30.md) | Four independent non-Anthropic model reviews — all blockers dispositioned: [disposition table](docs/research/external-reviews-disposition.md) |
+| [docs/research/](docs/research/) | Full evidence trail: multica comparison, source-level investigation, review responses |
 
 ## Repository layout
 
@@ -25,21 +26,21 @@ packages/
   shared/             published language: stages, HandoffContract, ExecutionSubstrate port
   orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
   substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
-deploy/               docker-compose (dev); K8s at M3 (Multica Helm + daemon + Guild + LiteLLM)
-docker/daemon/        custom Multica daemon image (M1): CLIs + git + headless login + LiteLLM routing
+deploy/               dev-mode docs: isolated cluster namespaces (kubectl-first), secrets flow, datastore modes (planned: manifests at M1)
+docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1a-0) — pinned CLIs + git + headless login + LiteLLM routing
 docs/                 product, architecture, roadmap, validation evidence, research
 ```
 
 ## Status
 
-**M0 complete — design, validation, and reposition.** M1 (prove the substrate: daemon container end-to-end, API probe, first adapter) is next. No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
+*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** M1a-0 (prove the substrate on a compose stack: daemon container end-to-end, API probes, spend attribution) is next. No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
 
 ## Development
 
-Requires Node ≥ 22 and pnpm (via corepack).
+Requires Node ≥ 22 and pnpm 10 (note: corepack is no longer bundled with Node ≥ 25 — install pnpm directly):
 
 ```sh
-corepack enable
+npm install -g pnpm@10
 pnpm install
 pnpm -r typecheck
 ```
