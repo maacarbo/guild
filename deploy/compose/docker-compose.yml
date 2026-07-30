@@ -1,0 +1,170 @@
+# Guild Tier 1 dev/quickstart stack — Docker Compose (docs: deploy/README.md, docs/ROADMAP.md M1)
+#
+# Fully isolated: every service below is owned by this stack; nothing points at
+# pre-existing infrastructure. All host ports bind to 127.0.0.1 only (Docker
+# bypasses host firewalls; see upstream docker-compose.selfhost.yml for why).
+#
+# Pinned versions (bump = lockstep pair with docker/daemon image; run the
+# conformance suite green before either moves — docker/daemon/README.md):
+#   Multica control plane  v0.4.15   (LICENSE diff reviewed — see README.md here)
+#   LiteLLM                v1.94.0   (by digest)
+#
+# Usage:
+#   cp .env.example .env   # fill in secrets — see README.md
+#   docker compose up -d                        # control plane + gateway
+#   docker compose --profile daemon up -d       # after a daemon token is minted
+
+name: guild-dev
+
+services:
+  # ---- Multica control plane (execution substrate) ------------------------
+  multica-postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: multica
+      POSTGRES_USER: multica
+      POSTGRES_PASSWORD: ${MULTICA_POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - multica_pgdata:/var/lib/postgresql/data
+    networks: [guild-dev]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U multica -d multica"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  multica-backend:
+    image: ghcr.io/multica-ai/multica-backend:${MULTICA_VERSION:-v0.4.15}
+    depends_on:
+      multica-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${MULTICA_BACKEND_PORT:-8080}:8080"
+    volumes:
+      - multica_uploads:/app/data/uploads
+    environment:
+      DATABASE_URL: postgres://multica:${MULTICA_POSTGRES_PASSWORD}@multica-postgres:5432/multica?sslmode=disable
+      PORT: "8080"
+      JWT_SECRET: ${MULTICA_JWT_SECRET:?set in .env}
+      FRONTEND_ORIGIN: http://localhost:${MULTICA_FRONTEND_PORT:-3000}
+      MULTICA_APP_URL: http://localhost:${MULTICA_FRONTEND_PORT:-3000}
+      # Dev-stack login: deterministic verification code, scriptable first user.
+      # NEVER expose this stack beyond 127.0.0.1 with these two set — anyone
+      # who knows an email address could log in with the fixed code.
+      APP_ENV: ${MULTICA_APP_ENV:-development}
+      MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
+      ALLOW_SIGNUP: ${MULTICA_ALLOW_SIGNUP:-true}
+      MULTICA_VCS_INTEGRATION_ENABLED: "true"
+      MULTICA_VCS_SECRET_KEY: ${MULTICA_VCS_SECRET_KEY:-}
+    networks: [guild-dev]
+    restart: unless-stopped
+
+  multica-frontend:
+    image: ghcr.io/multica-ai/multica-web:${MULTICA_VERSION:-v0.4.15}
+    depends_on: [multica-backend]
+    ports:
+      - "127.0.0.1:${MULTICA_FRONTEND_PORT:-3000}:3000"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      REMOTE_API_URL: http://multica-backend:8080
+    networks: [guild-dev]
+    restart: unless-stopped
+
+  # ---- LiteLLM gateway (all agent model traffic; budget enforcement) ------
+  litellm-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - litellm_pgdata:/var/lib/postgresql/data
+    networks: [guild-dev]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  litellm:
+    # Pinned by digest: v1.94.0
+    image: ghcr.io/berriai/litellm-database@sha256:528774743b9efc02ee4612e99a79810df91188689ff4e569d9bcc79216b1e906
+    depends_on:
+      litellm-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_POSTGRES_PASSWORD}@litellm-postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set in .env}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?set in .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      STORE_MODEL_IN_DB: "false"
+    networks: [guild-dev]
+    restart: unless-stopped
+
+  # ---- Guild conductor database (M1b+; empty until the adapter lands) -----
+  guild-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: guild
+      POSTGRES_USER: guild
+      POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - guild_pgdata:/var/lib/postgresql/data
+    networks: [guild-dev]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guild -d guild"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---- Multica agent daemon (Guild-built image; profile-gated because it
+  # needs a personal access token minted from a running control plane) ------
+  guild-daemon:
+    profiles: [daemon]
+    build:
+      context: ../../docker/daemon
+      args:
+        MULTICA_VERSION: ${MULTICA_VERSION:-v0.4.15}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.220}
+    platform: linux/amd64
+    init: true
+    depends_on: [multica-backend, litellm]
+    environment:
+      MULTICA_SERVER_URL: http://multica-backend:8080
+      MULTICA_APP_URL: http://multica-frontend:3000
+      # Required at daemon start (entrypoint enforces); cannot be :?-required
+      # here because compose interpolates even profile-gated services.
+      MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
+      MULTICA_RUNTIME_NAME: ${MULTICA_RUNTIME_NAME:-guild-daemon-1}
+      # All model traffic through the gateway; the token is a LiteLLM virtual
+      # key (never a provider key) so every call is metered and budget-capped.
+      ANTHROPIC_BASE_URL: http://litellm:4000
+      ANTHROPIC_AUTH_TOKEN: ${GUILD_DAEMON_VIRTUAL_KEY:-}
+      # Scratch-repo git auth (HTTPS + PAT), written to an ephemeral
+      # credential store by the entrypoint — never baked into the image.
+      GITHUB_TOKEN: ${GUILD_DAEMON_GITHUB_TOKEN:-}
+      GIT_USER_NAME: ${GUILD_DAEMON_GIT_NAME:-guild-daemon}
+      GIT_USER_EMAIL: ${GUILD_DAEMON_GIT_EMAIL:-guild-daemon@localhost}
+    # Session dirs are ephemeral by design (no volume): bounce continuity
+    # after a container restart is best-effort — docker/daemon/README.md.
+    networks: [guild-dev]
+    restart: unless-stopped
+
+networks:
+  guild-dev:
+    name: guild-dev
+
+volumes:
+  multica_pgdata:
+  multica_uploads:
+  litellm_pgdata:
+  guild_pgdata:
