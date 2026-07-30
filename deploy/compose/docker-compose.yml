@@ -144,7 +144,10 @@ services:
       # Required at daemon start (entrypoint enforces); cannot be :?-required
       # here because compose interpolates even profile-gated services.
       MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
-      MULTICA_RUNTIME_NAME: ${MULTICA_RUNTIME_NAME:-guild-daemon-1}
+      # Runtime rows are named "<provider> (<device_name>)"; daemon identity
+      # itself is a per-container UUID in ~/.multica/daemon.id (no volume =
+      # fresh identity per container, so two daemons never collide).
+      MULTICA_DAEMON_DEVICE_NAME: ${MULTICA_DAEMON_DEVICE_NAME:-guild-daemon-1}
       # All model traffic through the gateway; the token is a LiteLLM virtual
       # key (never a provider key) so every call is metered and budget-capped.
       ANTHROPIC_BASE_URL: http://litellm:4000
