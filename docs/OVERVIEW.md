@@ -14,8 +14,8 @@ One page that shows every component and every data/event flow between them. Deci
 | 6 | **Multica backend** | K8s Deployment (dev namespace) | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
 | 7 | **Multica frontend (board)** | K8s Deployment | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
 | 8 | **Multica Postgres** (pgvector) | in-cluster (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
-| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor at M3 | agent workspaces (PVC); forks agent CLIs as subprocesses | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
-| 10 | **Agent CLIs** (claude, opencode, …) | subprocesses inside the daemon | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
+| 9 | **Multica daemon** | custom container (Guild-built), K8s Deployment; gVisor at M3 | agent workspaces (PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
+| 10 | **Agent CLIs** (claude code, codex, opencode, …) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via base-URL env |
 | 11 | **LiteLLM gateway** (isolated dev instance) | K8s Deployment + own DB (virtual keys, per-key spend) | model routing, per-role policy, spend metering — the **enforcement** data source | sole holder of provider API keys |
 | 12 | **Model providers** | external APIs (Anthropic; optionally OpenRouter; Ollama as documented option) | — | reached only from the gateway |
 | 13 | **Product repo(s)** | git hosting (open question 3) | the generated application: code, contract artifacts (`features/`), branches per engagement | single-writer per branch; merges are Guild-mediated |
@@ -58,6 +58,36 @@ flowchart LR
 ```
 
 Two channels never exist: agents never talk to each other directly (all coordination is Multica issues/comments), and nothing but the gateway ever holds a provider key.
+
+## Where the agents live — provisioning & runtime selection
+
+The system map compresses the agent layer into boxes 9–10; this is what's inside. An "agent" is not a long-running process — it is (a) a **Guild role template**, (b) a **Multica agent registry entry** created from it, and (c) a **short-lived CLI process** the daemon forks per task:
+
+```mermaid
+flowchart TB
+    RT["Guild role template<br/>role, runtime CLI, model tier,<br/>skills, context brief"]
+    ST["Staffing<br/>M1-M2: fixed starter team<br/>M4: demand-driven hiring via API"]
+    AG["Multica agent (registry entry)<br/>runtime + model set per agent<br/>Multica supports 14+ CLIs"]
+    TQ["task claimed for this agent"]
+    DM["Daemon container<br/>all chosen runtime CLIs baked into the image,<br/>auto-detected on PATH"]
+    CC["claude CLI"]
+    CX["codex CLI"]
+    OC["opencode CLI"]
+    LLM["LiteLLM gateway<br/>routes by model name, meters spend"]
+    RT --> ST --> AG --> TQ --> DM
+    DM -->|"spawn per task - fresh session per engagement"| CC
+    DM --> CX
+    DM --> OC
+    CC --> LLM
+    CX --> LLM
+    OC --> LLM
+```
+
+- **Role → runtime → model is data, not code**: want Codex for the implementer and Claude Code for the architect? Two role templates with different `runtime` values; staffing creates two Multica agents; the daemon forks whichever CLI each task's agent specifies. Verified Multica mechanics: agents carry a per-agent runtime + model choice, and the daemon auto-detects installed CLIs.
+- **Per-task spawn, not per-agent servers**: nothing idles between engagements; "spinning up an agent" costs a process fork, and context-freshness falls out of it (one issue per engagement, D6/lifecycle above).
+- **Adding a runtime = three moves**: install the CLI in the daemon image (`docker/daemon/`), add its provider route to the gateway if it needs one, reference it in a role template. Nothing in the conductor changes — runtime identity never crosses the `ExecutionSubstrate` port.
+- **Placement & scale**: multiple daemons can register as separate Multica runtimes (tasks carry a runtime binding — the session-resume gating in the research doc is keyed on it), so heavy roles can get their own daemon Deployment later without design change.
+- **Why only LiteLLM showed up as "the gateway"**: it is the *model* layer under every runtime — one policy and one budget regardless of which CLI is doing the work. The *agent* layer is this section.
 
 ## Engagement lifecycle (states owned by the conductor, stored in Guild PG)
 
