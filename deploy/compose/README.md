@@ -26,8 +26,8 @@ virtual key, put them in `.env` (`MULTICA_DAEMON_TOKEN`,
 docker compose --profile daemon up -d --build
 ```
 
-The daemon registers as a runtime (Settings → Runtimes) named
-`$MULTICA_RUNTIME_NAME`. Agent model traffic flows
+The daemon registers as a runtime (Settings → Runtimes) whose rows are
+labeled by `$MULTICA_DAEMON_DEVICE_NAME`. Agent model traffic flows
 `claude → litellm:4000 → provider`, authenticated by the virtual key — never a
 provider key — so every call is metered and hard-capped (`max_budget`).
 

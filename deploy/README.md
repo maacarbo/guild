@@ -28,7 +28,7 @@ Secrets are created directly by the operator — gitignored `.env` files (`chmod
 | Secret | Component | Keys |
 |---|---|---|
 | `multica-app` | Multica backend | backend config (JWT secret, DB creds) |
-| `guild-daemon` | daemon | `MULTICA_DAEMON_TOKEN` (`mdt_…`), git credentials (fine-grained HTTPS PAT scoped to the product repo(s) only), agent-CLI env |
+| `guild-daemon` | daemon | `MULTICA_DAEMON_TOKEN` (`mul_…` personal access token — the live-verified path, M1a P2/P3; the narrower workspace-scoped `mdt_` token was not exercised in M1a and is an M1b follow-up), git credentials (fine-grained HTTPS PAT scoped to the product repo(s) only), agent-CLI env |
 | `litellm-app` | gateway | `ANTHROPIC_API_KEY` (+ optional OpenRouter), master key, DB creds |
 | `guild-conductor` | conductor | Multica PAT (`mul_…`), LiteLLM admin key (key minting), Guild PG creds |
 

@@ -30,17 +30,23 @@ documented; exits M1a) / **UNCONFIRMED** (does not exit M1a; M1b follow-up) /
 | P6 | Replies on a closed issue still enqueue | **PASS** |
 | P7 | Bounce after daemon restart (ephemeral session dirs) | **PASS** (caveat: branch identity not stable — SHA is the anchor) |
 | P8 | Daemon-internal task concurrency | **PASS** (parallel; slot semaphore, default 20) |
-| P9 | Two daemon containers register as distinct runtimes e2e | **PASS** (P9b recreate-orphaning failure path documented with proven repair) |
+| P9 | Two daemon containers register as distinct runtimes e2e | **PASS-WITH-WORKAROUND** (P9b recreate-orphaning failure path with proven repair) |
 | P10 | Virtual-key `max_budget` stops at cap; 429 classification in Multica | **PASS** |
 | P11 | Spend attribution: per-engagement key → task → attributable spend | **PASS** (gateway-side; Multica usage is zero for failed tasks) |
-| P12 | Prompt caching + extended thinking survive the gateway | caching **PROVISIONAL-PASS** (via OpenRouter); extended thinking **UNCONFIRMED** |
+| P12 | Prompt caching + extended thinking survive the gateway | caching **PROVISIONAL** (passed via OpenRouter route); extended thinking **UNCONFIRMED** |
 | P13 | REST read endpoints sufficient for reconciliation | **PASS** |
 | P14 | WS events: task lifecycle + comments observable | **PASS** |
 | P15 | Agent/squad management via API (best-effort) | **PASS** |
 
-**M1a exit assessment: all probes exited** (PASS, PASS-with-documented-path,
-or explicitly deferred-to-M1b UNCONFIRMED on a non-blocking sub-question).
-No design assumption was refuted; three findings sharpen the conductor design
+**M1a exit assessment — scope: probes P1–P15 only.** 13 of 15 exit clean
+(PASS or PASS-WITH-WORKAROUND). Per the legend and ROADMAP's exit rule,
+**two items do NOT yet exit**: P12's extended-thinking half (UNCONFIRMED — no
+`--effort` flag observed; ARCHITECTURE.md D2 carries this as an M1 acceptance
+test, so it must be closed during M1b conformance work) and P12's caching half
+on the Anthropic-direct route (PROVISIONAL — proven via OpenRouter only).
+ROADMAP M1a's ease-of-setup build items (`scripts/bootstrap.sh`,
+`make up/down/reset/doctor`) are **outstanding and not assessed here**.
+No design assumption was refuted; the findings sharpen the conductor design
 (see "Design consequences" at the end).
 
 ## Probe details
@@ -65,6 +71,10 @@ conductor identities) → `POST /api/workspaces` → `PATCH /api/workspaces/{id}
 with `repos:[{url}]` (scratch-repo wiring) → LiteLLM `POST /key/generate`.
 Caveat verified in source and live: the dev code only short-circuits the
 comparison — `/auth/send-code` must still be called first to create a code row.
+Token-type note: the daemon authenticated with a **`mul_` personal access
+token** (full user scope); the narrower workspace-scoped `mdt_` daemon token
+was not exercised in this run — M1b follow-up (deploy/README.md updated to
+match the verified path).
 
 ### P3 — Daemon container e2e
 - Headless login worked exactly as designed: `multica login --token` then
