@@ -13,7 +13,7 @@ Non-commercial by design: built for personal self-hosting, published open source
 | [CLAUDE.md](CLAUDE.md) | Development guidelines: hexagonal/DDD layering, TDD/BDD discipline, conventions (mirrored as AGENTS.md) |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | What Guild does, flows, MVP cut |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | The map: every component and every data/event flow, with diagrams |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D8 (with honest superseded/retained statuses), engagement lifecycle, deployment topology |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Decision records D1–D9 (with honest superseded/retained statuses), engagement lifecycle, deployment topology |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0–M4 with acceptance criteria |
 | [docs/VALIDATION-2026-07-29.md](docs/VALIDATION-2026-07-29.md) | External validation of the original decisions, with sources |
 | [docs/research/external-reviews-2026-07-30.md](docs/research/external-reviews-2026-07-30.md) | Four independent non-Anthropic model reviews — all blockers dispositioned: [disposition table](docs/research/external-reviews-disposition.md) |

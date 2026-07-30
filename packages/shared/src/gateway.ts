@@ -7,6 +7,9 @@
  * swapping gateways is an adapter change only.
  *
  * Amounts are integer cents (published-language convention, see stages.ts).
+ * Adapters convert to the gateway's native unit at the boundary — LiteLLM's
+ * `max_budget` is a DOLLAR float, so its adapter passes `budgetCents / 100`;
+ * passing raw cents would mint a cap 100x too large.
  * M1a evidence (capability-matrix-m1a.md): caps are insurance, not precision —
  * spend writes batch upstream (~60s), so expect at least one in-flight turn of
  * overshoot past `budgetCents`; and the gateway, not the substrate, is the

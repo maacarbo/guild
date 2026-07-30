@@ -78,3 +78,10 @@ trade-off.
 - Multi-CLI in one daemon container: no blockers — Multica probes each
   provider independently (`MULTICA_<PROVIDER>_PATH`) and registers one
   runtime row per CLI per daemon.
+
+## Addendum 2026-07-30 — source link for the enforcement-precedent quote
+
+The Register quote above is secondhand (a news report, unlike the two
+primary-source policy pages fetched directly the same day). Source URL,
+fetched and quote-confirmed during the verification workflow:
+https://www.theregister.com/software/2026/02/20/anthropic-clarifies-ban-on-third-party-tool-access-to-claude/5014546
