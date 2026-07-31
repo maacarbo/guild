@@ -257,3 +257,45 @@ LiteLLM gateway as a custom `litellm` provider with
 - Recreate-orphaning behaved exactly as P9b documented (old runtime rows
   lingered online through the heartbeat window; old agents orphaned — dev
   stack accepts this; conductor repair sequence unchanged).
+
+## Addendum 2026-07-31 — P12b: extended thinking root cause (closes the P12 UNCONFIRMED)
+
+Verdict revision: extended thinking **PASS-WITH-WORKAROUND** (was
+UNCONFIRMED). The `--effort` flag injection works; it is gated on the model
+id, and gateway aliases fail that gate silently.
+
+Root cause (source, v0.4.15): the daemon validates `thinking_level` against
+a **hard-coded static Claude model catalog** before spawning
+(`server/pkg/agent/models.go` `claudeStaticModels()`;
+`server/internal/daemon/daemon.go` calls `ValidateThinkingLevel` and on a
+failed lookup logs `thinking_level: not valid for this (provider, model);
+skipping injection` and drops the level — the task still runs). Any model id
+absent from that static list fails closed: every gateway alias
+(`or-claude-haiku-4-5`), and even the undated real id `claude-haiku-4-5`
+(the catalog's only Haiku entry is the dated `claude-haiku-4-5-20251001`).
+
+Live proof, both directions (daemon log, task spawn args):
+
+| Agent model | Warning fired | `--effort` in spawn args |
+|---|---|---|
+| `or-claude-haiku-4-5` | yes | no |
+| `claude-haiku-4-5` | yes | no |
+| `claude-haiku-4-5-20251001` | no | **yes** (`--effort high`) |
+
+Workaround for gateway-routed Claude Code agents: **name the LiteLLM alias
+exactly after a static-catalog model id** (e.g. define gateway model
+`claude-haiku-4-5-20251001` routed to the OpenRouter backend) — the daemon
+then injects `--effort` and the traffic still flows through the metered
+gateway. OpenCode agents are unaffected by this path (their thinking uses
+OpenCode variant discovery, a different mechanism). Consequence recorded for
+D2's acceptance item; the conformance suite pins the static-catalog gate so
+a pin bump that changes the catalog surfaces as a test failure.
+
+New substrate facts found while probing (M1b adapter work, same day):
+issue create 409s on same-title *active* issues unless `allow_duplicate`
+is set (code `active_duplicate_issue`); issue `metadata` is accepted but
+**not persisted** by POST /api/issues; issue updates are PUT (PATCH → 405);
+`/auth/send-code` has a request cooldown (429 "please wait before
+requesting another code"); a completed reply-style OpenCode run can carry
+`result.output: ""` with `models_with_usage=1` (silent completion — the
+work report, not the summary text, is the reliable signal).
