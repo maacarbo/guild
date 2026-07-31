@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:live": "GUILD_LIVE_STACK=1 vitest run"
   },
   "dependencies": {
     "@guild/shared": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@types/node": "^26.1.2",
+    "typescript": "^5.6.0",
+    "vitest": "4.1.10"
   }
 }
