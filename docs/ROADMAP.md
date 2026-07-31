@@ -10,7 +10,7 @@
 
 Original scaffold, ecosystem validation of D1–D7, multica research, reposition decision, this roadmap. All evidence in `docs/` and `docs/research/`.
 
-## M1 — Substrate proven (on Docker Compose)
+## M1 — Substrate proven (on Docker Compose) ✅
 
 Nothing in Guild matters if the substrate assumptions don't hold; prove them first — entirely on the compose stack. (History: the external review split M1 into phases; the Anthropic review moved the proof to the workstation; the 2026-07-30 sequencing decision made compose the primary target through M2, moving the cluster lift to M3; the 2026-07-30 reorganisation extended compose through M3 — team evolution — and made the cluster lift the optional M4.)
 
@@ -42,6 +42,8 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 - **First proof of the core mechanism**: validate a hand-written `HandoffContract` against the branch the integration test produced (SHA-pinned, validator-sandbox pattern via the `docker run` driver) — the differentiator gets its first demonstration here, not in M2
 
 **M1b exit criteria (= M1 acceptance):** a Guild integration test creates an issue via the port on the compose stack, a containerized daemon agent completes it, the engagement branch lands in the scratch repo, comment/status events arrive over WS, the spend appears in LiteLLM **attributed to the engagement's virtual key**, and a hand-written contract validates against the produced branch (via the `docker run` validator driver). **"Scripted, no manual steps" means: one idempotent entrypoint run over standing infrastructure** — it may assume the compose stack is up; it may not assume any prior test state. The same entrypoint ships as **`pnpm smoke`** (a repo dev/CI verb — Node is already the development prerequisite; user-facing setup stays compose-verbs-only per the M1a cross-platform ruling) and passes twice consecutively *without* a reset in between (idempotency proven, ≤ 10 min per run).
+
+**Met 2026-07-31**: `pnpm smoke` (the acceptance scenario as a Gherkin feature, `packages/orchestrator/features/m1-smoke.feature`) green twice consecutively without reset — 1m46s and 1m40s. Per-engagement spend attribution runs through the agent-level env hook with a budget-capped virtual key; the contract validated SHA-pinned in the `docker run` sandbox (`--network none`, no credentials); the P12 extended-thinking item closed as PASS-WITH-WORKAROUND (matrix addendum P12b). The `ExecutionSubstrate` conformance suite (12 scenarios, `packages/substrate-conformance/`) is the standing pin-bump gate. Known follow-ups, tracked outside the acceptance: Anthropic-direct caching numbers when a direct key exists (matrix P12), and the "one versions file" standing rule, still unimplemented.
 
 ## M2 — Core governance loop (split 2026-07-30, Anthropic review: the differentiator gets a proof point before the whole product)
 
