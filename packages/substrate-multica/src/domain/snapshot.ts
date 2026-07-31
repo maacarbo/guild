@@ -2,7 +2,10 @@
  * Pure snapshot derivation: (issue, task runs) → WorkItemSnapshot.
  * One engagement = one issue (D8 context-freshness); runs are per-trigger.
  * The LATEST run carries the status; the latest COMPLETED run carries the
- * report (latest report wins — a bounce in flight must not erase it).
+ * report while a bounce is in flight (running/queued must not erase it) —
+ * but a LATER failed/cancelled run suppresses it: the failure is then the
+ * actionable signal, and a stale success artifact next to a failed status
+ * would read as fresh work (M1b verify finding).
  */
 
 import type { WorkItemRef, WorkItemSnapshot } from "@guild/shared";
@@ -21,6 +24,11 @@ export function deriveSnapshot(
 ): WorkItemSnapshot {
   const latest = latestOf(runs);
   const latestCompleted = latestOf(runs.filter((r) => r.status === "completed" && r.result));
+  const reportStale =
+    latestCompleted !== undefined &&
+    latest !== undefined &&
+    latest.id !== latestCompleted.id &&
+    (latest.status === "failed" || latest.status === "cancelled");
 
   const timestamps = [
     issue.updated_at,
@@ -34,7 +42,7 @@ export function deriveSnapshot(
     ...(latest?.status === "failed"
       ? { failure: classifyFailure(latest.failure_reason ?? latest.error) }
       : {}),
-    ...(latestCompleted?.result
+    ...(latestCompleted?.result && !reportStale
       ? {
           report: {
             summary: latestCompleted.result.output,

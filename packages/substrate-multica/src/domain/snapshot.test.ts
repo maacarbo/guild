@@ -64,6 +64,41 @@ describe("deriveSnapshot", () => {
     expect(s.report?.branchHint).toBe("agent/probe-opencode/555f8277");
   });
 
+  it("suppresses a stale report when a LATER run failed — failure is the actionable signal", () => {
+    const s = deriveSnapshot(
+      ref,
+      issue(),
+      [
+        run({ id: "11111111-a", status: "completed", created_at: "2026-07-31T10:01:00Z" }),
+        run({
+          id: "22222222-b",
+          status: "failed",
+          failure_reason: "agent_error.provider_capacity_or_rate_limit",
+          created_at: "2026-07-31T10:05:00Z",
+          completed_at: null,
+          result: null,
+        }),
+      ],
+      "worker",
+    );
+    expect(s.status).toBe("failed");
+    expect(s.failure?.category).toBe("provider_capacity_or_budget");
+    expect(s.report).toBeUndefined();
+  });
+
+  it("suppresses a stale report when a LATER run was cancelled", () => {
+    const s = deriveSnapshot(
+      ref,
+      issue(),
+      [
+        run({ id: "11111111-a", status: "completed", created_at: "2026-07-31T10:01:00Z" }),
+        run({ id: "22222222-b", status: "cancelled", created_at: "2026-07-31T10:05:00Z", completed_at: null, result: null }),
+      ],
+      "worker",
+    );
+    expect(s.report).toBeUndefined();
+  });
+
   it("classifies failure on a failed latest run", () => {
     const s = deriveSnapshot(
       ref,

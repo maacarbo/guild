@@ -111,6 +111,20 @@ describe("createWorkItem", () => {
     expect(ref.substrate).toBe("multica");
   });
 
+  it("writes the engagement marker LAST: an assign failure leaves nothing findWorkItem can find", async () => {
+    const { api, substrate } = make();
+    const realUpdate = api.updateIssue.bind(api);
+    let updates = 0;
+    api.updateIssue = async (id, patch) => {
+      if (++updates === 1) throw new MulticaHttpError(500, "assign blew up");
+      return realUpdate(id, patch);
+    };
+    await expect(substrate.createWorkItem(spec("eng-atomic"))).rejects.toMatchObject({
+      category: "substrate_internal",
+    });
+    expect(await substrate.findWorkItem("eng-atomic")).toBeNull();
+  });
+
   it("rejects an unbound role as unsupported_capability naming the role", async () => {
     const { substrate } = make();
     const err = await substrate.createWorkItem(spec("eng-1", "astrologer")).catch((e) => e);
@@ -229,6 +243,18 @@ describe("cancel semantics (P4)", () => {
     await substrate.cancel(ref, "operator");
     await substrate.cancel(ref, "operator");
     expect(api.cancelled).toEqual([]);
+  });
+});
+
+describe("watch scope faults (async-generator semantics)", () => {
+  it("surfaces a scope mismatch lazily on first pull, not at call time", async () => {
+    const { substrate } = make();
+    const stream = substrate.watch("wrong-scope"); // must not throw here
+    const err = await stream[Symbol.asyncIterator]()
+      .next()
+      .catch((e: unknown) => e);
+    expect(isSubstrateError(err)).toBe(true);
+    expect((err as { category: string }).category).toBe("desync");
   });
 });
 

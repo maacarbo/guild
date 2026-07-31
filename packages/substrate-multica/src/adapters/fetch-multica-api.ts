@@ -51,15 +51,31 @@ export class FetchMulticaApi implements MulticaApi {
   }
 
   async listIssues(): Promise<MulticaIssue[]> {
-    const all: MulticaIssue[] = [];
-    for (;;) {
-      const page = await this.request<{ issues: MulticaIssue[]; total: number }>(
-        "GET",
-        `/api/issues?limit=${PAGE_SIZE}&offset=${all.length}`,
-      );
-      all.push(...page.issues);
-      if (all.length >= page.total || page.issues.length === 0) return all;
+    // Offset pagination drifts when rows are created/deleted mid-iteration —
+    // a shifted row can vanish from every page while the count still looks
+    // complete (M1b verify finding). A sweep is trusted only when it is
+    // self-consistent (collected == its own first-page total, or the pages
+    // ran out); an inconsistent sweep is retried from scratch, and sustained
+    // churn fails loud as a retryable fault instead of returning a silently
+    // incomplete list.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const seen = new Map<string, MulticaIssue>();
+      let offset = 0;
+      let target: number | null = null;
+      let exhausted = false;
+      while (!exhausted && seen.size < (target ?? Number.POSITIVE_INFINITY)) {
+        const page = await this.request<{ issues: MulticaIssue[]; total: number }>(
+          "GET",
+          `/api/issues?limit=${PAGE_SIZE}&offset=${offset}`,
+        );
+        target ??= page.total;
+        for (const issue of page.issues) seen.set(issue.id, issue);
+        offset += page.issues.length;
+        exhausted = page.issues.length === 0;
+      }
+      if (seen.size >= (target ?? 0) || !exhausted) return [...seen.values()];
     }
+    throw new Error("issue listing did not stabilize across 3 sweeps (concurrent churn)");
   }
 
   updateIssue(id: string, patch: Partial<MulticaIssue> & { assignee_type?: string }): Promise<MulticaIssue> {

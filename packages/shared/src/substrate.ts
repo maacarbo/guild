@@ -186,5 +186,12 @@ export interface ExecutionSubstrate {
    * conductor's ignore-after-terminal rule (first persisted decision wins).
    */
   close(item: WorkItemRef): Promise<void>;
-  watch(projectScope: string): AsyncIterable<SubstrateEvent>;
+  /**
+   * Event stream (latency optimization; reads are truth). Cancellation: abort
+   * the signal — that closes the underlying transport and ends the iterable
+   * even while it is parked awaiting the next event; a consumer-side `break`
+   * alone cannot wake a parked stream. Scope faults surface lazily on first
+   * pull (async-generator semantics), not at call time.
+   */
+  watch(projectScope: string, opts?: { signal?: AbortSignal }): AsyncIterable<SubstrateEvent>;
 }

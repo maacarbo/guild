@@ -1,9 +1,12 @@
 /**
  * Pure translation between Multica vocabulary and the @guild/shared port
  * language — the heart of the anti-corruption layer (D8). No I/O here.
- * Every mapping is evidence-backed by docs/research/capability-matrix-m1a.md;
- * the closed-union policy is normative: unmapped native values surface as
- * "unknown", never as the nearest neighbor.
+ * Evidence: the status/failure/branch-hint maps come from the M1a capability
+ * matrix (P3/P7/P10/P13/P16); the engagement marker and the HTTP fault
+ * classification come from the M1b live probes (2026-07-31 — metadata not
+ * persisted, PUT-only updates, allow_duplicate 409) plus the closed-set
+ * totality requirement. The closed-union policy is normative throughout:
+ * unmapped native values surface as "unknown", never as the nearest neighbor.
  */
 
 import type { SubstrateError, WorkItemFailure, WorkItemStatus } from "@guild/shared";

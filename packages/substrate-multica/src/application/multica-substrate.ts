@@ -92,9 +92,18 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       );
     }
     try {
-      const description = embedEngagementMarker(renderBrief(spec.brief), spec.engagementId);
-      const issue = await this.api.createIssue({ title: spec.title, description });
+      // The engagement marker is written LAST — it is the commit point of the
+      // dispatch saga. create/assign are not atomic on this substrate; if
+      // either fails, no marker exists yet, findWorkItem stays null, and the
+      // conductor's retry starts clean instead of finding a half-dispatched
+      // orphan (M1b verify finding). The marker is invisible agent-side, so
+      // appending it after assignment cannot change the brief the agent reads.
+      const brief = renderBrief(spec.brief);
+      const issue = await this.api.createIssue({ title: spec.title, description: brief });
       await this.api.updateIssue(issue.id, { assignee_id: binding.agentId, assignee_type: "agent" });
+      await this.api.updateIssue(issue.id, {
+        description: embedEngagementMarker(brief, spec.engagementId),
+      });
       return { substrate: this.name, externalId: issue.id };
     } catch (e) {
       return this.fail(e);
@@ -178,12 +187,12 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     }
   }
 
-  async *watch(projectScope: string): AsyncIterable<SubstrateEvent> {
+  async *watch(projectScope: string, opts?: { signal?: AbortSignal }): AsyncIterable<SubstrateEvent> {
     this.assertScope(projectScope);
     // eventId synthesis: per-stream nonce + sequence (the substrate carries no ids)
     const nonce = `${projectScope.slice(0, 8)}-${process.hrtime.bigint().toString(36)}`;
     let seq = 0;
-    for await (const frame of this.api.watchWorkspace()) {
+    for await (const frame of this.api.watchWorkspace(opts?.signal)) {
       const raw = substrateEventFromFrame(this.name, frame, new Date().toISOString());
       if (raw) yield { ...raw, eventId: `${nonce}:${++seq}` };
     }

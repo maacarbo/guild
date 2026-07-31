@@ -11,6 +11,11 @@
  *   recreates orphan agents on dead rows (P9b), so rebinding IS the repair.
  *
  * Never logs secret values.
+ *
+ * Known limitation (accepted for M1b): agent ensure/rebind is check-then-act
+ * and the PAT cache write is not cross-process atomic — safe while live runs
+ * are single-process (`pnpm test:live` / `pnpm smoke`); revisit before any
+ * concurrent live-test execution.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

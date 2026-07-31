@@ -201,9 +201,8 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
         title: "conformance: completion path",
       });
       const consumer = (async () => {
-        for await (const ev of e.substrate.watch(e.projectScope)) {
+        for await (const ev of e.substrate.watch(e.projectScope, { signal: abort.signal })) {
           events.push(ev);
-          if (abort.signal.aborted) break;
           const done =
             ev.kind === "status" &&
             ev.item.externalId === ref.externalId &&
@@ -223,14 +222,26 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       expect(typeof snap.report?.summary).toBe("string");
       expect(snap.report?.branchHint).toMatch(/^agent\//);
 
-      // give the event stream a moment to flush, then stop consuming
+      // give the event stream a moment to flush, then cancel via the signal —
+      // aborting closes the transport and wakes a parked stream (port contract)
       await Promise.race([consumer, new Promise((r) => setTimeout(r, 10_000))]);
       abort.abort();
+      await consumer;
 
-      const itemStatusEvents = events.filter(
-        (ev) => ev.kind === "status" && ev.item.externalId === ref.externalId,
-      );
-      expect(itemStatusEvents.length, "status events observed over watch").toBeGreaterThan(0);
+      const statuses = events
+        .filter((ev): ev is Extract<SubstrateEvent, { kind: "status" }> => ev.kind === "status")
+        .filter((ev) => ev.item.externalId === ref.externalId)
+        .map((ev) => ev.status);
+      expect(statuses.length, "status events observed over watch").toBeGreaterThan(0);
+      // Normative canary (ARCHITECTURE.md D8): between creation and running
+      // there is NO intervening approval or unknown state — every pre-running
+      // status maps into the closed pre-execution set. A pin bump that adds a
+      // native intermediate state must fail here, not silently map.
+      const firstRunning = statuses.indexOf("running");
+      const preRunning = firstRunning === -1 ? statuses.filter((s) => !TERMINAL.includes(s)) : statuses.slice(0, firstRunning);
+      for (const s of preRunning) {
+        expect(s, "pre-running status stays in the closed pre-execution set").toBe("queued");
+      }
       const ids = events.map((ev) => ev.eventId);
       expect(new Set(ids).size, "eventIds unique per stream").toBe(ids.length);
     }, 240_000);
