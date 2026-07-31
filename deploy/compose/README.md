@@ -31,7 +31,7 @@ docker compose up -d
 that's the ordering trap, now a documented step, not a surprise):
 
 - Multica UI at http://localhost:3000 — log in (dev stack: the fixed
-  verification code from `.env`), then Settings → Tokens → create a personal
+  verification code from `.env`), then Settings → API Tokens → create a personal
   access token (`mul_…`) → paste into `.env` as `MULTICA_DAEMON_TOKEN`.
 - LiteLLM admin UI at http://localhost:4000/ui — log in with
   `LITELLM_MASTER_KEY`, create a virtual key **with a `max_budget`** → paste
@@ -51,10 +51,14 @@ docker compose run --rm doctor
 
 Doctor checks the whole chain (env → control plane → gateway → model route →
 daemon credentials → registered runtime) and, on any failure, prints the
-broken prerequisite, the fix, and which `.env` secret owns it. Reset
-everything with `docker compose down -v` and replay the quickstart.
+broken prerequisite, the fix, and which `.env` secret owns it. One boundary:
+if a *core* secret is missing entirely, Compose itself refuses to start
+anything — including doctor — with a `required variable <NAME> is missing`
+error; that error names the variable, so it is the diagnosis (set it in
+`.env` and re-run). Reset everything with `docker compose down -v` and
+replay the quickstart.
 
-The daemon registers one runtime row per bundled CLI (Settings → Runtimes:
+The daemon registers one runtime row per bundled CLI (sidebar: Configure → Runtimes;
 OpenCode — the default, D9 — and Claude Code), labeled by
 `$MULTICA_DAEMON_DEVICE_NAME`. All agent model traffic flows
 `CLI → litellm:4000 → provider`, authenticated by the virtual key — never a

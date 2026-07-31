@@ -18,7 +18,12 @@ fail() { # fail <what> <prerequisite> <fix> <owning-secret>
 
 echo "guild doctor — checking the setup chain"
 
-# 1. Required env (control plane can't even boot without these)
+# 1. Required env. NOTE: when run via `docker compose run --rm doctor`, the
+# compose file's own `:?` interpolation already aborts (with a "required
+# variable X is missing" error naming the var) before this container starts
+# if a core secret is unset — so under compose, that compose error IS this
+# check, and the FAIL branch below fires only when the image is run directly
+# (plain `docker run --env-file .env`).
 echo "[1/7] .env completeness"
 missing=""
 for v in MULTICA_JWT_SECRET MULTICA_POSTGRES_PASSWORD LITELLM_MASTER_KEY LITELLM_SALT_KEY LITELLM_POSTGRES_PASSWORD GUILD_POSTGRES_PASSWORD; do
@@ -85,7 +90,7 @@ echo "[5/7] daemon credentials"
 if [ -z "${MULTICA_DAEMON_TOKEN:-}" ]; then
   fail "MULTICA_DAEMON_TOKEN is empty" \
     "a Multica personal access token minted AFTER the control plane is up" \
-    "http://localhost:3000 -> Settings -> Tokens -> create (mul_...), paste into .env, then: docker compose --profile daemon up -d" \
+    "http://localhost:3000 -> Settings -> API Tokens -> create (mul_...), paste into .env, then: docker compose --profile daemon up -d" \
     "guild-daemon"
 else
   me=$(curl -fsS --max-time 5 "$MULTICA/api/me" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" 2>/dev/null)
@@ -93,7 +98,7 @@ else
     ok "PAT valid (user: $(echo "$me" | jq -r '.email // .name'))"
   else
     fail "PAT rejected by Multica" "a live, unexpired mul_ token" \
-      "re-mint at http://localhost:3000 Settings -> Tokens; update .env; docker compose --profile daemon up -d --force-recreate" \
+      "re-mint at http://localhost:3000 Settings -> API Tokens; update .env; docker compose --profile daemon up -d --force-recreate" \
       "guild-daemon"
   fi
 fi
@@ -119,9 +124,9 @@ fi
 # 6. Runtime registered (needs the PAT)
 echo "[6/7] daemon runtime"
 if [ -n "${MULTICA_DAEMON_TOKEN:-}" ]; then
-  ws=$(curl -fsS --max-time 5 "$MULTICA/api/workspaces" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" 2>/dev/null | jq -r '.[0].id // empty')
+  ws=$(curl -fsS --max-time 5 "$MULTICA/api/workspaces" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)
   if [ -n "$ws" ]; then
-    online=$(curl -fsS --max-time 5 "$MULTICA/api/runtimes" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" -H "X-Workspace-ID: $ws" 2>/dev/null | jq -r '[.[] | select(.status == "online") | .name] | join(", ")')
+    online=$(curl -fsS --max-time 5 "$MULTICA/api/runtimes" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" -H "X-Workspace-ID: $ws" 2>/dev/null | jq -r '[.[] | select(.status == "online") | .name] | join(", ")' 2>/dev/null)
     if [ -n "$online" ]; then
       ok "online runtime(s): $online"
     else
