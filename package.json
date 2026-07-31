@@ -8,6 +8,7 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "smoke": "pnpm --filter @guild/orchestrator smoke",
     "deps:check": "depcruise packages/*/src --config .dependency-cruiser.cjs"
   },
   "devDependencies": {

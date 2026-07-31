@@ -30,6 +30,13 @@ export interface LiveEnv {
   agentName: string;
 }
 
+/** the agent this environment provisions; smoke passes its per-engagement key via customEnv */
+export interface LiveAgentSpec {
+  name: string;
+  model?: string;
+  customEnv?: Record<string, string>;
+}
+
 const AGENT_NAME = "guild-conf";
 const AGENT_MODEL = "litellm/or-gemini-flash-lite";
 /** D9: OpenCode is the default CLI — its runtime rows are named "Opencode (…)" */
@@ -124,9 +131,10 @@ async function acquireToken(baseUrl: string, email: string): Promise<string> {
   return token;
 }
 
-export async function bootstrapLiveEnv(): Promise<LiveEnv> {
+export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveEnv> {
   const baseUrl = process.env.GUILD_MULTICA_URL ?? "http://127.0.0.1:8080";
   const email = process.env.GUILD_MULTICA_EMAIL ?? "operator@guild.local";
+  const spec = { name: AGENT_NAME, model: AGENT_MODEL, ...agentSpec };
   const token = await acquireToken(baseUrl, email);
 
   // the workspace that has runtime rows is the one the daemon registered into
@@ -151,26 +159,44 @@ export async function bootstrapLiveEnv(): Promise<LiveEnv> {
     );
   }
 
-  // ensure + rebind the cheap-tier test agent (rebind = the P9b repair, idempotent)
+  // ensure + rebind the cheap-tier test agent (rebind = the P9b repair,
+  // idempotent). When a customEnv is given it is re-applied on every run —
+  // smoke rotates the per-engagement key there each time.
   const agents = await api<Array<{ id: string; name: string; runtime_id: string; model: string }>>(
     baseUrl,
     "GET",
     "/api/agents",
     { token, workspaceId: picked.workspaceId },
   );
-  let agent = agents.find((a) => a.name === AGENT_NAME);
+  let agent = agents.find((a) => a.name === spec.name);
   if (!agent) {
     agent = await api(baseUrl, "POST", "/api/agents", {
       token,
       workspaceId: picked.workspaceId,
-      body: { name: AGENT_NAME, model: AGENT_MODEL, runtime_id: picked.runtimeId },
+      body: {
+        name: spec.name,
+        model: spec.model,
+        runtime_id: picked.runtimeId,
+        ...(spec.customEnv ? { custom_env: spec.customEnv } : {}),
+      },
     });
-  } else if (agent.runtime_id !== picked.runtimeId || agent.model !== AGENT_MODEL) {
-    await api(baseUrl, "PUT", `/api/agents/${agent.id}`, {
-      token,
-      workspaceId: picked.workspaceId,
-      body: { runtime_id: picked.runtimeId, model: AGENT_MODEL },
-    });
+  } else {
+    if (agent.runtime_id !== picked.runtimeId || agent.model !== spec.model) {
+      await api(baseUrl, "PUT", `/api/agents/${agent.id}`, {
+        token,
+        workspaceId: picked.workspaceId,
+        body: { runtime_id: picked.runtimeId, model: spec.model },
+      });
+    }
+    if (spec.customEnv) {
+      // env updates moved to a dedicated endpoint (v0.4.15: the update PUT
+      // rejects custom_env); wholesale replace, member-token auth required
+      await api(baseUrl, "PUT", `/api/agents/${agent.id}/env`, {
+        token,
+        workspaceId: picked.workspaceId,
+        body: { custom_env: spec.customEnv },
+      });
+    }
   }
 
   return {
@@ -178,6 +204,6 @@ export async function bootstrapLiveEnv(): Promise<LiveEnv> {
     token,
     workspaceId: picked.workspaceId,
     agentId: agent!.id,
-    agentName: AGENT_NAME,
+    agentName: spec.name,
   };
 }
