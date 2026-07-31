@@ -27,7 +27,7 @@ src/
 - **Multica is an adapter.** Domain and application code speak only the `ExecutionSubstrate` port (`@guild/shared`); `substrate-multica` is an anti-corruption layer — Multica's issue/comment/status vocabulary is translated at the adapter boundary and never leaks into the domain (D8).
 - Persistence is an adapter; the domain model is persistence-ignorant.
 - `@guild/shared` is the **published language** between contexts: stage/plan/engagement types, `HandoffContract`, the `ExecutionSubstrate` port and its event types. It stays dependency-free and contains no domain logic.
-- Enforce the dependency rule mechanically (dependency-cruiser or eslint boundaries — pick and pin at M1 bootstrap, record the choice here).
+- Enforce the dependency rule mechanically: **dependency-cruiser `18.1.0`** (picked over eslint-boundaries at M1b bootstrap, 2026-07-31 — standalone, no ESLint infrastructure needed). Rules live in `.dependency-cruiser.cjs`; run `pnpm deps:check` — CI-enforced.
 
 ## DDD
 
@@ -60,7 +60,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 - Every stage/feature starts as Gherkin scenarios in `features/` (per package), written in the ubiquitous language, declarative, no UI mechanics.
 - **D6 handoff contracts are executable BDD specs.** The upstream role authors `.feature` acceptance criteria *before* implementation; the tester runs them and never validates the implementer's self-report. This applies to Guild's own development now, and to what Guild's agents produce from M1 on — same discipline, one mechanism.
 - Scenario acceptance = the milestone acceptance bars in `docs/ROADMAP.md`; if a scenario doesn't trace to a requirement, delete it.
-- Tooling: Vitest for unit/integration, `@cucumber/cucumber` for feature specs — confirm exact packages and versions at M1 bootstrap and record them here.
+- Tooling (confirmed + pinned at M1b bootstrap, 2026-07-31): **Vitest `4.1.10`** for unit/integration (live-stack integration specs are `*.live.test.ts`, gated by `GUILD_LIVE_STACK` — CI has no stack), **`@cucumber/cucumber` `13.2.0`** with the **`tsx` `4.23.1`** loader for feature specs.
 
 ## Working conventions
 

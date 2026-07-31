@@ -19,3 +19,4 @@ jobs:
       - run: npm install -g pnpm@10.34.5
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
+      - run: pnpm deps:check

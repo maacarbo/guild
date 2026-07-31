@@ -6,6 +6,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "deps:check": "depcruise packages/*/src --config .dependency-cruiser.cjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "18.1.0"
   }
 }
