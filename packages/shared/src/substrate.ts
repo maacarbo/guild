@@ -130,6 +130,28 @@ export interface SubstrateError {
   retryable: boolean;
 }
 
+const SUBSTRATE_ERROR_CATEGORIES: ReadonlySet<string> = new Set([
+  "auth",
+  "not_found",
+  "unsupported_capability",
+  "conflict",
+  "transport",
+  "substrate_internal",
+  "desync",
+] satisfies SubstrateErrorCategory[]);
+
+/** structural guard — adapters throw Error subclasses carrying the SubstrateError shape */
+export function isSubstrateError(e: unknown): e is SubstrateError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "category" in e &&
+    typeof (e as SubstrateError).category === "string" &&
+    SUBSTRATE_ERROR_CATEGORIES.has((e as SubstrateError).category) &&
+    typeof (e as SubstrateError).retryable === "boolean"
+  );
+}
+
 export interface ExecutionSubstrate {
   readonly name: string;
   createWorkItem(spec: WorkItemSpec): Promise<WorkItemRef>;

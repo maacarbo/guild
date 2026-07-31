@@ -20,3 +20,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
       - run: pnpm deps:check
+      # unit tests only — live-stack integration specs (*.live.test.ts) are
+      # GUILD_LIVE_STACK-gated and run against the local compose stack
+      - run: pnpm -r test
