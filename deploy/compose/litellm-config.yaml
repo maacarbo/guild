@@ -29,7 +29,8 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # OpenRouter-backed fallback (requires OPENROUTER_API_KEY in the gateway env)
+  # OpenRouter routes (require OPENROUTER_API_KEY in the gateway env) — the
+  # recommended default: one key reaches Claude AND the cheap testing tier.
   - model_name: or-claude-sonnet-5
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-5
@@ -37,6 +38,16 @@ model_list:
   - model_name: or-claude-haiku-4-5
     litellm_params:
       model: openrouter/anthropic/claude-haiku-4.5
+      api_key: os.environ/OPENROUTER_API_KEY
+  # Cheap testing tier (slugs + prices verified live 2026-07-31): use these
+  # for probes, doctor checks, and demo dry-runs — 4-25x cheaper than Haiku.
+  - model_name: or-deepseek-v3-2
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v3.2
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-gemini-flash-lite
+    litellm_params:
+      model: openrouter/google/gemini-2.5-flash-lite
       api_key: os.environ/OPENROUTER_API_KEY
 
 litellm_settings:

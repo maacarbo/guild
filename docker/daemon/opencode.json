@@ -13,7 +13,9 @@
         "claude-sonnet-5": { "name": "Claude Sonnet 5 (gateway, Anthropic direct)" },
         "claude-haiku-4-5": { "name": "Claude Haiku 4.5 (gateway, Anthropic direct)" },
         "or-claude-sonnet-5": { "name": "Claude Sonnet 5 (gateway, OpenRouter)" },
-        "or-claude-haiku-4-5": { "name": "Claude Haiku 4.5 (gateway, OpenRouter)" }
+        "or-claude-haiku-4-5": { "name": "Claude Haiku 4.5 (gateway, OpenRouter)" },
+        "or-deepseek-v3-2": { "name": "DeepSeek V3.2 (gateway, cheap testing tier)" },
+        "or-gemini-flash-lite": { "name": "Gemini 2.5 Flash Lite (gateway, cheap testing tier)" }
       }
     }
   }
