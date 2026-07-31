@@ -109,7 +109,23 @@ describe("LiteLlmModelGateway.getSpend", () => {
     expect((await gateway.getSpend("eng-1")).exhausted).toBe(true);
   });
 
-  it("throws for an engagement with no minted key in this process", async () => {
+  it("does not overstate cents on IEEE754 drift: 0.07 is 7 cents, 0.14 is 14, never +1", async () => {
+    const { gateway, keys } = make();
+    const { key } = await gateway.mintKey("eng-1", 100);
+    keys.get(key)!.spend = 0.07;
+    expect((await gateway.getSpend("eng-1")).spentCents).toBe(7);
+    keys.get(key)!.spend = 0.14;
+    expect((await gateway.getSpend("eng-1")).spentCents).toBe(14);
+  });
+
+  it("reads spend by alias when this process never minted the key (conductor restart)", async () => {
+    const { gateway, keys } = make();
+    keys.set("sk-prior", { key: "sk-prior", alias: "guild-eng-eng-7", spend: 0.25, max_budget: 0.5 });
+    const spend = await gateway.getSpend("eng-7");
+    expect(spend).toEqual({ engagementId: "eng-7", spentCents: 25, budgetCents: 50, exhausted: false });
+  });
+
+  it("throws for an engagement with no key anywhere", async () => {
     const { gateway } = make();
     await expect(gateway.getSpend("eng-ghost")).rejects.toThrow(/eng-ghost/);
   });

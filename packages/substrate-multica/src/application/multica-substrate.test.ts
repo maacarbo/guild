@@ -125,6 +125,24 @@ describe("createWorkItem", () => {
     expect(await substrate.findWorkItem("eng-atomic")).toBeNull();
   });
 
+  it("compensates when the marker write fails after assignment: cancels started work, closes the issue, stays unfindable", async () => {
+    const { api, substrate } = make();
+    const realUpdate = api.updateIssue.bind(api);
+    api.updateIssue = async (id, patch) => {
+      if (patch.description) {
+        api.runs.set(id, [{ id: "r-live", issue_id: id, agent_id: "agent-1", status: "running", created_at: "t" }]);
+        throw new MulticaHttpError(500, "marker write blew up");
+      }
+      return realUpdate(id, patch);
+    };
+    await expect(substrate.createWorkItem(spec("eng-marker"))).rejects.toMatchObject({
+      category: "substrate_internal",
+    });
+    expect(api.cancelled).toEqual(["r-live"]);
+    expect([...api.issues.values()][0]!.status).toBe("done");
+    expect(await substrate.findWorkItem("eng-marker")).toBeNull();
+  });
+
   it("rejects an unbound role as unsupported_capability naming the role", async () => {
     const { substrate } = make();
     const err = await substrate.createWorkItem(spec("eng-1", "astrologer")).catch((e) => e);

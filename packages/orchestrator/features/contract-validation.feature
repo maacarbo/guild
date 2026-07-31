@@ -25,5 +25,8 @@ Feature: Handoff contract validation
     Then the verdict is a validator error and validation is retried
 
   Scenario: The sandbox is least-trusted
+    # egress denial and timeout containment execute live (validator.live.test.ts);
+    # the no-credentials clause holds by construction — the driver hands the
+    # container only the clone bind-mount, never an env or credential surface
     Then checks run with no credentials and no network egress
     And a check timeout is an acceptance failure, not an infrastructure fault

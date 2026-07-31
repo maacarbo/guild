@@ -101,9 +101,27 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       const brief = renderBrief(spec.brief);
       const issue = await this.api.createIssue({ title: spec.title, description: brief });
       await this.api.updateIssue(issue.id, { assignee_id: binding.agentId, assignee_type: "agent" });
-      await this.api.updateIssue(issue.id, {
-        description: embedEngagementMarker(brief, spec.engagementId),
-      });
+      try {
+        await this.api.updateIssue(issue.id, {
+          description: embedEngagementMarker(brief, spec.engagementId),
+        });
+      } catch (markerFailure) {
+        // The issue is assigned and may already be running, but carries no
+        // marker — invisible to findWorkItem, so a retry would duplicate it.
+        // Compensate best-effort: stop its work and close it before failing,
+        // leaving nothing ungoverned behind (M1b verify finding). The
+        // conductor's liveness repair is the backstop if compensation fails.
+        try {
+          const runs = await this.api.listTaskRuns(issue.id);
+          for (const run of runs.filter((r) => NON_TERMINAL_STATES.has(r.status))) {
+            await this.api.cancelTask(run.id);
+          }
+          await this.api.updateIssue(issue.id, { status: "done" });
+        } catch {
+          // best effort only — the original fault is the one to surface
+        }
+        throw markerFailure;
+      }
       return { substrate: this.name, externalId: issue.id };
     } catch (e) {
       return this.fail(e);

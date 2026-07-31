@@ -39,7 +39,13 @@ function masterKey(): string {
   return m[1]!.trim();
 }
 
-/** one world per scenario run; engagementId is fresh every run (idempotency bar) */
+/**
+ * Module-singleton state — safe ONLY while this feature has exactly one
+ * scenario and no cucumber retry (both true today; cucumber.js sets neither).
+ * Convert to a cucumber World before adding scenarios or retry: a second
+ * scenario in the same process would reuse a stale engagementId, a dead
+ * watchAbort, and accumulated events.
+ */
 const world = {
   engagementId: `smoke-${Date.now().toString(36)}`,
   gateway: null as LiteLlmModelGateway | null,

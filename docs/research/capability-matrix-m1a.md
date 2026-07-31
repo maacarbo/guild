@@ -299,3 +299,16 @@ is set (code `active_duplicate_issue`); issue `metadata` is accepted but
 requesting another code"); a completed reply-style OpenCode run can carry
 `result.output: ""` with `models_with_usage=1` (silent completion — the
 work report, not the summary text, is the reliable signal).
+
+**Correction (2026-07-31, later the same day):** the paragraph above ends
+with "the conformance suite pins the static-catalog gate so a pin bump …
+surfaces as a test failure" — overclaimed. No conformance assertion covers
+the thinking gate today; the suite pins status mapping/ordering, cancel
+semantics, dispatch idempotency, and error classification. A
+thinking-injection assertion remains **open work for the next pin bump**.
+Two more facts from the same day's smoke work: agent env updates moved to
+`PUT /api/agents/{id}/env` (`{"custom_env": …}`, member token only — the
+agent-update PUT rejects `custom_env` in v0.4.15), and per-engagement key
+attribution via agent-level `custom_env.GUILD_DAEMON_VIRTUAL_KEY` is
+**proven for OpenCode agents** (spend landed on the injected key; note
+LiteLLM's ~60s spend-write batching when reading it back).

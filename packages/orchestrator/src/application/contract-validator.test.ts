@@ -124,6 +124,27 @@ describe("ContractValidator", () => {
     expect(v.results[0]!.detail).toContain("network unreachable");
   });
 
+  it("reports validator_error on clone failure even for a zero-check contract — never a vacuous pass", async () => {
+    const { cloner, validator } = make();
+    cloner.fail = true;
+    const v = await validator.validate({ ...input, contract: { ...contract, checks: [] } });
+    expect(v.outcome).toBe("validator_error");
+  });
+
+  it("maps an evidence-overflow outcome (null exit, not timed out) to failed — deterministic, convergent", async () => {
+    const { reader, runner, validator } = make();
+    reader.files.set("PROBE.md", "M1a P3 probe");
+    runner.results.set("grep -q 'P6 seen' PROBE.md", {
+      exitCode: null,
+      stdout: "",
+      stderr: "[check output exceeded the evidence limit]",
+      timedOut: false,
+    });
+    const v = await validator.validate(input);
+    expect(v.results[1]!.outcome).toBe("failed");
+    expect(v.outcome).toBe("failed");
+  });
+
   it("reports a thrown runner fault as a check error and the verdict as validator_error", async () => {
     const { reader, runner, validator } = make();
     reader.files.set("PROBE.md", "M1a P3 probe");

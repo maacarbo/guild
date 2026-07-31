@@ -40,12 +40,15 @@ export class ContractValidator {
     try {
       source = await this.cloner.cloneAtSha(input.repoUrl, input.commitSha);
     } catch (e) {
-      // no checks ran — infrastructure fault, retry validation, never bounce
+      // no checks ran — infrastructure fault, retry validation, never bounce.
+      // Outcome is explicit, not derived: with zero checks the derived rule
+      // would read an empty result set as a vacuous pass.
       const detail = `clone failed: ${e instanceof Error ? e.message : String(e)}`;
-      return assembleVerdict(
-        ctx,
-        input.contract.checks.map((check) => ({ check, outcome: "error", detail })),
-      );
+      return {
+        ...ctx,
+        outcome: "validator_error",
+        results: input.contract.checks.map((check) => ({ check, outcome: "error" as const, detail })),
+      };
     }
 
     try {

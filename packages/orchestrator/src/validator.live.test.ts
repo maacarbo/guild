@@ -86,6 +86,34 @@ describe("contract validation against the real agent branch (docker-run driver)"
     expect(verdict.results.every((r) => r.outcome === "error")).toBe(true);
   });
 
+  it("contains a timed-out check: verdict failed AND the sandbox container is reaped", async () => {
+    const hanging: HandoffContract = {
+      ...probeContract,
+      contractId: "contract-timeout-probe",
+      checks: [{ kind: "command", run: "sleep 30", expectExitCode: 0, timeoutSeconds: 3 }],
+    };
+    const verdict = await validator.validate({
+      engagementId: "eng-m1b-proof-timeout",
+      contract: hanging,
+      repoUrl: SCRATCH_REPO,
+      commitSha: PROBE_SHA,
+    });
+    expect(verdict.outcome).toBe("failed"); // timeout = acceptance failure (D6)
+    expect(verdict.results[0]!.detail).toContain("timeout");
+    // containment: killing the docker CLI alone leaves the container running —
+    // the runner must reap it (verified live 2026-07-31)
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const { stdout } = await promisify(execFile)("docker", [
+      "ps",
+      "--filter",
+      "name=guild-validate-",
+      "--format",
+      "{{.Names}}",
+    ]);
+    expect(stdout.trim()).toBe("");
+  });
+
   it("denies the sandbox network egress (least-trust proof)", async () => {
     const egress: HandoffContract = {
       ...probeContract,
