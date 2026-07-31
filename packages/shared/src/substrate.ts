@@ -35,9 +35,49 @@ export type WorkItemStatus =
   | "cancelled"
   | "unknown";
 
+/**
+ * Failure classification on the work-item level — a CLOSED union with the same
+ * D8 policy as WorkItemStatus: unmapped native failure reasons surface as
+ * "unknown", never as the nearest neighbor. Evidence (M1a P10): a budget-capped
+ * virtual key fails the task with a native reason the adapter maps to
+ * "provider_capacity_or_budget"; the conductor's operator-action map renders it
+ * as "engagement budget cap reached" when the engagement's key is capped.
+ */
+export type WorkItemFailureCategory =
+  | "provider_capacity_or_budget"
+  | "agent_error"
+  | "unknown";
+
+export interface WorkItemFailure {
+  category: WorkItemFailureCategory;
+  /** native failure text, advisory — for the decisions log, never for branching */
+  detail: string;
+}
+
+/**
+ * What the substrate reports when an agent finishes work. Evidence (M1a P3/P7):
+ * the native result is free text only — no commit SHA, no structured branch —
+ * and branch names are stable only within a daemon lifetime. The adapter derives
+ * branchHint deterministically per task; the conductor must resolve it to a
+ * commit SHA ONCE at report time via the git boundary (D6 SHA-pinning) and
+ * never dereference the branch name again.
+ */
+export interface WorkReport {
+  /** agent's free-text completion summary — advisory, never validated as truth (D6) */
+  summary: string;
+  /** advisory branch name the work landed on; resolve to SHA immediately, then discard */
+  branchHint?: string;
+}
+
 export interface WorkItemSnapshot {
   item: WorkItemRef;
   status: WorkItemStatus;
+  /** native status string, advisory — diagnostics and the decisions log only (P9b repair evidence) */
+  nativeStatus?: string;
+  /** present when status is "failed" */
+  failure?: WorkItemFailure;
+  /** present once the agent has reported work (latest report wins) */
+  report?: WorkReport;
   assignedAgent?: string;
   updatedAt: string;
 }
@@ -54,6 +94,15 @@ export interface WorkItemSpec {
   brief: EngagementBrief;
 }
 
+/**
+ * eventId is unique per watch stream (dedup/ordering in logs); substrates that
+ * don't carry native event ids get adapter-synthesized ones — that is an
+ * adapter obligation, not a substrate capability assumption.
+ *
+ * The "usage" event is advisory display data only (M1a P11): the substrate
+ * reports zero usage for failed items and cannot cost gateway-alias models —
+ * the ModelGateway is the spend source of truth, always.
+ */
 export type SubstrateEvent =
   | { kind: "status"; eventId: string; item: WorkItemRef; status: WorkItemStatus; at: string }
   | { kind: "comment"; eventId: string; commentId: string; item: WorkItemRef; author: string; body: string; at: string }
@@ -61,7 +110,10 @@ export type SubstrateEvent =
 
 /**
  * Stable error categories on the substrate boundary — application code depends
- * on these, never on Multica-specific failure text.
+ * on these, never on Multica-specific failure text. The set must totalize:
+ * an unexpected substrate-side fault (e.g. HTTP 5xx) maps to
+ * "substrate_internal" (retryable per response), never to a guessed neighbor —
+ * the same closed-union discipline as WorkItemStatus (D8).
  */
 export type SubstrateErrorCategory =
   | "auth"
@@ -69,6 +121,7 @@ export type SubstrateErrorCategory =
   | "unsupported_capability"
   | "conflict"
   | "transport"
+  | "substrate_internal"
   | "desync";
 
 export interface SubstrateError {
@@ -89,12 +142,27 @@ export interface ExecutionSubstrate {
   comment(item: WorkItemRef, body: string, opts?: { inReplyTo?: string }): Promise<void>;
   /**
    * bounce delivery: posts the verdict's failing criteria such that the
-   * implementing agent resumes (M1a probes whether top-level conductor comments
-   * trigger agents, or whether threading via inReplyTo is required)
+   * implementing agent resumes. Verified (M1a P5): a top-level conductor
+   * comment triggers the implementing agent — threading is not required.
+   * Bounce comments must be self-contained (M1a P7): agent session state does
+   * not survive a substrate restart, only the comment text carries context.
    */
   requestRework(item: WorkItemRef, verdict: ContractVerdict): Promise<void>;
+  /**
+   * Idempotent (M1a P4): cancelling an already-terminal item is a no-op, never
+   * an error — conductor retries are safe. On a live item, cancel kills the
+   * agent process and stops model traffic within seconds; the conductor calls
+   * this eagerly on key revocation instead of waiting for natural failure
+   * (M1a P10: capped items otherwise linger "running" in retry backoff).
+   */
   cancel(item: WorkItemRef, reason: CancellationReason): Promise<void>;
-  /** termination protocol: terminal engagement state ⇒ revoke virtual key + close/lock the item */
+  /**
+   * termination protocol: terminal engagement state ⇒ revoke virtual key +
+   * close/lock the item. Verified (M1a P6): substrate-side status does NOT
+   * gate execution — replies on a closed item still enqueue work — so close is
+   * advisory bookkeeping; the enforcement layer is key revocation plus the
+   * conductor's ignore-after-terminal rule (first persisted decision wins).
+   */
   close(item: WorkItemRef): Promise<void>;
   watch(projectScope: string): AsyncIterable<SubstrateEvent>;
 }
