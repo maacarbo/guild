@@ -11,20 +11,48 @@ for M1 — docker/daemon/README.md).
 
 ## Quickstart
 
-```bash
-cd deploy/compose
-cp .env.example .env        # fill in secrets — comments say how to generate each
-docker compose up -d        # control plane + gateway + guild-postgres
+Works identically on Windows, macOS, and Linux — the only prerequisite is
+Docker with Compose v2; every command below is a compose verb (no `make`, no
+host shell scripts).
+
+**1. Configure.** Copy `.env.example` to `.env` and fill it in. Only two
+values are external credentials you must obtain: a model-provider key
+(`OPENROUTER_API_KEY` recommended) and a scoped GitHub PAT. Every other
+secret is **any long random string** — use your password manager's generator
+(or `openssl rand -hex 32` if you have it; the tool doesn't matter).
+
+**2. Boot the control plane.**
+
+```
+docker compose up -d
 ```
 
-Open http://localhost:3000, log in (dev stack: fixed verification code — see
-`.env.example`), then mint a personal access token (`mul_…`) and a LiteLLM
-virtual key, put them in `.env` (`MULTICA_DAEMON_TOKEN`,
-`GUILD_DAEMON_VIRTUAL_KEY`), and start the daemon:
+**3. Mint the daemon's credentials** (they can only exist *after* boot —
+that's the ordering trap, now a documented step, not a surprise):
 
-```bash
+- Multica UI at http://localhost:3000 — log in (dev stack: the fixed
+  verification code from `.env`), then Settings → Tokens → create a personal
+  access token (`mul_…`) → paste into `.env` as `MULTICA_DAEMON_TOKEN`.
+- LiteLLM admin UI at http://localhost:4000/ui — log in with
+  `LITELLM_MASTER_KEY`, create a virtual key **with a `max_budget`** → paste
+  into `.env` as `GUILD_DAEMON_VIRTUAL_KEY`.
+
+**4. Start the daemon.**
+
+```
 docker compose --profile daemon up -d --build
 ```
+
+**5. Verify.**
+
+```
+docker compose run --rm doctor
+```
+
+Doctor checks the whole chain (env → control plane → gateway → model route →
+daemon credentials → registered runtime) and, on any failure, prints the
+broken prerequisite, the fix, and which `.env` secret owns it. Reset
+everything with `docker compose down -v` and replay the quickstart.
 
 The daemon registers one runtime row per bundled CLI (Settings → Runtimes:
 OpenCode — the default, D9 — and Claude Code), labeled by

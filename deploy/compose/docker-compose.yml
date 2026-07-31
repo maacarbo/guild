@@ -166,6 +166,25 @@ services:
     networks: [guild-dev]
     restart: unless-stopped
 
+  # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).
+  # A Linux container, so the single bash implementation serves every host OS.
+  doctor:
+    profiles: [doctor]
+    build: ./doctor
+    environment:
+      MULTICA_JWT_SECRET: ${MULTICA_JWT_SECRET:-}
+      MULTICA_POSTGRES_PASSWORD: ${MULTICA_POSTGRES_PASSWORD:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+      LITELLM_POSTGRES_PASSWORD: ${LITELLM_POSTGRES_PASSWORD:-}
+      GUILD_POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
+      GUILD_DAEMON_VIRTUAL_KEY: ${GUILD_DAEMON_VIRTUAL_KEY:-}
+      GUILD_DAEMON_GITHUB_TOKEN: ${GUILD_DAEMON_GITHUB_TOKEN:-}
+    networks: [guild-dev]
+
 networks:
   guild-dev:
     name: guild-dev
