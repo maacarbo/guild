@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  actorFrom,
   branchHintFor,
   classifyFailure,
   classifyHttpError,
   embedEngagementMarker,
   extractEngagementId,
+  laneFromNativeStatus,
+  nativeStatusFromLane,
   statusFromTaskState,
 } from "./translation.js";
 
@@ -87,5 +90,57 @@ describe("HTTP fault → SubstrateErrorCategory (closed set, totalizing)", () =>
     const e = classifyHttpError(code);
     expect(e.category).toBe(category);
     expect(e.retryable).toBe(retryable);
+  });
+});
+
+describe("lane ↔ native board status (D11 projection over the P20 fixed enum)", () => {
+  const pairs = [
+    ["backlog", "backlog"],
+    ["ready_to_work", "todo"],
+    ["in_progress", "in_progress"],
+    ["waiting_for_feedback", "blocked"],
+    ["ready_for_testing", "in_review"],
+    ["done", "done"],
+    ["cancelled", "cancelled"],
+  ] as const;
+
+  it.each(pairs)("projects lane %s onto native %s", (lane, native) => {
+    expect(nativeStatusFromLane(lane)).toBe(native);
+  });
+
+  it.each(pairs)("maps native %s back to lane %s — a clean 1:1, no ambiguity", (lane, native) => {
+    expect(laneFromNativeStatus(native)).toBe(lane);
+  });
+
+  it("surfaces an unmapped native board status as unknown, never a neighbor (D8)", () => {
+    expect(laneFromNativeStatus("triaging")).toBe("unknown");
+  });
+});
+
+describe("board actor attribution (P22: every activity entry carries actor_id + actor_type)", () => {
+  const self = "member-self-id";
+
+  it("attributes the adapter's own member identity as the conductor", () => {
+    expect(actorFrom("member", self, self)).toBe("conductor");
+  });
+
+  it("attributes any other member as the operator", () => {
+    expect(actorFrom("member", "someone-else", self)).toBe("operator");
+  });
+
+  it("attributes agent-driven changes as agent — never a forward signal", () => {
+    expect(actorFrom("agent", "agent-id", self)).toBe("agent");
+  });
+
+  it("surfaces unmapped actor types as unknown (D8 closed union)", () => {
+    expect(actorFrom("system", "x", self)).toBe("unknown");
+    expect(actorFrom(undefined, undefined, self)).toBe("unknown");
+  });
+});
+
+describe("governance ticket markers (D11: gate/idea tickets share the marker namespace)", () => {
+  it("round-trips a colon-namespaced marker id", () => {
+    const desc = embedEngagementMarker("Approve this plan.", "gate:stage-1:v2");
+    expect(extractEngagementId(desc)).toBe("gate:stage-1:v2");
   });
 });

@@ -82,8 +82,10 @@ describe("substrateEventFromFrame", () => {
     });
   });
 
-  it("ignores frames Guild does not consume (auth_ack, activity, inbox, agent:status…)", () => {
-    for (const type of ["auth_ack", "activity:created", "inbox:new", "agent:status", "issue:updated"]) {
+  it("ignores frames Guild does not consume (auth_ack, inbox, agent:status, issue:updated…)", () => {
+    // issue:updated is deliberately unconsumed: activity:created carries the
+    // same status change WITH actor attribution (P22) — one source, not two
+    for (const type of ["auth_ack", "inbox:new", "agent:status", "issue:updated", "subscriber:added"]) {
       expect(substrateEventFromFrame("multica", { type, payload: {} }, at)).toBeNull();
     }
   });
@@ -95,5 +97,64 @@ describe("substrateEventFromFrame", () => {
       at,
     );
     expect(e).toMatchObject({ kind: "status", status: "unknown" });
+  });
+});
+
+describe("activity:created status_changed → lane_moved (D11 trigger surface, P21/P22)", () => {
+  const SELF = "7e3fa62b-f769-4c66-8204-83d821c2be48";
+  const statusChanged = (over: Record<string, unknown> = {}) => ({
+    type: "activity:created",
+    payload: {
+      entry: {
+        action: "status_changed",
+        actor_id: SELF,
+        actor_type: "member",
+        created_at: "2026-08-02T20:27:06Z",
+        details: { to: "in_progress", from: "todo" },
+        id: "da45c23f-a6e5-469b-9497-c3fea8ac7512",
+        type: "activity",
+        ...over,
+      },
+      issue_id: "59fc1459-dd3b-4e28-92c5-d682e126bb4e",
+    },
+  });
+
+  it("translates a self-authored status change as a conductor lane move", () => {
+    const e = substrateEventFromFrame("multica", statusChanged(), at, SELF);
+    expect(e).toEqual({
+      kind: "lane_moved",
+      item: { substrate: "multica", externalId: "59fc1459-dd3b-4e28-92c5-d682e126bb4e" },
+      lane: "in_progress",
+      nativeStatus: "in_progress",
+      actor: "conductor",
+      at: "2026-08-02T20:27:06Z",
+    });
+  });
+
+  it("attributes another member's move as the operator — the gate trigger", () => {
+    const e = substrateEventFromFrame("multica", statusChanged({ actor_id: "other-member" }), at, SELF);
+    expect(e).toMatchObject({ kind: "lane_moved", actor: "operator" });
+  });
+
+  it("attributes an agent's move as agent — the conductor ignores it as a forward signal", () => {
+    const e = substrateEventFromFrame("multica", statusChanged({ actor_type: "agent", actor_id: "agent-1" }), at, SELF);
+    expect(e).toMatchObject({ kind: "lane_moved", actor: "agent" });
+  });
+
+  it("surfaces an unmapped native board status as lane unknown with the native preserved", () => {
+    const e = substrateEventFromFrame("multica", statusChanged({ details: { to: "triaging", from: "todo" } }), at, SELF);
+    expect(e).toMatchObject({ kind: "lane_moved", lane: "unknown", nativeStatus: "triaging" });
+  });
+
+  it("ignores non-status activity actions (assignee_changed, description_updated, task_completed…)", () => {
+    for (const action of ["assignee_changed", "description_updated", "task_completed"]) {
+      expect(substrateEventFromFrame("multica", statusChanged({ action }), at, SELF)).toBeNull();
+    }
+  });
+
+  it("ignores an activity frame with no issue id", () => {
+    const frame = statusChanged();
+    (frame.payload as { issue_id?: string }).issue_id = undefined;
+    expect(substrateEventFromFrame("multica", frame, at, SELF)).toBeNull();
   });
 });

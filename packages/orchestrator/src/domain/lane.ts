@@ -5,17 +5,9 @@
  * adapter's business (D8), never the domain's.
  */
 
-import type { EngagementState } from "@guild/shared";
+import type { EngagementState, Lane } from "@guild/shared";
 
-export type Lane =
-  | "backlog"
-  | "ready_to_work"
-  | "in_progress"
-  | "waiting_for_feedback"
-  | "ready_for_testing"
-  | "done"
-  /** terminal, off-board — cancelled work leaves the six visible lanes */
-  | "cancelled";
+export type { Lane };
 
 const PROJECTION: Record<EngagementState, Lane> = {
   planned: "backlog",

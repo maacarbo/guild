@@ -10,7 +10,7 @@
 
 import type { WorkItemRef, WorkItemSnapshot } from "@guild/shared";
 import type { MulticaIssue, MulticaTaskRun } from "./multica-types.js";
-import { branchHintFor, classifyFailure, statusFromTaskState } from "./translation.js";
+import { branchHintFor, classifyFailure, laneFromNativeStatus, statusFromTaskState } from "./translation.js";
 
 function latestOf(runs: MulticaTaskRun[]): MulticaTaskRun | undefined {
   return [...runs].sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1);
@@ -39,6 +39,7 @@ export function deriveSnapshot(
     item,
     status: latest ? statusFromTaskState(latest.status) : "queued",
     nativeStatus: `issue:${issue.status};task:${latest?.status ?? "none"}`,
+    lane: laneFromNativeStatus(issue.status),
     ...(latest?.status === "failed"
       ? { failure: classifyFailure(latest.failure_reason ?? latest.error) }
       : {}),

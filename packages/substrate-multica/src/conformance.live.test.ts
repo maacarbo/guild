@@ -31,7 +31,7 @@ describeExecutionSubstrateConformance(async () => {
   const apiConfig = { baseUrl: live.baseUrl, token: live.token, workspaceId: live.workspaceId };
   const roleAgents = { worker: { agentId: live.agentId, agentName: live.agentName } };
   return {
-    substrate: createMulticaSubstrate(apiConfig, { projectScope: live.workspaceId, roleAgents }),
+    substrate: createMulticaSubstrate(apiConfig, { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId }),
     projectScope: live.workspaceId,
     role: "worker",
     unknownRole: "astrologer",
@@ -48,7 +48,7 @@ describeExecutionSubstrateConformance(async () => {
     unauthenticatedSubstrate: () =>
       createMulticaSubstrate(
         { ...apiConfig, token: "mul_invalid_conformance_token" },
-        { projectScope: live.workspaceId, roleAgents },
+        { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId },
       ),
     listComments: async (ref: WorkItemRef) => {
       const res = await fetch(`${live.baseUrl}/api/issues/${ref.externalId}/comments`, {

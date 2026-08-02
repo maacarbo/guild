@@ -9,7 +9,9 @@ import type {
   CancellationReason,
   ContractVerdict,
   ExecutionSubstrate,
+  Lane,
   SubstrateEvent,
+  TicketSpec,
   WorkItemRef,
   WorkItemSnapshot,
   WorkItemSpec,
@@ -18,7 +20,12 @@ import { renderBounceComment } from "../domain/bounce.js";
 import { renderBrief } from "../domain/brief.js";
 import { substrateEventFromFrame } from "../domain/events.js";
 import { deriveSnapshot } from "../domain/snapshot.js";
-import { classifyHttpError, embedEngagementMarker, extractEngagementId } from "../domain/translation.js";
+import {
+  classifyHttpError,
+  embedEngagementMarker,
+  extractEngagementId,
+  nativeStatusFromLane,
+} from "../domain/translation.js";
 import type { MulticaApi } from "../ports/multica-api.js";
 import { MulticaHttpError } from "../ports/multica-api.js";
 import { SubstrateFault } from "./substrate-fault.js";
@@ -36,6 +43,12 @@ export interface MulticaSubstrateConfig {
   projectScope: string;
   /** role → Multica agent binding; roles are Guild vocabulary, agents are substrate state */
   roleAgents: Record<string, RoleBinding>;
+  /**
+   * the conductor's own Multica member id (D11: the conductor runs under its
+   * own member identity) — lane_moved attribution hinges on it (P22): this id
+   * is "conductor", any other member is "operator"
+   */
+  selfMemberId: string;
 }
 
 export class MulticaSubstrate implements ExecutionSubstrate {
@@ -128,6 +141,31 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     }
   }
 
+  async createTicket(spec: TicketSpec): Promise<WorkItemRef> {
+    try {
+      // marker-last is the commit point, same saga rule as createWorkItem: an
+      // unmarkered ticket is invisible to findWorkItem, so a retry starts
+      // clean. Compensation differs — a governance ticket runs nothing, so a
+      // marker failure just moves the orphan off-board (cancelled), best-effort.
+      const issue = await this.api.createIssue({ title: spec.title, description: spec.body });
+      try {
+        await this.api.updateIssue(issue.id, {
+          description: embedEngagementMarker(spec.body, spec.markerId),
+        });
+      } catch (markerFailure) {
+        try {
+          await this.api.updateIssue(issue.id, { status: nativeStatusFromLane("cancelled") });
+        } catch {
+          // best effort only — the original fault is the one to surface
+        }
+        throw markerFailure;
+      }
+      return { substrate: this.name, externalId: issue.id };
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
   async findWorkItem(engagementId: string): Promise<WorkItemRef | null> {
     try {
       const issues = await this.api.listIssues();
@@ -165,6 +203,14 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async assign(item: WorkItemRef, agent: string): Promise<void> {
     try {
       await this.api.updateIssue(item.externalId, { assignee_id: agent, assignee_type: "agent" });
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async setLane(item: WorkItemRef, lane: Lane): Promise<void> {
+    try {
+      await this.api.updateIssue(item.externalId, { status: nativeStatusFromLane(lane) });
     } catch (e) {
       return this.fail(e);
     }
@@ -211,7 +257,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     const nonce = `${projectScope.slice(0, 8)}-${process.hrtime.bigint().toString(36)}`;
     let seq = 0;
     for await (const frame of this.api.watchWorkspace(opts?.signal)) {
-      const raw = substrateEventFromFrame(this.name, frame, new Date().toISOString());
+      const raw = substrateEventFromFrame(this.name, frame, new Date().toISOString(), this.config.selfMemberId);
       if (raw) yield { ...raw, eventId: `${nonce}:${++seq}` };
     }
   }

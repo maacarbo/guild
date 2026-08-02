@@ -49,3 +49,18 @@ Feature: Execution substrate conformance
     When the conductor creates a work item and an agent completes it
     Then status events for the item arrive over the watch stream with unique event ids
     And the final snapshot is done and carries a work report with a branch hint
+
+  Scenario: A governance ticket is a board-control ticket, not an engagement
+    When the conductor creates a governance ticket with a marker id
+    Then the marker id round-trips through findWorkItem
+    And the ticket has no assigned agent and runs nothing
+
+  Scenario: The lane projection round-trips one-to-one
+    When the conductor sets each of the seven lanes on a governance ticket
+    Then every lane reads back exactly as set
+    And re-setting the current lane is a no-op, never an error
+
+  Scenario: A conductor lane move surfaces as a lane_moved event
+    When the conductor moves a ticket to the waiting-for-feedback lane
+    Then a lane_moved event arrives over the watch stream
+    And it is attributed to the conductor, never to the operator

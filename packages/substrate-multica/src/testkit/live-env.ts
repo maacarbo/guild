@@ -28,6 +28,8 @@ export interface LiveEnv {
   workspaceId: string;
   agentId: string;
   agentName: string;
+  /** the PAT's own member id — the conductor identity for lane-move attribution (D11/P22) */
+  memberId: string;
 }
 
 /** the agent this environment provisions; smoke passes its per-engagement key via customEnv */
@@ -136,6 +138,7 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
   const email = process.env.GUILD_MULTICA_EMAIL ?? "operator@guild.local";
   const spec = { name: AGENT_NAME, model: AGENT_MODEL, ...agentSpec };
   const token = await acquireToken(baseUrl, email);
+  const { id: memberId } = await api<{ id: string }>(baseUrl, "GET", "/api/me", { token });
 
   // the workspace that has runtime rows is the one the daemon registered into
   const workspaces = await api<Array<{ id: string; name: string }>>(baseUrl, "GET", "/api/workspaces", { token });
@@ -205,5 +208,6 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
     workspaceId: picked.workspaceId,
     agentId: agent!.id,
     agentName: spec.name,
+    memberId,
   };
 }

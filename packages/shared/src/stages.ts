@@ -9,6 +9,22 @@ import type { HandoffContract } from "./contract.js";
 
 export type StageKind = "analysis" | "architecture" | "implementation" | "test" | "delivery";
 
+/**
+ * The six-lane board plus the off-board terminal (D11). Lanes are ubiquitous
+ * language: the board is the control surface — lane membership is the trigger,
+ * and the conductor is the sole lane authority. Adapters map lanes onto native
+ * status vocabularies (evidence: matrix P20 — Multica's fixed enum maps 1:1).
+ */
+export type Lane =
+  | "backlog"
+  | "ready_to_work"
+  | "in_progress"
+  | "waiting_for_feedback"
+  | "ready_for_testing"
+  | "done"
+  /** terminal, off-board — cancelled work leaves the six visible lanes */
+  | "cancelled";
+
 export type EngagementState =
   | "planned"
   | "gated"

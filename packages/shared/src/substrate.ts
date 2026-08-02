@@ -11,7 +11,7 @@
  * must never strand an engagement.
  */
 
-import type { EngagementBrief } from "./stages.js";
+import type { EngagementBrief, Lane } from "./stages.js";
 import type { ContractVerdict } from "./contract.js";
 import type { CancellationReason } from "./governance.js";
 
@@ -74,6 +74,13 @@ export interface WorkItemSnapshot {
   status: WorkItemStatus;
   /** native status string, advisory — diagnostics and the decisions log only (P9b repair evidence) */
   nativeStatus?: string;
+  /**
+   * board lane (D11) — independent of the execution status above: nothing
+   * substrate-side auto-moves the lane, including task completion (P19), so
+   * the lane is exactly what the conductor (or a human) last set. Unmapped
+   * native board statuses surface as "unknown" (D8 closed-union policy).
+   */
+  lane: Lane | "unknown";
   /** present when status is "failed" */
   failure?: WorkItemFailure;
   /** present once the agent has reported work (latest report wins) */
@@ -95,6 +102,21 @@ export interface WorkItemSpec {
 }
 
 /**
+ * A governance ticket (D11): a board ticket that is NOT an engagement — no
+ * agent, no brief, no contract. The plan-approval ticket is the first use;
+ * idea tickets (M2b planner) are the second. markerId shares the engagementId
+ * marker namespace, so findWorkItem gives the same idempotency guarantee —
+ * callers use reserved prefixes (e.g. "gate:<stageId>:v<planVersion>") that
+ * can never collide with engagement ids.
+ */
+export interface TicketSpec {
+  markerId: string;
+  title: string;
+  /** rendered body (e.g. the plan for approval); adapter appends the marker */
+  body: string;
+}
+
+/**
  * eventId is unique per watch stream (dedup/ordering in logs); substrates that
  * don't carry native event ids get adapter-synthesized ones — that is an
  * adapter obligation, not a substrate capability assumption.
@@ -103,8 +125,25 @@ export interface WorkItemSpec {
  * reports zero usage for failed items and cannot cost gateway-alias models —
  * the ModelGateway is the spend source of truth, always.
  */
+/**
+ * Who changed the board (D11 zero-discretion rule needs to know). Adapters
+ * attribute from native actor identity (evidence: matrix P22 — every Multica
+ * activity entry carries actor_id + actor_type): "conductor" when the actor is
+ * the adapter's own identity, "operator" for any other human, "agent" for
+ * agent-driven changes — which the conductor IGNORES as forward signals
+ * (validation verdicts are the only forward path) — and "unknown" for
+ * unmapped actor types (closed-union policy, D8).
+ */
+export type BoardActor = "operator" | "conductor" | "agent" | "unknown";
+
 export type SubstrateEvent =
   | { kind: "status"; eventId: string; item: WorkItemRef; status: WorkItemStatus; at: string }
+  /**
+   * a board lane change (D11 trigger surface; evidence P21: pushed on every
+   * mutation, no polling needed). lane is the mapped value of the NEW native
+   * board status; nativeStatus preserves it for diagnostics.
+   */
+  | { kind: "lane_moved"; eventId: string; item: WorkItemRef; lane: Lane | "unknown"; nativeStatus: string; actor: BoardActor; at: string }
   | { kind: "comment"; eventId: string; commentId: string; item: WorkItemRef; author: string; body: string; at: string }
   | { kind: "usage"; eventId: string; item: WorkItemRef; tokens: number; costCents?: number; at: string };
 
@@ -155,12 +194,22 @@ export function isSubstrateError(e: unknown): e is SubstrateError {
 export interface ExecutionSubstrate {
   readonly name: string;
   createWorkItem(spec: WorkItemSpec): Promise<WorkItemRef>;
-  /** dispatch-saga idempotency lookup: called before createWorkItem; keyed on the embedded engagementId marker */
+  /** governance ticket (D11) — same marker mechanics as createWorkItem, no agent/brief */
+  createTicket(spec: TicketSpec): Promise<WorkItemRef>;
+  /** dispatch-saga idempotency lookup: called before createWorkItem/createTicket; keyed on the embedded marker */
   findWorkItem(engagementId: string): Promise<WorkItemRef | null>;
   getWorkItem(item: WorkItemRef): Promise<WorkItemSnapshot>;
   /** reconciliation read — the normative truth path after any WS gap or conductor restart */
   listWorkItems(projectScope: string): Promise<WorkItemSnapshot[]>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
+  /**
+   * board projection write (D11): the conductor is the sole lane authority —
+   * idempotent (setting the current lane is a no-op) and total over Lane
+   * (evidence P20: the native status enum covers all seven values 1:1).
+   * Nothing substrate-side ever moves a lane back (P19), so a successful set
+   * is durable until the next explicit set or a human move.
+   */
+  setLane(item: WorkItemRef, lane: Lane): Promise<void>;
   comment(item: WorkItemRef, body: string, opts?: { inReplyTo?: string }): Promise<void>;
   /**
    * bounce delivery: posts the verdict's failing criteria such that the

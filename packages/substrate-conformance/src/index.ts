@@ -12,7 +12,7 @@
  */
 
 import { afterAll, describe, expect, it } from "vitest";
-import type { ContractVerdict, ExecutionSubstrate, SubstrateEvent, WorkItemRef, WorkItemSpec, WorkItemStatus } from "@guild/shared";
+import type { ContractVerdict, ExecutionSubstrate, Lane, SubstrateEvent, WorkItemRef, WorkItemSpec, WorkItemStatus } from "@guild/shared";
 import { isSubstrateError } from "@guild/shared";
 
 export interface ConformanceEnv {
@@ -32,6 +32,16 @@ export interface ConformanceEnv {
 }
 
 const TERMINAL: WorkItemStatus[] = ["done", "failed", "cancelled"];
+
+const ALL_LANES: Lane[] = [
+  "backlog",
+  "ready_to_work",
+  "in_progress",
+  "waiting_for_feedback",
+  "ready_for_testing",
+  "done",
+  "cancelled",
+];
 
 async function pollUntil(
   substrate: ExecutionSubstrate,
@@ -166,6 +176,71 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       const snap = await e.substrate.getWorkItem(ref);
       expect(snap.item).toEqual(ref);
     });
+
+    it("createTicket → findWorkItem round-trips the governance marker; a ticket runs nothing (D11)", async () => {
+      const e = await env();
+      const markerId = `gate:conformance:${Date.now().toString(36)}`;
+      const ref = await e.substrate.createTicket({
+        markerId,
+        title: "conformance: governance ticket",
+        body: "Board-control ticket — no agent, no brief, no contract.",
+      });
+      created.push(ref);
+      expect(await e.substrate.findWorkItem(markerId)).toEqual(ref);
+      const snap = await e.substrate.getWorkItem(ref);
+      expect(snap.assignedAgent, "governance tickets are never assigned").toBeUndefined();
+    });
+
+    it("setLane round-trips every lane through the native board — the D11 1:1 projection, idempotently", async () => {
+      const e = await env();
+      const ref = await e.substrate.createTicket({
+        markerId: `lane:conformance:${Date.now().toString(36)}`,
+        title: "conformance: lane projection",
+        body: "Lane round-trip fixture.",
+      });
+      created.push(ref);
+      for (const lane of ALL_LANES) {
+        await e.substrate.setLane(ref, lane);
+        expect((await e.substrate.getWorkItem(ref)).lane, `lane ${lane} reads back`).toBe(lane);
+      }
+      // idempotent re-set is a no-op, never an error
+      await e.substrate.setLane(ref, "done");
+      await e.substrate.setLane(ref, "done");
+    });
+
+    it("a conductor lane move surfaces as lane_moved with conductor attribution (D11 trigger surface)", async () => {
+      // operator attribution needs a second member identity, which a
+      // single-credential environment cannot mint — the actor translation is
+      // unit-tested adapter-side (P22); the wire mechanics are proven here.
+      const e = await env();
+      const ref = await e.substrate.createTicket({
+        markerId: `move:conformance:${Date.now().toString(36)}`,
+        title: "conformance: lane move event",
+        body: "Lane-move event fixture.",
+      });
+      created.push(ref);
+      const events: SubstrateEvent[] = [];
+      const abort = new AbortController();
+      const consumer = (async () => {
+        for await (const ev of e.substrate.watch(e.projectScope, { signal: abort.signal })) {
+          events.push(ev);
+          if (ev.kind === "lane_moved" && ev.item.externalId === ref.externalId) break;
+        }
+      })();
+      await new Promise((r) => setTimeout(r, 2000)); // let the socket authenticate
+      await e.substrate.setLane(ref, "waiting_for_feedback");
+      await Promise.race([consumer, new Promise((r) => setTimeout(r, 30_000))]);
+      abort.abort();
+      await consumer;
+      const move = events.find(
+        (ev): ev is Extract<SubstrateEvent, { kind: "lane_moved" }> =>
+          ev.kind === "lane_moved" && ev.item.externalId === ref.externalId,
+      );
+      expect(move, "lane_moved observed over watch").toBeTruthy();
+      expect(move!.lane).toBe("waiting_for_feedback");
+      expect(move!.nativeStatus).toBeTruthy();
+      expect(move!.actor).toBe("conductor");
+    }, 60_000);
 
     it("classifies bad credentials as auth", async () => {
       const e = await env();

@@ -132,3 +132,16 @@ describe("deriveSnapshot", () => {
     expect(s.updatedAt).toBe("2026-07-31T10:02:00Z");
   });
 });
+
+describe("board lane derivation (D11: the lane is exactly what was last set — P19)", () => {
+  it("derives the lane from the issue's native board status, independent of task state", () => {
+    const s = deriveSnapshot(ref, issue({ status: "in_review" }), [run({ status: "running", result: null })], "worker");
+    expect(s.lane).toBe("ready_for_testing");
+    expect(s.status).toBe("running");
+  });
+
+  it("surfaces an unmapped native board status as lane unknown (D8)", () => {
+    const s = deriveSnapshot(ref, issue({ status: "triaging" }), [], "worker");
+    expect(s.lane).toBe("unknown");
+  });
+});

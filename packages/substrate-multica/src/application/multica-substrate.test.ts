@@ -97,6 +97,7 @@ const make = () => {
   const substrate = new MulticaSubstrate(api, {
     projectScope: "ws-1",
     roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+    selfMemberId: "member-self",
   });
   return { api, substrate };
 };

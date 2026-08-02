@@ -9,7 +9,7 @@
  * unmapped native values surface as "unknown", never as the nearest neighbor.
  */
 
-import type { SubstrateError, WorkItemFailure, WorkItemStatus } from "@guild/shared";
+import type { BoardActor, Lane, SubstrateError, WorkItemFailure, WorkItemStatus } from "@guild/shared";
 
 /** M1a P13 state set; dispatched/deferred are pre-execution → queued; waiting_local_directory blocks on the runtime environment */
 const TASK_STATE_MAP: Record<string, WorkItemStatus> = {
@@ -25,6 +25,51 @@ const TASK_STATE_MAP: Record<string, WorkItemStatus> = {
 
 export function statusFromTaskState(native: string): WorkItemStatus {
   return TASK_STATE_MAP[native] ?? "unknown";
+}
+
+/**
+ * D11 lane ↔ native board status. Evidence (P20, live 2026-08-02): Multica's
+ * issue statuses are a server-enforced fixed enum — backlog, todo, in_progress,
+ * in_review, done, blocked, cancelled — mapping 1:1 onto the six lanes plus
+ * the off-board terminal. Nothing substrate-side auto-moves a status (P19),
+ * so the lane read back is exactly what was last set.
+ */
+const LANE_TO_NATIVE: Record<Lane, string> = {
+  backlog: "backlog",
+  ready_to_work: "todo",
+  in_progress: "in_progress",
+  waiting_for_feedback: "blocked",
+  ready_for_testing: "in_review",
+  done: "done",
+  cancelled: "cancelled",
+};
+
+const NATIVE_TO_LANE: Record<string, Lane> = Object.fromEntries(
+  Object.entries(LANE_TO_NATIVE).map(([lane, native]) => [native, lane as Lane]),
+);
+
+export function nativeStatusFromLane(lane: Lane): string {
+  return LANE_TO_NATIVE[lane];
+}
+
+export function laneFromNativeStatus(native: string): Lane | "unknown" {
+  return NATIVE_TO_LANE[native] ?? "unknown";
+}
+
+/**
+ * Board actor attribution (P22, live 2026-08-02): every activity entry carries
+ * actor_id + actor_type. The adapter's own member identity is the conductor;
+ * any other member is the operator; agents are agents; anything else is
+ * unknown (D8 closed union).
+ */
+export function actorFrom(
+  actorType: string | undefined,
+  actorId: string | undefined,
+  selfMemberId: string,
+): BoardActor {
+  if (actorType === "agent") return "agent";
+  if (actorType === "member") return actorId === selfMemberId ? "conductor" : "operator";
+  return "unknown";
 }
 
 /** M1a P10: the budget-capped 429 lands as this exact reason, non-retryable */
@@ -57,8 +102,10 @@ export function branchHintFor(agentName: string, taskId: string): string {
  * Idempotency marker for findWorkItem. Issue metadata is NOT persisted by the
  * create endpoint (verified live 2026-07-31), so the marker rides in the
  * description as an HTML comment — invisible on the board, trivially parseable.
+ * Colons admit the governance-ticket namespace (D11: "gate:<stageId>:v<n>");
+ * ids are Guild-authored, so the charset is a convention we control.
  */
-const MARKER_RE = /<!-- guild:engagement=([A-Za-z0-9_-]+) -->/;
+const MARKER_RE = /<!-- guild:engagement=([A-Za-z0-9:_-]+) -->/;
 
 export function embedEngagementMarker(description: string, engagementId: string): string {
   return `${description}\n\n<!-- guild:engagement=${engagementId} -->`;

@@ -6,17 +6,31 @@
  */
 
 import type { SubstrateEvent } from "@guild/shared";
-import { statusFromTaskState } from "./translation.js";
+import { actorFrom, laneFromNativeStatus, statusFromTaskState } from "./translation.js";
 
 /** adapter stamps the eventId (per-stream uniqueness is an adapter obligation) */
 export type RawSubstrateEvent =
   | Omit<Extract<SubstrateEvent, { kind: "status" }>, "eventId">
+  | Omit<Extract<SubstrateEvent, { kind: "lane_moved" }>, "eventId">
   | Omit<Extract<SubstrateEvent, { kind: "comment" }>, "eventId">;
 
 interface TaskFramePayload {
   issue_id?: string;
   task_id?: string;
   status?: string;
+}
+
+/** live shape 2026-08-02 (P21/P22): semantic audit entry with actor + from/to */
+interface ActivityFramePayload {
+  issue_id?: string;
+  entry?: {
+    id?: string;
+    action?: string;
+    actor_id?: string;
+    actor_type?: string;
+    created_at?: string;
+    details?: { to?: string; from?: string };
+  };
 }
 
 interface CommentFramePayload {
@@ -34,7 +48,24 @@ export function substrateEventFromFrame(
   substrateName: string,
   frame: { type: string; payload: unknown },
   receivedAt: string,
+  /** the adapter's own member id — conductor-vs-operator attribution (P22); the composition root requires it */
+  selfMemberId = "",
 ): RawSubstrateEvent | null {
+  if (frame.type === "activity:created") {
+    // lane_moved sources from the activity entry, not issue:updated — the
+    // activity carries the actor (P22); the issue frame does not
+    const p = (frame.payload ?? {}) as ActivityFramePayload;
+    const to = p.entry?.details?.to;
+    if (p.entry?.action !== "status_changed" || !p.issue_id || !to) return null;
+    return {
+      kind: "lane_moved",
+      item: { substrate: substrateName, externalId: p.issue_id },
+      lane: laneFromNativeStatus(to),
+      nativeStatus: to,
+      actor: actorFrom(p.entry.actor_type, p.entry.actor_id, selfMemberId),
+      at: p.entry.created_at ?? receivedAt,
+    };
+  }
   if (frame.type.startsWith("task:")) {
     const p = (frame.payload ?? {}) as TaskFramePayload;
     if (!p.issue_id) return null;
