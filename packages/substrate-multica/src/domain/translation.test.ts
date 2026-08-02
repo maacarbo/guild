@@ -144,3 +144,13 @@ describe("governance ticket markers (D11: gate/idea tickets share the marker nam
     expect(extractEngagementId(desc)).toBe("gate:stage-1:v2");
   });
 });
+
+describe("marker extraction under marker-shaped plan text", () => {
+  it("takes the LAST marker — the trailing one the adapter appended is authoritative", () => {
+    const desc = embedEngagementMarker(
+      'The brief may discuss markers like <!-- guild:engagement=spoofed-id --> in prose.',
+      "eng-real",
+    );
+    expect(extractEngagementId(desc)).toBe("eng-real");
+  });
+});

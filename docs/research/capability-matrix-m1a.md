@@ -426,3 +426,53 @@ Probe artifacts left on the dev stack (evidence, safe to delete): issues
 GUI-70/71 + one in workspace 2, project `guild-probe-p18`, workspace `Guild
 Probe 2` (`619a5b5c`), agent `guild-conf-ws2`; `guild-conf`'s `custom_env`
 was cleared (the testkit re-applies it every smoke run by design).
+
+## Addendum 2026-08-03 — P23: workspace membership, and the M2a live facts
+
+Probed while building the M2a acceptance (all against the live guild-dev
+stack, v0.4.15).
+
+### P23 — second-member flow: PASS (the D11 conductor identity is real)
+
+`POST /api/workspaces/{id}/members {email, role}` (201) mints a **pending
+invitation** (the `/invitations` GETs exist on both flat and workspace
+paths; their POSTs are 405 — members POST is the creation route). The
+invitee authenticates (dev-code flow works for any email), sees the
+invitation on `GET /api/invitations`, and joins via
+`POST /api/invitations/{id}/accept`. Role facts: **the member-row update
+PUT is 405 — a role change is remove (`DELETE
+/api/workspaces/{id}/members/{rowId}`, 204) + re-invite**. Capability
+facts: a plain `member` sees the owner's runtime rows but **cannot create
+agents on a private runtime** (403 `"only its owner or a workspace admin"`)
+and sees an empty agent list for the owner's private agents; an **`admin`
+member can create agents on the owner's runtime and drive their env
+endpoint** — both live-proven. Consequence: the conductor runs as its own
+**admin** member (D11), giving first-class human-vs-Guild actor attribution
+with zero API gaps; M3 hiring gets the same surface.
+
+### Instructed-idle first attempt: deepseek obeys instructions over visible checks
+
+With the full contract checks visible in the brief (D6 renders them), an
+explicit numbered instruction — "iteration 1: reply ACK only, do NOT
+create/modify files, do NOT run git" — was followed literally by
+`or-deepseek-v3-2`: task `completed`, **no branch pushed** (ls-remote
+empty). This makes a *genuine* hollow completion (the multica#1579 class)
+deterministically constructible for acceptance fixtures, and reconfirms
+the model-floor observation that instruction-following, not capability,
+governs what cheap models do.
+
+### M2a acceptance facts (2026-08-03, twice green: 2m55s / 3m45s)
+
+- A conductor-authored top-level rework comment (P5 was operator-PAT)
+  **triggers the implementing agent's session resume** — the bounce path
+  works across member identities.
+- On session-resumed rework the daemon *does* mint a fresh per-task branch;
+  resolution against every branch hint the engagement ever named (the
+  conductor remembers them) found the rework push.
+- `git push <sha>:refs/heads/<target>` against GitHub enforces
+  fast-forward-only exactly as the D6 merge rule requires; a full
+  `--no-checkout` clone suffices to make the pushed sha local.
+- The guild Postgres is published **loopback-only** (127.0.0.1:5442) for
+  the host-side conductor of the M1–M2a dev era — a documented deviation
+  from the databases-internal floor, dropped when the conductor ships as a
+  compose service (M2b).

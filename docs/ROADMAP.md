@@ -55,6 +55,8 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 
 **M2a acceptance:** one engagement completes the entire governed lifecycle including one genuine bounce-and-recover, with every transition in the `decisions` table.
 
+**Met 2026-08-03**: `pnpm smoke:m2a` (the acceptance as a Gherkin feature, `packages/orchestrator/features/m2a-governed-engagement.feature`) green twice consecutively on the live stack — 2m55s and 3m45s. The gate and the acceptance were real operator lane moves (the conductor runs as its own admin workspace member, so actor attribution is first-class — matrix addendum P23); the bounce was a genuine hollow completion (agent reported done with nothing pushed — the multica#1579 class) fixed by the same agent from the bounce comment alone; conductor A was killed after dispatch and conductor B recovered purely from Postgres + substrate reads (no event stream); acceptance fast-forwarded the target branch to exactly the validated SHA; all sixteen decision-trail entries landed in order. The post-milestone verify workflow confirmed and same-day-fixed three defects (validator_error retry via reconcile, pg idle-error listener, last-match marker extraction); the remaining confirmed-but-deferred hardening items are tracked in the issue backlog.
+
 ### M2b — The planner and the team
 
 - Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation; plan versioning + re-gate on amendment

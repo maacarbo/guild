@@ -43,6 +43,11 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     await again.close();
   });
 
+  it("arms an idle-error listener so a backend restart cannot crash the process", () => {
+    const pool = (store as unknown as { pool: { listenerCount(ev: string): number } }).pool;
+    expect(pool.listenerCount("error")).toBeGreaterThan(0);
+  });
+
   it("round-trips an engagement record including item ref and validated sha", async () => {
     await store.saveEngagement({
       engagementId: "eng-pg-1",

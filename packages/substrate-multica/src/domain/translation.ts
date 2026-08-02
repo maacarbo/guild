@@ -105,14 +105,19 @@ export function branchHintFor(agentName: string, taskId: string): string {
  * Colons admit the governance-ticket namespace (D11: "gate:<stageId>:v<n>");
  * ids are Guild-authored, so the charset is a convention we control.
  */
-const MARKER_RE = /<!-- guild:engagement=([A-Za-z0-9:_-]+) -->/;
+const MARKER_RE = /<!-- guild:engagement=([A-Za-z0-9:_-]+) -->/g;
 
 export function embedEngagementMarker(description: string, engagementId: string): string {
   return `${description}\n\n<!-- guild:engagement=${engagementId} -->`;
 }
 
 export function extractEngagementId(description: string): string | null {
-  return MARKER_RE.exec(description)?.[1] ?? null;
+  // the adapter appends the authoritative marker LAST — take the last match,
+  // so marker-shaped substrings in plan-authored brief text cannot spoof
+  // findWorkItem (M2a verify finding)
+  let last: string | null = null;
+  for (const m of description.matchAll(MARKER_RE)) last = m[1]!;
+  return last;
 }
 
 /**

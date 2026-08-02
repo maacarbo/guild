@@ -42,6 +42,13 @@ export class PgGovernanceStore implements GovernanceStore {
 
   static async connect(connectionString: string): Promise<PgGovernanceStore> {
     const pool = new pg.Pool({ connectionString, max: 5 });
+    // an idle client errors when the backend restarts or the network blips;
+    // without a listener node treats that as an uncaught exception and kills
+    // the process (node-postgres documented behavior; M2a verify finding).
+    // The pool discards the dead client itself — logging is the handling.
+    pool.on("error", (err) => {
+      console.error(`guild-pg: idle client error (recoverable): ${err.message}`);
+    });
     const store = new PgGovernanceStore(pool);
     await store.ensureSchema();
     return store;

@@ -153,6 +153,10 @@ export class Conductor {
             (await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task ran while down")) ?? rec;
         }
         await this.onReported(current);
+      } else if (snap.status === "done" && rec.state === "reported") {
+        // stranded by a validator_error (or a crash mid-judgment): re-judge —
+        // the input is the same SHA-pinned report, so retry is idempotent
+        await this.judgeReported(rec);
       } else if (snap.status === "done" && rec.state === "bounced") {
         // a bounced engagement's snapshot stays "done" from the judged run
         // until the rework task starts — only a NEW commit at the head is the
@@ -289,10 +293,20 @@ export class Conductor {
   }
 
   private async onReported(record: EngagementRecord): Promise<void> {
-    let reported = await this.applyTransition(record, { kind: "reported" }, "agent reported done");
+    const reported = await this.applyTransition(record, { kind: "reported" }, "agent reported done");
     if (!reported) return;
     await this.setEngagementLane(reported);
+    await this.judgeReported(reported);
+  }
 
+  /**
+   * Judge a reported engagement — callable both after the report transition
+   * and from reconcile, so a validator_error is genuinely retryable (D6):
+   * the engagement stays in reported and the next reconcile re-judges the
+   * same SHA-pinned input.
+   */
+  private async judgeReported(record: EngagementRecord): Promise<void> {
+    let reported = record;
     const snapshot = await this.deps.substrate.getWorkItem(reported.item!);
     const resolved = await this.resolveReport(reported, snapshot);
     // remember the best-known branch even on a hollow report: whether the

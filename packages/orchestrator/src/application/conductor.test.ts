@@ -593,3 +593,16 @@ describe("hollow-report branch memory", () => {
     expect(rec?.validatedSha).toBe("sha-late");
   });
 });
+
+describe("validator-error retry (D6: infrastructure faults retry, never strand)", () => {
+  it("reconcile retries validation for an engagement stranded in reported by a validator error", async () => {
+    const w = makeWorld();
+    w.validator.outcomes = ["validator_error", "passed"];
+    await driveToReported(w);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("reported");
+    await w.conductor.reconcile();
+    const rec = await w.store.getEngagement("eng-1");
+    expect(rec?.state).toBe("validated");
+    expect(rec?.validatedSha).toBe("sha-validated");
+  });
+});
