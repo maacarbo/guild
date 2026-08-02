@@ -109,6 +109,56 @@ export class Conductor {
     }
   }
 
+  /**
+   * Recover from reads (the truth path): resume crashed dispatch sagas,
+   * honor gate and acceptance moves the operator made while the conductor was
+   * down, and catch up missed task transitions. Idempotent — a settled state
+   * reconciles to zero new decisions. Attribution note: a gate ticket is
+   * never assigned, and the conductor only ever moves it to done, so a go- or
+   * off-board lane found on it can only be the operator's move (D11 fallback).
+   */
+  async reconcile(): Promise<void> {
+    await this.postStageForApproval();
+
+    // 1. crashed dispatch sagas: intent persisted, record still gated
+    const intents = await this.deps.store.listDispatchIntents();
+    for (const ep of this.plan.engagements) {
+      if (!intents.includes(ep.engagementId)) continue;
+      const rec = await this.deps.store.getEngagement(ep.engagementId);
+      if (rec?.state === "gated") await this.dispatch(ep);
+    }
+
+    // 2. gate moves made while down
+    const gate = await this.deps.store.getGateTicket(this.plan.stageId, this.plan.planVersion);
+    if (gate) {
+      const snap = await this.deps.substrate.getWorkItem(gate);
+      if (snap.lane === "ready_to_work") await this.approveStage(this.now());
+      else if (snap.lane === "cancelled") await this.rejectStage(this.now());
+    }
+
+    // 3. engagement drift against substrate reads
+    for (const rec of await this.deps.store.listEngagements()) {
+      if (!rec.item) continue;
+      const snap = await this.deps.substrate.getWorkItem(rec.item);
+      if (snap.status === "running" && (rec.state === "dispatched" || rec.state === "bounced")) {
+        const updated = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task running");
+        if (updated) await this.setEngagementLane(updated);
+      } else if (
+        snap.status === "done" &&
+        (rec.state === "dispatched" || rec.state === "bounced" || rec.state === "working" || rec.state === "blocked")
+      ) {
+        let current = rec;
+        if (rec.state === "dispatched" || rec.state === "bounced") {
+          current =
+            (await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task ran while down")) ?? rec;
+        }
+        await this.onReported(current);
+      } else if (rec.state === "validated" && snap.lane === "done") {
+        await this.accept(rec);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- gate
 
   private async onLaneMoved(ev: Extract<SubstrateEvent, { kind: "lane_moved" }>): Promise<void> {
@@ -126,32 +176,59 @@ export class Conductor {
   }
 
   private async onGateMoved(ev: Extract<SubstrateEvent, { kind: "lane_moved" }>): Promise<void> {
-    const base = { stageId: this.plan.stageId, planVersion: this.plan.planVersion, at: ev.at };
-    if (ev.lane === "ready_to_work") {
-      const decision: GateDecision = { kind: "approved", by: "operator", ...base };
-      const outcome = applyGateDecision(this.plan, decision);
-      if (outcome.kind !== "authorized") return;
-      await this.deps.store.appendDecision({ kind: "gate", decision });
-      for (const ep of outcome.engagements) await this.dispatch(ep);
-      await this.deps.substrate.setLane(ev.item, "done");
-      return;
-    }
-    if (ev.lane === "cancelled") {
-      const decision: GateDecision = { kind: "rejected", note: "operator moved the gate ticket off-board", ...base };
-      if (applyGateDecision(this.plan, decision).kind !== "rejected") return;
-      await this.deps.store.appendDecision({ kind: "gate", decision });
-      for (const ep of this.plan.engagements) {
-        const rec = await this.deps.store.getEngagement(ep.engagementId);
-        if (!rec || rec.state !== "gated") continue;
-        const updated = await this.applyTransition(rec, { kind: "gate_rejected" }, "stage rejected at the gate");
-        if (updated) {
-          await this.deps.store.appendDecision({
-            kind: "termination",
-            terminated: { engagementId: ep.engagementId, finalState: "cancelled", reason: "stage_rejected", at: ev.at },
-          });
-        }
+    if (ev.lane === "ready_to_work") return this.approveStage(ev.at);
+    if (ev.lane === "cancelled") return this.rejectStage(ev.at);
+  }
+
+  /** idempotent by trail-dedup: reconcile and the live event can both land here */
+  private async approveStage(at: string): Promise<void> {
+    const decision: GateDecision = {
+      kind: "approved",
+      stageId: this.plan.stageId,
+      planVersion: this.plan.planVersion,
+      by: "operator",
+      at,
+    };
+    const outcome = applyGateDecision(this.plan, decision);
+    if (outcome.kind !== "authorized") return;
+    if (!(await this.gateDecided())) await this.deps.store.appendDecision({ kind: "gate", decision });
+    for (const ep of outcome.engagements) await this.dispatch(ep);
+    const gate = await this.deps.store.getGateTicket(this.plan.stageId, this.plan.planVersion);
+    if (gate) await this.deps.substrate.setLane(gate, "done");
+  }
+
+  private async rejectStage(at: string): Promise<void> {
+    const decision: GateDecision = {
+      kind: "rejected",
+      stageId: this.plan.stageId,
+      planVersion: this.plan.planVersion,
+      note: "operator moved the gate ticket off-board",
+      at,
+    };
+    if (applyGateDecision(this.plan, decision).kind !== "rejected") return;
+    if (!(await this.gateDecided())) await this.deps.store.appendDecision({ kind: "gate", decision });
+    for (const ep of this.plan.engagements) {
+      const rec = await this.deps.store.getEngagement(ep.engagementId);
+      if (!rec || rec.state !== "gated") continue;
+      const updated = await this.applyTransition(rec, { kind: "gate_rejected" }, "stage rejected at the gate");
+      if (updated) {
+        await this.deps.store.appendDecision({
+          kind: "termination",
+          terminated: { engagementId: ep.engagementId, finalState: "cancelled", reason: "stage_rejected", at },
+        });
       }
     }
+  }
+
+  private async gateDecided(): Promise<boolean> {
+    const decisions = await this.deps.store.listDecisions();
+    return decisions.some(
+      (d) =>
+        d.kind === "gate" &&
+        (d.decision.kind === "approved" || d.decision.kind === "auto_approved" || d.decision.kind === "rejected") &&
+        d.decision.stageId === this.plan.stageId &&
+        d.decision.planVersion === this.plan.planVersion,
+    );
   }
 
   // ------------------------------------------------------------ dispatch

@@ -450,3 +450,83 @@ describe("questions and blockers", () => {
     expect((await w.store.getEngagement("eng-1"))?.state).toBe("working");
   });
 });
+
+describe("reconciliation (reads are the truth path — restart recovery)", () => {
+  it("resumes a dispatch saga that crashed mid-flight without duplicating the work item", async () => {
+    const w = makeWorld();
+    await w.conductor.postStageForApproval();
+    // crash simulation: intent recorded and the item already created, but the
+    // engagement record never advanced past gated
+    await w.store.recordDispatchIntent("eng-1", "t0");
+    await w.substrate.createWorkItem({
+      engagementId: "eng-1",
+      role: "implementer",
+      title: "do the governed work",
+      brief: plan.engagements[0]!.brief,
+    });
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("dispatched");
+    expect(w.ops.filter((o) => o === "createWorkItem")).toHaveLength(1);
+  });
+
+  it("recovers an operator approval made while the conductor was down", async () => {
+    const w = makeWorld();
+    const gate = await w.conductor.postStageForApproval();
+    await w.substrate.setLane(gate, "ready_to_work"); // operator move, no event delivered
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("dispatched");
+    expect((await w.substrate.getWorkItem(gate)).lane).toBe("done");
+    const gates = (await w.store.listDecisions()).filter((d) => d.kind === "gate");
+    expect(gates).toHaveLength(1);
+  });
+
+  it("recovers an operator rejection made while the conductor was down", async () => {
+    const w = makeWorld();
+    const gate = await w.conductor.postStageForApproval();
+    await w.substrate.setLane(gate, "cancelled");
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("cancelled");
+    expect(w.gateway.mints).toHaveLength(0);
+  });
+
+  it("reconciles a task that started while down", async () => {
+    const w = makeWorld();
+    const { item } = await postAndApprove(w);
+    w.substrate.snapshots.set(item.externalId, { status: "running" });
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("working");
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("in_progress");
+  });
+
+  it("reconciles a completion that happened while down — SHA-pinned validation still runs", async () => {
+    const w = makeWorld();
+    const { item } = await postAndApprove(w);
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "done", branchHint: "agent/worker/abc12345" },
+    });
+    w.source.shas.set("agent/worker/abc12345", "sha-rec");
+    await w.conductor.reconcile();
+    const rec = await w.store.getEngagement("eng-1");
+    expect(rec?.state).toBe("validated");
+    expect(rec?.validatedSha).toBe("sha-rec");
+  });
+
+  it("recovers an operator acceptance made while down", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    await w.substrate.setLane(item, "done"); // operator accepted, no event delivered
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("accepted");
+    expect(w.source.ffs).toEqual([{ targetBranch: "main", sha: "sha-validated" }]);
+  });
+
+  it("a settled state reconciles to zero new decisions", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    const before = (await w.store.listDecisions()).length;
+    await w.conductor.reconcile();
+    expect((await w.store.listDecisions()).length).toBe(before);
+  });
+});

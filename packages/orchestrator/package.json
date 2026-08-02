@@ -10,12 +10,14 @@
     "smoke": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js"
   },
   "dependencies": {
-    "@guild/shared": "workspace:*"
+    "@guild/shared": "workspace:*",
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@cucumber/cucumber": "13.2.0",
     "@guild/substrate-multica": "workspace:*",
     "@types/node": "^26.1.2",
+    "@types/pg": "8.15.6",
     "tsx": "4.23.1",
     "typescript": "^5.6.0",
     "vitest": "4.1.10"

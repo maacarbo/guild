@@ -109,13 +109,17 @@ services:
     networks: [guild-dev]
     restart: unless-stopped
 
-  # ---- Guild conductor database (M1b+; empty until the adapter lands) -----
+  # ---- Guild conductor database (governance state: engagements, decisions) -
   guild-postgres:
     image: postgres:17
     environment:
       POSTGRES_DB: guild
       POSTGRES_USER: guild
       POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:?set in .env}
+    ports:
+      # loopback-only, for the host-side conductor of the M1-M2a dev era
+      # (the conductor ships as a compose service at M2b - drop this then)
+      - "127.0.0.1:5442:5432"
     volumes:
       - guild_pgdata:/var/lib/postgresql/data
     networks: [guild-dev]
