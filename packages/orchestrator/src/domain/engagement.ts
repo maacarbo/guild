@@ -75,7 +75,11 @@ export function transition(engagement: Engagement, event: EngagementEvent): Tran
     case "question_answered":
       return state === "blocked" ? to("working") : illegal();
     case "reported":
-      return state === "working" ? to("reported") : illegal();
+      // blocked → reported is legal: an agent's completion can race its own
+      // last comment (the question handler may block the engagement in the
+      // instant before task:completed lands) — the lifecycle diagram's
+      // Working ⇄ Blocked → Reported reads exactly this way
+      return state === "working" || state === "blocked" ? to("reported") : illegal();
     case "verdict_passed":
       return state === "reported" ? to("validated") : illegal();
     case "verdict_failed":

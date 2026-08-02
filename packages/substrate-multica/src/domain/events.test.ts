@@ -77,6 +77,9 @@ describe("substrateEventFromFrame", () => {
       commentId: "6f42dda9-4713-4b66-99c3-7663d388e5e7",
       item: { substrate: "multica", externalId: "c4db0005-9286-4e71-8f29-d0f7396295ec" },
       author: "7e3fa62b-f769-4c66-8204-83d821c2be48",
+      // no selfMemberId passed here, so a member author reads as operator;
+      // conductor-vs-operator on comments is pinned in the lane_moved suite
+      actor: "operator",
       body: "ws frame probe comment",
       at: "2026-07-31T11:04:13Z",
     });

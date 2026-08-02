@@ -208,6 +208,25 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     }
   }
 
+  async bindEngagementKey(role: string, key: string): Promise<void> {
+    const binding = this.config.roleAgents[role];
+    if (!binding) {
+      throw new SubstrateFault(
+        "unsupported_capability",
+        false,
+        `no agent is bound to role "${role}" — add it to MulticaSubstrateConfig.roleAgents`,
+      );
+    }
+    try {
+      // wholesale replacement is safe: one agent = at most one open engagement.
+      // GUILD_DAEMON_VIRTUAL_KEY is the daemon image's gateway-credential hook
+      // (proven end-to-end at M1: per-engagement spend attribution).
+      await this.api.updateAgentEnv(binding.agentId, { GUILD_DAEMON_VIRTUAL_KEY: key });
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
   async setLane(item: WorkItemRef, lane: Lane): Promise<void> {
     try {
       await this.api.updateIssue(item.externalId, { status: nativeStatusFromLane(lane) });

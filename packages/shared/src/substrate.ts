@@ -144,7 +144,7 @@ export type SubstrateEvent =
    * board status; nativeStatus preserves it for diagnostics.
    */
   | { kind: "lane_moved"; eventId: string; item: WorkItemRef; lane: Lane | "unknown"; nativeStatus: string; actor: BoardActor; at: string }
-  | { kind: "comment"; eventId: string; commentId: string; item: WorkItemRef; author: string; body: string; at: string }
+  | { kind: "comment"; eventId: string; commentId: string; item: WorkItemRef; author: string; actor: BoardActor; body: string; at: string }
   | { kind: "usage"; eventId: string; item: WorkItemRef; tokens: number; costCents?: number; at: string };
 
 /**
@@ -202,6 +202,15 @@ export interface ExecutionSubstrate {
   /** reconciliation read — the normative truth path after any WS gap or conductor restart */
   listWorkItems(projectScope: string): Promise<WorkItemSnapshot[]>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
+  /**
+   * Route the role's subsequent work through the given gateway credential —
+   * the per-engagement virtual key (D2). Delivery is runtime-env injection,
+   * proven end-to-end at M1 (per-engagement spend attribution). Wholesale
+   * replacement is safe because one agent holds at most one open engagement
+   * (CLAUDE.md invariant); call BEFORE createWorkItem — assignment dispatches
+   * immediately (P6), so a late bind leaks spend onto the previous credential.
+   */
+  bindEngagementKey(role: string, key: string): Promise<void>;
   /**
    * board projection write (D11): the conductor is the sole lane authority —
    * idempotent (setting the current lane is a no-op) and total over Lane

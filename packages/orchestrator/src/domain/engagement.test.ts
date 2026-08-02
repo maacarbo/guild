@@ -39,6 +39,11 @@ describe("engagement state machine", () => {
     expect(apply(blocked, { kind: "question_answered" }).state).toBe("working");
   });
 
+  it("accepts a report from blocked — an agent's completion can race its own last comment", () => {
+    const blocked = fresh({ state: "blocked" });
+    expect(apply(blocked, { kind: "reported" }).state).toBe("reported");
+  });
+
   it("bounces a failed verdict back to the go lane with an incremented count", () => {
     const bounced = apply(fresh({ state: "reported" }), { kind: "verdict_failed" });
     expect(bounced.state).toBe("bounced");

@@ -88,6 +88,7 @@ export function substrateEventFromFrame(
       commentId: c.id,
       item: { substrate: substrateName, externalId: c.issue_id },
       author: c.author_id ?? c.author_type ?? "",
+      actor: actorFrom(c.author_type, c.author_id, selfMemberId),
       body: c.content ?? "",
       at: c.created_at ?? receivedAt,
     };

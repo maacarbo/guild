@@ -33,6 +33,8 @@ export interface MulticaApi {
   createComment(issueId: string, content: string, parentId?: string): Promise<MulticaComment>;
   cancelTask(taskId: string): Promise<void>;
   getAgent(id: string): Promise<MulticaAgent>;
+  /** wholesale custom_env replacement — v0.4.15 dedicated endpoint, member-token auth (M1b live) */
+  updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void>;
   /** long-lived frame stream; ends on disconnect — the caller owns reconnect/reconcile */
   watchWorkspace(signal?: AbortSignal): AsyncIterable<MulticaWsFrame>;
 }

@@ -104,6 +104,10 @@ export class FetchMulticaApi implements MulticaApi {
     return agent;
   }
 
+  async updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void> {
+    await this.request("PUT", `/api/agents/${agentId}/env`, { custom_env: env });
+  }
+
   async *watchWorkspace(signal?: AbortSignal): AsyncIterable<MulticaWsFrame> {
     const wsUrl = `${this.config.baseUrl.replace(/^http/, "ws")}/ws?workspace_id=${this.config.workspaceId}`;
     const ws = new WebSocket(wsUrl);

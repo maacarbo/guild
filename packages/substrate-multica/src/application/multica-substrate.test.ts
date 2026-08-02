@@ -86,6 +86,10 @@ class FakeMulticaApi implements MulticaApi {
     if (!a) throw new MulticaHttpError(404, `no agent ${id}`);
     return a;
   }
+  agentEnvs = new Map<string, Record<string, string>>();
+  async updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void> {
+    this.agentEnvs.set(agentId, env);
+  }
   // eslint-disable-next-line require-yield
   async *watchWorkspace(): AsyncIterable<MulticaWsFrame> {
     return;
@@ -283,5 +287,20 @@ describe("close (advisory bookkeeping, P6)", () => {
     const ref = await substrate.createWorkItem(spec("eng-1"));
     await substrate.close(ref);
     expect((await api.getIssue(ref.externalId)).status).toBe("done");
+  });
+});
+
+describe("bindEngagementKey", () => {
+  it("routes the role's runtime through the engagement key via the env hook", async () => {
+    const { api, substrate } = make();
+    await substrate.bindEngagementKey("worker", "sk-engagement-1");
+    expect(api.agentEnvs.get("agent-1")).toEqual({ GUILD_DAEMON_VIRTUAL_KEY: "sk-engagement-1" });
+  });
+
+  it("classifies an unbound role as unsupported_capability", async () => {
+    const { substrate } = make();
+    const err = await substrate.bindEngagementKey("stranger", "sk-x").catch((x) => x);
+    expect(isSubstrateError(err)).toBe(true);
+    expect(err.category).toBe("unsupported_capability");
   });
 });
