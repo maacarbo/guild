@@ -1,7 +1,12 @@
-// Only the smoke feature runs under cucumber; contract-validation.feature is
-// documentation for scenarios executed by the vitest suites (its header says
-// which files) and has no cucumber steps.
+// Feature-to-runner map: the M1 smoke (default) and the M2a acceptance (m2a
+// profile) run under cucumber; contract-validation.feature is documentation
+// for scenarios executed by the vitest suites (its header says which files)
+// and has no cucumber steps.
 export default {
   paths: ["features/m1-smoke.feature"],
-  import: ["features/steps/*.ts"],
+  import: ["features/steps/m1-smoke.steps.ts"],
+};
+export const m2a = {
+  paths: ["features/m2a-governed-engagement.feature"],
+  import: ["features/steps/m2a-governed-engagement.steps.ts"],
 };

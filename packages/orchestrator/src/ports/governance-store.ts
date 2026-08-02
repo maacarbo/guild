@@ -14,6 +14,14 @@ export interface EngagementRecord extends Engagement {
   item?: WorkItemRef;
   /** the exact commit the passing verdict pinned — the only sha acceptance may merge (D6) */
   validatedSha?: string;
+  /**
+   * the branch that actually resolved at the last report — rework fallback:
+   * the daemon mints a fresh branch hint per task (P7), but the bounce
+   * instruction sends the fix to the branch the work was delivered on
+   */
+  lastBranch?: string;
+  /** the commit the last verdict judged — reconcile's guard against re-judging a bounced engagement's old artifact */
+  lastJudgedSha?: string;
 }
 
 export interface GovernanceStore {

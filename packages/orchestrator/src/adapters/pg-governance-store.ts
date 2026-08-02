@@ -19,6 +19,8 @@ interface EngagementRow {
   bounce_count: number;
   item: WorkItemRef | null;
   validated_sha: string | null;
+  last_branch: string | null;
+  last_judged_sha: string | null;
 }
 
 function toRecord(row: EngagementRow): EngagementRecord {
@@ -30,6 +32,8 @@ function toRecord(row: EngagementRow): EngagementRecord {
     bounceCount: row.bounce_count,
     ...(row.item ? { item: row.item } : {}),
     ...(row.validated_sha ? { validatedSha: row.validated_sha } : {}),
+    ...(row.last_branch ? { lastBranch: row.last_branch } : {}),
+    ...(row.last_judged_sha ? { lastJudgedSha: row.last_judged_sha } : {}),
   };
 }
 
@@ -58,6 +62,8 @@ export class PgGovernanceStore implements GovernanceStore {
         item          jsonb,
         validated_sha text
       );
+      ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_branch text;
+      ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_judged_sha text;
       CREATE TABLE IF NOT EXISTS decisions (
         seq   bigserial PRIMARY KEY,
         entry jsonb NOT NULL
@@ -75,13 +81,15 @@ export class PgGovernanceStore implements GovernanceStore {
 
   async saveEngagement(record: EngagementRecord): Promise<void> {
     await this.pool.query(
-      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha, last_branch, last_judged_sha)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (engagement_id) DO UPDATE SET
          state = EXCLUDED.state,
          bounce_count = EXCLUDED.bounce_count,
          item = EXCLUDED.item,
-         validated_sha = EXCLUDED.validated_sha`,
+         validated_sha = EXCLUDED.validated_sha,
+         last_branch = EXCLUDED.last_branch,
+         last_judged_sha = EXCLUDED.last_judged_sha`,
       [
         record.engagementId,
         record.stageId,
@@ -90,6 +98,8 @@ export class PgGovernanceStore implements GovernanceStore {
         record.bounceCount,
         record.item ? JSON.stringify(record.item) : null,
         record.validatedSha ?? null,
+        record.lastBranch ?? null,
+        record.lastJudgedSha ?? null,
       ],
     );
   }

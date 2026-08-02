@@ -7,7 +7,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:live": "GUILD_LIVE_STACK=1 vitest run",
-    "smoke": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js"
+    "smoke": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js",
+    "smoke:m2a": "node --import tsx node_modules/@cucumber/cucumber/bin/cucumber.js --profile m2a"
   },
   "dependencies": {
     "@guild/shared": "workspace:*",

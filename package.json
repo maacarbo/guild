@@ -9,7 +9,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "smoke": "pnpm --filter @guild/orchestrator smoke",
-    "deps:check": "depcruise packages/*/src --config .dependency-cruiser.cjs"
+    "deps:check": "depcruise packages/*/src --config .dependency-cruiser.cjs",
+    "smoke:m2a": "pnpm --filter @guild/orchestrator smoke:m2a"
   },
   "devDependencies": {
     "dependency-cruiser": "18.1.0"

@@ -59,6 +59,8 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       bounceCount: 2,
       item: { substrate: "multica", externalId: "issue-77" },
       validatedSha: "abc123",
+      lastBranch: "agent/worker/abc",
+      lastJudgedSha: "abc123",
     });
     const rec = await store.getEngagement("eng-pg-1");
     expect(rec).toEqual({
@@ -69,6 +71,8 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       bounceCount: 2,
       item: { substrate: "multica", externalId: "issue-77" },
       validatedSha: "abc123",
+      lastBranch: "agent/worker/abc",
+      lastJudgedSha: "abc123",
     });
     expect(await store.getEngagement("eng-none")).toBeNull();
     expect((await store.listEngagements()).map((r) => r.engagementId)).toContain("eng-pg-1");

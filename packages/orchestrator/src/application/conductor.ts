@@ -145,14 +145,23 @@ export class Conductor {
         if (updated) await this.setEngagementLane(updated);
       } else if (
         snap.status === "done" &&
-        (rec.state === "dispatched" || rec.state === "bounced" || rec.state === "working" || rec.state === "blocked")
+        (rec.state === "dispatched" || rec.state === "working" || rec.state === "blocked")
       ) {
         let current = rec;
-        if (rec.state === "dispatched" || rec.state === "bounced") {
+        if (rec.state === "dispatched") {
           current =
             (await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task ran while down")) ?? rec;
         }
         await this.onReported(current);
+      } else if (snap.status === "done" && rec.state === "bounced") {
+        // a bounced engagement's snapshot stays "done" from the judged run
+        // until the rework task starts — only a NEW commit at the head is the
+        // rework signal; the already-judged sha must not be judged again
+        const resolved = await this.resolveReport(rec, snap);
+        if (resolved && resolved.sha !== rec.lastJudgedSha) {
+          const started = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: rework delivered");
+          if (started) await this.onReported(started);
+        }
       } else if (rec.state === "validated" && snap.lane === "done") {
         await this.accept(rec);
       }
@@ -280,12 +289,25 @@ export class Conductor {
   }
 
   private async onReported(record: EngagementRecord): Promise<void> {
-    const reported = await this.applyTransition(record, { kind: "reported" }, "agent reported done");
+    let reported = await this.applyTransition(record, { kind: "reported" }, "agent reported done");
     if (!reported) return;
     await this.setEngagementLane(reported);
 
     const snapshot = await this.deps.substrate.getWorkItem(reported.item!);
-    const verdict = await this.judge(reported, snapshot);
+    const resolved = await this.resolveReport(reported, snapshot);
+    // remember the best-known branch even on a hollow report: whether the
+    // daemon reuses attempt 1's branch or mints a new one per task, a later
+    // rework must be resolvable against every hint this engagement has named
+    const bestBranch = resolved?.branch ?? snapshot.report?.branchHint ?? reported.lastBranch;
+    if (resolved || bestBranch !== reported.lastBranch) {
+      reported = {
+        ...reported,
+        ...(bestBranch ? { lastBranch: bestBranch } : {}),
+        ...(resolved ? { lastJudgedSha: resolved.sha } : {}),
+      };
+      await this.deps.store.saveEngagement(reported);
+    }
+    const verdict = await this.judge(reported, snapshot, resolved);
     await this.deps.store.appendDecision({ kind: "verdict", engagementId: reported.engagementId, verdict });
 
     if (verdict.outcome === "validator_error") {
@@ -337,12 +359,32 @@ export class Conductor {
     });
   }
 
-  /** resolve the branch head ONCE; no branch → the hollow-completion verdict, no validator run */
-  private async judge(record: EngagementRecord, snapshot: WorkItemSnapshot): Promise<ContractVerdict> {
+  /**
+   * The ONE branch-head resolution per report (D6): the fresh hint first,
+   * then the branch that resolved last time — the daemon mints a new hint per
+   * task (P7) while the bounce instruction sends fixes to the delivery branch.
+   */
+  private async resolveReport(
+    record: EngagementRecord,
+    snapshot: WorkItemSnapshot,
+  ): Promise<{ branch: string; sha: string } | null> {
+    const candidates = [...new Set([snapshot.report?.branchHint, record.lastBranch].filter((b): b is string => !!b))];
+    for (const branch of candidates) {
+      const sha = await this.deps.source.resolveRemoteSha(this.config.repoUrl, branch);
+      if (sha) return { branch, sha };
+    }
+    return null;
+  }
+
+  /** no resolvable branch → the hollow-completion verdict, no validator run */
+  private async judge(
+    record: EngagementRecord,
+    snapshot: WorkItemSnapshot,
+    resolved: { branch: string; sha: string } | null,
+  ): Promise<ContractVerdict> {
     const contract = this.contractFor(record.engagementId);
-    const branch = snapshot.report?.branchHint;
-    const sha = branch ? await this.deps.source.resolveRemoteSha(this.config.repoUrl, branch) : null;
-    if (!sha) {
+    if (!resolved) {
+      const branch = snapshot.report?.branchHint;
       const detail = branch
         ? `engagement branch "${branch}" does not exist on the remote — nothing was pushed`
         : "the report names no engagement branch — nothing was pushed";
@@ -360,7 +402,7 @@ export class Conductor {
       engagementId: record.engagementId,
       contract,
       repoUrl: this.config.repoUrl,
-      commitSha: sha,
+      commitSha: resolved.sha,
     });
   }
 

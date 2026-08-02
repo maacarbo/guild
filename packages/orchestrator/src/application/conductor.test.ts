@@ -530,3 +530,66 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
     expect((await w.store.listDecisions()).length).toBe(before);
   });
 });
+
+describe("rework resolution (the daemon may mint a new branch hint per task — P7)", () => {
+  it("falls back to the previously reported branch when the rework hint is unpushed", async () => {
+    const w = makeWorld();
+    w.validator.outcomes = ["failed", "passed"];
+    const { item } = await driveToReported(w); // first report on agent/worker/abc12345 → bounced
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("bounced");
+    // rework: new task id → new hint that was never pushed; the fix landed on the old branch
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "fixed", branchHint: "agent/worker/zzz99999" },
+    });
+    w.source.shas.set("agent/worker/abc12345", "sha-fix");
+    await w.conductor.handleEvent(statusEv(item, "done"));
+    const rec = await w.store.getEngagement("eng-1");
+    expect(rec?.state).toBe("validated");
+    expect(rec?.validatedSha).toBe("sha-fix");
+  });
+
+  it("reconcile does not re-judge a bounced engagement while the old commit still heads the branch", async () => {
+    const w = makeWorld();
+    w.validator.outcomes = ["failed"];
+    await driveToReported(w); // bounced; lastJudgedSha = sha-validated
+    const validations = w.validator.inputs.length;
+    await w.conductor.reconcile(); // snapshot still done, branch still at the judged sha
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("bounced");
+    expect(w.validator.inputs.length).toBe(validations);
+  });
+
+  it("reconcile picks up the rework once a new commit heads the branch", async () => {
+    const w = makeWorld();
+    w.validator.outcomes = ["failed", "passed"];
+    await driveToReported(w); // bounced at sha-validated
+    w.source.shas.set("agent/worker/abc12345", "sha-rework");
+    await w.conductor.reconcile();
+    const rec = await w.store.getEngagement("eng-1");
+    expect(rec?.state).toBe("validated");
+    expect(rec?.validatedSha).toBe("sha-rework");
+  });
+});
+
+describe("hollow-report branch memory", () => {
+  it("a hollow first report still remembers its hint, so a rework landing there resolves", async () => {
+    const w = makeWorld();
+    w.validator.outcomes = ["passed"];
+    // attempt 1: hint never pushed → hollow failed verdict → bounced
+    const { item } = await driveToReported(w, { report: { summary: "ack", branchHint: "agent/worker/first111" } });
+    w.source.shas.delete("agent/worker/abc12345");
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("bounced");
+    // rework: new unpushed hint, but the fix landed on attempt 1's branch
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "fixed", branchHint: "agent/worker/second22" },
+    });
+    w.source.shas.set("agent/worker/first111", "sha-late");
+    await w.conductor.handleEvent(statusEv(item, "done"));
+    const rec = await w.store.getEngagement("eng-1");
+    expect(rec?.state).toBe("validated");
+    expect(rec?.validatedSha).toBe("sha-late");
+  });
+});

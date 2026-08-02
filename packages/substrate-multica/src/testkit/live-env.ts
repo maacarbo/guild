@@ -72,7 +72,8 @@ async function api<T>(
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  return (await res.json()) as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -86,8 +87,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function acquireToken(baseUrl: string, email: string): Promise<string> {
   if (process.env.GUILD_MULTICA_TOKEN) return process.env.GUILD_MULTICA_TOKEN;
+  return acquireTokenAt(baseUrl, email, join(repoRoot(), ".cache", "guild-live-token.json"));
+}
 
-  const cachePath = join(repoRoot(), ".cache", "guild-live-token.json");
+async function acquireTokenAt(baseUrl: string, email: string, cachePath: string): Promise<string> {
   try {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { baseUrl: string; token: string };
     if (cached.baseUrl === baseUrl && cached.token) {
@@ -133,6 +136,58 @@ async function acquireToken(baseUrl: string, email: string): Promise<string> {
   return token;
 }
 
+/**
+ * PAT + member id for an arbitrary dev-stack identity (same dev-code auth and
+ * cache discipline as the operator flow). The conductor runs under its own
+ * member identity (D11) — this is how the acceptance mints it.
+ */
+export async function acquireMemberToken(
+  baseUrl: string,
+  email: string,
+  cacheName: string,
+): Promise<{ token: string; memberId: string }> {
+  const token = await acquireTokenAt(baseUrl, email, join(repoRoot(), ".cache", cacheName));
+  const { id } = await api<{ id: string }>(baseUrl, "GET", "/api/me", { token });
+  return { token, memberId: id };
+}
+
+/**
+ * Idempotently make `member` a workspace member with the given role
+ * (live-proven 2026-08-02: POST /api/workspaces/{id}/members mints a pending
+ * invitation; the invitee accepts via POST /api/invitations/{id}/accept; a
+ * role change is remove + re-invite — the member-row PUT is 405).
+ */
+export async function ensureWorkspaceMember(
+  baseUrl: string,
+  ownerToken: string,
+  workspaceId: string,
+  member: { token: string; email: string; role: "member" | "admin" },
+): Promise<void> {
+  interface MemberRow {
+    id: string;
+    email: string;
+    role: string;
+  }
+  const rows = await api<MemberRow[]>(baseUrl, "GET", `/api/workspaces/${workspaceId}/members`, {
+    token: ownerToken,
+    workspaceId,
+  });
+  const existing = rows.find((r) => r.email === member.email);
+  if (existing?.role === member.role) return;
+  if (existing) {
+    await api(baseUrl, "DELETE", `/api/workspaces/${workspaceId}/members/${existing.id}`, {
+      token: ownerToken,
+      workspaceId,
+    });
+  }
+  const invitation = await api<{ id: string }>(baseUrl, "POST", `/api/workspaces/${workspaceId}/members`, {
+    token: ownerToken,
+    workspaceId,
+    body: { email: member.email, role: member.role },
+  });
+  await api(baseUrl, "POST", `/api/invitations/${invitation.id}/accept`, { token: member.token });
+}
+
 export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveEnv> {
   const baseUrl = process.env.GUILD_MULTICA_URL ?? "http://127.0.0.1:8080";
   const email = process.env.GUILD_MULTICA_EMAIL ?? "operator@guild.local";
@@ -162,33 +217,67 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
     );
   }
 
-  // ensure + rebind the cheap-tier test agent (rebind = the P9b repair,
-  // idempotent). When a customEnv is given it is re-applied on every run —
-  // smoke rotates the per-engagement key there each time.
+  const ensured = await ensureAgent(baseUrl, token, picked.workspaceId, spec);
+
+  return {
+    baseUrl,
+    token,
+    workspaceId: picked.workspaceId,
+    agentId: ensured.agentId,
+    agentName: ensured.agentName,
+    memberId,
+  };
+}
+
+/**
+ * Ensure + rebind an agent by name in the given workspace (rebind = the P9b
+ * repair, idempotent). When a customEnv is given it is re-applied on every
+ * call — the smoke rotates the per-engagement key there each time. Works for
+ * any member whose role may create agents on the runtime (owner, or admin —
+ * live-proven 2026-08-02: plain members are refused on private runtimes).
+ */
+export async function ensureAgent(
+  baseUrl: string,
+  token: string,
+  workspaceId: string,
+  spec: LiveAgentSpec & { model?: string },
+): Promise<{ agentId: string; agentName: string }> {
+  const runtimes = await api<Array<{ id: string; name: string; status: string }>>(
+    baseUrl,
+    "GET",
+    "/api/runtimes",
+    { token, workspaceId },
+  );
+  const online = runtimes.find((r) => r.status === "online" && r.name.startsWith(RUNTIME_PREFIX));
+  if (!online) {
+    throw new Error(`no online ${RUNTIME_PREFIX} runtime in workspace ${workspaceId} — is the daemon up?`);
+  }
+  const model = spec.model ?? AGENT_MODEL;
+
   const agents = await api<Array<{ id: string; name: string; runtime_id: string; model: string }>>(
     baseUrl,
     "GET",
     "/api/agents",
-    { token, workspaceId: picked.workspaceId },
+    { token, workspaceId },
   );
   let agent = agents.find((a) => a.name === spec.name);
   if (!agent) {
     agent = await api(baseUrl, "POST", "/api/agents", {
       token,
-      workspaceId: picked.workspaceId,
+      workspaceId,
       body: {
         name: spec.name,
-        model: spec.model,
-        runtime_id: picked.runtimeId,
+        model,
+        runtime_id: online.id,
         ...(spec.customEnv ? { custom_env: spec.customEnv } : {}),
       },
     });
   } else {
-    if (agent.runtime_id !== picked.runtimeId || agent.model !== spec.model) {
+    if (agent.runtime_id !== online.id || agent.model !== model) {
       await api(baseUrl, "PUT", `/api/agents/${agent.id}`, {
         token,
-        workspaceId: picked.workspaceId,
-        body: { runtime_id: picked.runtimeId, model: spec.model },
+        workspaceId,
+        body: { runtime_id: online.id, model },
       });
     }
     if (spec.customEnv) {
@@ -196,18 +285,10 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
       // rejects custom_env); wholesale replace, member-token auth required
       await api(baseUrl, "PUT", `/api/agents/${agent.id}/env`, {
         token,
-        workspaceId: picked.workspaceId,
+        workspaceId,
         body: { custom_env: spec.customEnv },
       });
     }
   }
-
-  return {
-    baseUrl,
-    token,
-    workspaceId: picked.workspaceId,
-    agentId: agent!.id,
-    agentName: spec.name,
-    memberId,
-  };
+  return { agentId: agent!.id, agentName: spec.name };
 }
