@@ -328,3 +328,101 @@ consecutive green smoke runs). Consequence: reply-only probes (conformance
 suite) stay on `or-gemini-flash-lite`; anything whose acceptance requires a
 pushed branch uses `or-deepseek-v3-2` or better (`GUILD_SMOKE_MODEL`
 overrides the smoke worker).
+
+## Addendum 2026-08-02 — P17–P22: multi-project, workstream grouping, and board-as-control-surface probes
+
+Run live against the guild-dev stack (Multica v0.4.15, daemon up 2 days, no
+restarts needed). Probes defined in issues #5 (P17/P18), #8 (P19), #10
+(P20–P22); operator decisions of 2026-08-02 (workspace-per-project, six-lane
+board, idea-as-ticket) recorded on those issues were made *before* these
+results and are all confirmed or strengthened by them.
+
+### P17 — daemon multi-workspace registration + service: PASS
+
+Created a second workspace via `POST /api/workspaces` (**both `name` and
+`slug` required** — `{"error":"name and slug are required"}`; creation is
+fully API-automatable). The running daemon's runtime rows (`Claude
+(guild-daemon-1)`, `Opencode (guild-daemon-1)`) appeared **online in the new
+workspace immediately, with no daemon restart** — the daemon container has no
+workspace-binding env var (`MULTICA_DAEMON_TOKEN` + `MULTICA_SERVER_URL` only),
+so the `mdt_` token is user-scoped and runtimes project into every workspace
+of the owning user, including ones created after daemon start. Service
+proven, not just registration: an agent created in workspace 2 on its
+Opencode runtime row (`or-gemini-flash-lite`, reply-only) received a
+dispatched task and ran it to `completed`. **Consequence for #5: mapping A
+(workspace-per-project) runs on ONE daemon container; the daemon-per-project
+fallback is not needed for reachability** (it remains available for
+throughput/isolation reasons only). Runtime row ids differ per workspace for
+the same physical daemon — agents bind to the row in their own workspace.
+
+### P18 — per-project repo scoping inside a workspace: FAIL (settles mapping B)
+
+`/api/projects` exists (`GET` paginated `{projects,total}`; `POST` requires
+`title`). A project is a **delivery grouping only**: `{id, workspace_id,
+title, description, icon, status: "planned", priority, lead_type/lead_id,
+start_date, due_date, issue_count, done_count, resource_count}`. **No repo
+surface**: `GET /api/projects/{id}/repos` → 404, and `PUT` with a `repos`
+array returns 200 with the field silently dropped. Repo wiring remains
+workspace-level only (`workspace.repos`). Issue↔project attachment works both
+ways (`project_id` on create — validated: a foreign id gets 400 `"project not
+found in this workspace"` — and `PUT /api/issues/{id} {project_id}`).
+**Mapping B (projects-in-one-workspace) is dead for Guild-project isolation,
+as the 2026-08-02 decision assumed; mapping A confirmed by evidence.**
+
+### P19 — parent_issue_id: PASS (dispatch-neutral)
+
+`parent_issue_id` is a first-class issue field: accepted on `POST
+/api/issues`, persists, round-trips on `GET`, and appears in list responses
+and `issue:updated` WS payloads. A child issue assigned to an agent
+dispatched and completed normally — **no effect on task dispatch**. Task
+completion did **not** auto-change issue status (stayed `todo` through
+`task:completed` — P6's advisory-status finding extends to completion:
+nothing substrate-side fights a conductor-owned lane projection). For the #8
+workstream umbrella there are now TWO proven grouping surfaces:
+`parent_issue_id` (hierarchy) and `project_id` (a grouping entity with
+`issue_count`/`done_count` rollups — a natural workstream candidate).
+Remaining sliver: board *UI rendering* of parent/child was not visually
+verified (API-level only).
+
+### P20 — lane definability: fixed enum, clean 1:1 mapping (PASS-WITH-MAPPING)
+
+Issue statuses are a server-enforced **fixed 7-value enum** — `PUT` with an
+unknown value returns 400 `invalid status "…"; valid values: backlog, todo,
+in_progress, in_review, done, blocked, cancelled`. No status/board/column
+config surface exists (`/api/statuses`, `/api/boards`, `/api/columns` → 404).
+Custom lanes are impossible, but the decided six-lane model maps 1:1 with a
+value to spare: Backlog→`backlog`, Ready to work→`todo`, In
+progress→`in_progress`, Waiting for feedback→`blocked`, Ready for
+testing→`in_review`, Done→`done`, and `cancelled` covers the terminal
+Cancelled exit. This is exactly the #10 fallback (deterministic mapping), with
+zero projection ambiguity.
+
+### P21 — status-change WS frames: PASS
+
+The M1a frame catalog (`task:*`, `comment:created`) was incomplete. Newly
+observed on the workspace socket: **`issue:updated`** fires on every issue
+mutation carrying the full issue object plus `prev_*` values and per-field
+booleans (`status_changed`, `assignee_changed`, `description_changed`, …);
+**`activity:created`** fires alongside with a semantic audit entry
+(`action: "status_changed"`, `details: {from, to}`). Also catalogued:
+`agent:status` (full agent row incl. `has_custom_env`/`custom_env_key_count`),
+`task:message` (live seq'd tool-call/text stream of a running task),
+`inbox:new` (operator inbox items), `subscriber:added`, `auth_ack`. Guild's
+watcher gets push for every lane move; polling remains reconnect-gap
+reconciliation only.
+
+### P22 — actor attribution: PASS
+
+Every `activity:created` entry carries `actor_id` + `actor_type` (observed:
+`"member"` for PAT-driven changes, `"agent"` for agent-driven ones — e.g.
+`task_completed`); comments carry `author_type`/`author_id`
+(+`source_task_id` when task-authored); issues carry
+`creator_type`/`creator_id`. Human-vs-agent disambiguation is therefore
+first-class. **Design consequence for #10: mint the Guild conductor its own
+member identity (own PAT)** so human-vs-Guild moves are distinguished by
+`actor_id`; the idempotent-echo fallback stays as belt-and-braces only.
+
+Probe artifacts left on the dev stack (evidence, safe to delete): issues
+GUI-70/71 + one in workspace 2, project `guild-probe-p18`, workspace `Guild
+Probe 2` (`619a5b5c`), agent `guild-conf-ws2`; `guild-conf`'s `custom_env`
+was cleared (the testkit re-applies it every smoke run by design).
