@@ -6,6 +6,7 @@ Guild is an open-source autonomous-SDLC governance layer driving a self-hosted M
 |---|---|
 | `docs/PRODUCT.md` | Vision, flows, MVP cut |
 | `docs/ARCHITECTURE.md` | Decision records D1–D9, engagement lifecycle, deployment topology |
+| `docs/OVERVIEW.md` | Component map and data/event flows (derived; read for cross-package context) |
 | `docs/ROADMAP.md` | Milestones M0–M4 with acceptance criteria |
 | `docs/VALIDATION-*.md`, `docs/research/` | Historical evidence records — never edit |
 
@@ -53,7 +54,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 - **Port contract tests**: every driven port gets one reusable test suite that all its adapters must pass. This is load-bearing for D8 — `substrate-multica` passes the `ExecutionSubstrate` suite, and any future substrate adapter (the D8 fallback path) must pass the same one.
 - Adapter integration tests run against real infrastructure via docker-compose (a local Multica instance, Postgres) — not against mocks of it.
 - Test names state behavior ("retires an idle agent after the demand window closes"), never implementation ("calls delete").
-- Coverage is an outcome, not a target. CI runs typecheck on every MR today; unit tests join the pipeline the moment the first suite exists (and note the runner caveat under Guardrails).
+- Coverage is an outcome, not a target. CI runs `pnpm -r typecheck`, `pnpm deps:check`, and `pnpm -r test` on every PR. Live-stack specs (`*.live.test.ts`) and `pnpm smoke` are `GUILD_LIVE_STACK`-gated and never run in CI — CI has no compose stack (see the Tooling bullet under BDD).
 
 ## BDD
 

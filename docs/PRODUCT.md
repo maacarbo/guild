@@ -4,6 +4,12 @@
 
 **Guild is an open-source autonomous-SDLC governance layer.** You give it a product idea; it produces a staged delivery plan, gates each stage on your approval, dispatches scoped work to a team of coding agents running on a self-hosted [Multica](https://github.com/multica-ai/multica) instance, validates every handoff against a machine-checkable contract before the pipeline advances, and enforces a spend budget with a kill-switch. Guild does not rebuild the agent platform — Multica's board, runtimes, and skills are the execution substrate; Guild is the discipline on top.
 
+## Principles
+
+- **Clean and legal, always** (operator directive, 2026-07-30: "Don't transgress any policy or rules. We want to keep this app clean and legal!"). Policy compliance is a **gate, never a trade-off**: provider terms of service (e.g. no consumer-subscription credentials driving automation — the D9 rejection), Multica's source-available license (pin the version, review the LICENSE diff on every bump), and any third-party terms. Where compliance is ambiguous or unverified, the answer is no.
+- **Cheap models for testing.** Probes, the doctor, test suites, and the smoke default to the gateway's cheap tier — never frontier models. Capability floors discovered per task are recorded as evidence (see the capability matrix), not worked around silently.
+- **The apps Guild builds always follow DDD** (operator directive, 2026-08-02; full design in [issue #8](https://github.com/maacarbo/guild/issues/8)): bounded-context decomposition at every project size, modular-monolith deployment by default with machine-enforced boundaries, promotion to separate services only via an evidence-carrying, operator-gated plan amendment.
+
 ## Problem
 
 Agent task platforms (Multica being the strongest) orchestrate *human-authored* tasks on a flat, gate-free board. Verified gaps in that model, from Multica's own tracker and docs:

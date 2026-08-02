@@ -8,7 +8,7 @@ Guild is built to be installable by anyone. The full stack is the same everywher
 - Validator sandboxes run as ephemeral `docker run` containers — the conductor's validator runner has a Docker driver alongside the K8s Job driver (same image, same zero-credentials contract).
 - Requirements: Docker + Compose, provider API key(s), a git host token and a product repo. **No Kubernetes anywhere.**
 - This is also M1's capability-proof vehicle and the M1–M3 shipping target: the quickstart compose *is* the stack our own milestones exercise — it can't rot into aspirational documentation.
-- *(planned: `compose/` lands in M1 — the primary dev and shipping target through M3; `v0.1.0` (M2) and the feature-complete `v0.2.0` (M3, team evolution) ship on this tier)*
+- **Delivered at M1** (accepted 2026-07-31) — [`compose/`](compose/README.md) is the runnable quickstart and the primary dev and shipping target through M3; `v0.1.0` (M2) and the feature-complete `v0.2.0` (M3, team evolution) ship on this tier.
 
 ### Security floor — what Tier 1 does and does not provide (the primary deployment until further notice, team evolution included)
 

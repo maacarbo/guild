@@ -23,7 +23,7 @@ Non-commercial by design: built for personal self-hosting, published open source
 
 Two supported deployment targets, lowest barrier first — full details in [deploy/README.md](deploy/README.md):
 
-1. **Docker Compose** — any machine with Docker, no Kubernetes; the tier every functional milestone (M1–M3, through the feature-complete product) ships on and exercises continuously.
+1. **Docker Compose** — any machine with Docker, no Kubernetes; the tier every functional milestone (M1–M3, through the feature-complete product) ships on and exercises continuously. **[Run the Tier 1 quickstart →](deploy/compose/README.md)**
 2. **Any Kubernetes** *(optional, last — pursued only if needed, at M4)* — vanilla manifests: any StorageClass or external databases (dual-mode), plain `kubectl` secrets, hardening (NetworkPolicies, gVisor) recommended where your infra supports it, never assumed.
 
 (The author's hardened cluster is documented as a personal, non-normative runbook — required for nobody.)
@@ -32,17 +32,18 @@ Two supported deployment targets, lowest barrier first — full details in [depl
 
 ```
 packages/
-  shared/             published language: stages, HandoffContract, ExecutionSubstrate port
-  orchestrator/       the Guild conductor: planner, gates, contract validator, budget watchdog
-  substrate-multica/  ExecutionSubstrate adapter over Multica's REST/WS API
-deploy/               deployment options (compose / any-K8s), secrets flow, storage rules (planned: compose at M1; optional generic manifests at M4)
-docker/daemon/        custom Multica daemon image spec (planned: Dockerfile at M1) — pinned CLIs + git + headless login + LiteLLM routing
-docs/                 product, architecture, roadmap, validation evidence, research
+  shared/                 published language: stages, HandoffContract, ExecutionSubstrate + ModelGateway ports
+  orchestrator/           the Guild conductor: contract validator (docker-run sandbox driver), LiteLLM gateway adapter, M1 smoke feature
+  substrate-multica/      ExecutionSubstrate adapter over Multica's REST/WS API (anti-corruption layer)
+  substrate-conformance/  reusable ExecutionSubstrate port contract suite — mandatory-green on every Multica pin bump
+deploy/                   deployment options: compose (shipped, M1) / any-K8s (optional generic manifests at M4)
+docker/daemon/            custom Multica daemon image (delivered at M1) — pinned CLIs + git + headless login + LiteLLM routing
+docs/                     product, architecture, roadmap, validation evidence, research
 ```
 
 ## Status
 
-*(as of 2026-07-30)* **M0 complete — design, validation (internal, external cross-model, and Anthropic-side reviews), and reposition.** Functionality first: the full product ships on Docker Compose (M1–M3 — `v0.1.0` at M2; team evolution completes the feature set at M3, `v0.2.0`); Kubernetes is an optional last milestone (M4), generic-only, pursued only if needed. Next up: M1a — prove the substrate on the compose stack (daemon container end-to-end, API probes, spend attribution). No runnable Guild code yet; every design claim above traces to cited evidence in `docs/`.
+*(as of 2026-07-31)* **M1 complete — the substrate is proven on Docker Compose** (accepted 2026-07-31: the `pnpm smoke` acceptance scenario green twice consecutively without reset; the [capability matrix](docs/research/capability-matrix-m1a.md) records every probe). Shipped: the Tier 1 compose stack with the doctor diagnostic, the pinned daemon image (OpenCode default + Claude Code), the `ExecutionSubstrate` port with its Multica adapter and conformance suite (the standing pin-bump gate), and the first SHA-pinned contract validation through the sandboxed `docker run` driver. Pre-`v0.1.0`: the governed core loop lands at M2 (`v0.1.0`), team evolution at M3 (`v0.2.0`); Kubernetes stays an optional last milestone (M4). Every design claim above traces to cited evidence in `docs/`.
 
 ## Development
 
@@ -54,7 +55,7 @@ pnpm install
 pnpm -r typecheck
 ```
 
-Development discipline is defined in [CLAUDE.md](CLAUDE.md) — hexagonal ports & adapters, DDD ubiquitous language, TDD, BDD.
+Development discipline is defined in [CLAUDE.md](CLAUDE.md) — hexagonal ports & adapters, DDD ubiquitous language, TDD, BDD. Contributions welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [issue tracker](https://github.com/maacarbo/guild/issues).
 
 ## License
 

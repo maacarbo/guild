@@ -312,3 +312,19 @@ agent-update PUT rejects `custom_env` in v0.4.15), and per-engagement key
 attribution via agent-level `custom_env.GUILD_DAEMON_VIRTUAL_KEY` is
 **proven for OpenCode agents** (spend landed on the injected key; note
 LiteLLM's ~60s spend-write batching when reading it back).
+
+## Addendum 2026-08-02 — model capability floor for push-required work
+
+Observed live during M1b smoke bring-up (2026-07-31), recorded here as
+durable evidence: `or-gemini-flash-lite` (OpenCode runtime) **"completes"
+push-required engagements without doing the work** — task reports
+`completed` in ~8s with `tools=1`, `models_with_usage=1`, empty
+`result.output`, and no branch pushed. The daemon treats a clean agent exit
+as completion; nothing substrate-side distinguishes hollow completions —
+which is exactly the gap contract validation exists to close, and the smoke's
+branch-resolution step caught it. **`or-deepseek-v3-2` is the cheapest tier
+model that reliably executes the clone→edit→commit→push flow** (three
+consecutive green smoke runs). Consequence: reply-only probes (conformance
+suite) stay on `or-gemini-flash-lite`; anything whose acceptance requires a
+pushed branch uses `or-deepseek-v3-2` or better (`GUILD_SMOKE_MODEL`
+overrides the smoke worker).
