@@ -50,7 +50,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 ### M2a — One real engagement, governed
 
 - Hand-authored `StagePlan` (no planner yet): one stage, one role, one engagement
-- Full governed path: explicit gate → saga dispatch (virtual key with `max_budget`, brief, contract) → agent works → SHA-pinned validator-sandbox validation → **a real bounce with a real fix** → fast-forward merge → accept → termination protocol
+- Full governed path: explicit **board** gate (D11: the operator's lane move is the approval) → saga dispatch (virtual key with `max_budget`, brief, contract) → agent works → SHA-pinned validator-sandbox validation → **a real bounce with a real fix** → fast-forward merge → accept (operator lane move) → termination protocol
 - Reconciliation proven: kill the conductor mid-engagement, restart, watch it recover from reads
 
 **M2a acceptance:** one engagement completes the entire governed lifecycle including one genuine bounce-and-recover, with every transition in the `decisions` table.
@@ -58,7 +58,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 ### M2b — The planner and the team
 
 - Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation; plan versioning + re-gate on amendment
-- Plan-approval gate via CLI — explicit approval by default, auto-approve timer as per-project opt-in (open question 2: decide comment-mirror UX from use)
+- Plan-approval gate on the board (D11: the plan is a ticket; the operator's lane move is the explicit approval — resolves open question 2) — explicit by default, auto-approve timer as per-project opt-in; the CLI ships as bootstrap + kill-switch only (`guild init`, `guild doctor`, emergency stop)
 - Fixed starter team of four roles; multi-stage, multi-engagement orchestration (role-memory artifacts deferred wholesale to M3 — briefs carry `priorDecisions` explicitly until then)
 - Budget watchdog (application code — needs no cluster): per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + lock dispatch), metered from the LiteLLM gateway; an induced overspend halts the pipeline cleanly with a visible explanation
 

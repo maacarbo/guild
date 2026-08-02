@@ -82,7 +82,7 @@ Guild's own state (plans, gates, contract verdicts, budget ledger) is a plain Po
 
 ### D5 — Next.js/SSE UI — **SUPERSEDED by D8**
 
-Multica's board is the UI. Guild ships a CLI first; plan approval works through the CLI (and a bounded auto-approve timer), with blocker visibility read from the substrate stream. If Guild later grows its own thin approval UI, the old D5 analysis (SSE-first, AG-UI-aligned payloads) applies unchanged.
+Multica's board is the UI. Guild ships a CLI first; plan approval works through the CLI (and a bounded auto-approve timer), with blocker visibility read from the substrate stream. If Guild later grows its own thin approval UI, the old D5 analysis (SSE-first, AG-UI-aligned payloads) applies unchanged. *(Approval surface revised 2026-08-02, D11: the board is the control surface — approval is an operator lane move; the CLI shrinks to bootstrap + kill-switch.)*
 
 ### D6 — Specification & handoff discipline — **RETAINED, now the core product**
 
@@ -123,12 +123,67 @@ Hexagonal seam (D7 applied): the gateway is a driven adapter behind the `ModelGa
 
 **Revisit if:** OpenCode's headless contract regresses at a pin bump (conformance suite catches it — fall back to Claude Code default without a design change), or Anthropic ships sanctioned automation terms for subscription plans.
 
+### D10 — Multi-project mapping: one Multica workspace per Guild project (added 2026-08-02)
+
+| Option | Pros | Cons |
+|---|---|---|
+| **One workspace per Guild project** ✔ | Hard isolation by construction — board, agents, and repo wiring are workspace-scoped (workspace-level attachment is the only repo mechanism that exists, P18); one board wall per project (composes with D11); workspace creation is API-automatable (`POST /api/workspaces`, `name`+`slug` required); **one daemon serves every workspace of its owner** (P17: runtime rows project into a newly created workspace with no restart, and task service there is live-proven) | More substrate objects per project (workspace, agents, runtime-row views); per-workspace provisioning code |
+| Multica projects inside one workspace | Fewest substrate objects; single board | **Dead on evidence (P18)**: the project entity carries no repo surface (`GET /api/projects/{id}/repos` → 404; a `repos` field on `PUT` is silently dropped) — repo isolation collapses; every project shares one wall |
+| Single workspace, defer multi-project | No work now | Multi-project is a spec requirement (#5), and the deciding probes were cheap and are already run — deferral buys nothing |
+
+Normative consequences:
+
+- `ExecutionSubstrate.projectScope` **is the Multica workspace id**; the conformance suite pins this meaning.
+- Runtime rows are per-workspace views of the same physical daemon; agents bind to the row in their own workspace. **Daemon-per-project is an optional throughput/isolation lever, never a reachability requirement** (P17 refuted the scale-out fallback's necessity).
+- Multica's "project" entity (a delivery grouping with `issue_count`/`done_count` rollups) is reserved as a candidate surface for **workstream grouping within a Guild project** (#8) — never for Guild-project isolation.
+- Guild provisions the workspace at project creation and wires the project's repo(s) at workspace level; the per-project git credential (#6, repo-scoped tokens — operator decision 2026-08-02) attaches at this same seam when implemented.
+
+Evidence: capability-matrix addendum 2026-08-02 (P17/P18). Decision trail: issue #5. **Revisit if:** Multica changes runtime projection across workspaces (conformance suite at pin bump), or per-workspace object count becomes an operational burden.
+
+### D11 — The board is the control surface (added 2026-08-02)
+
+Operator directive (2026-08-02, verbatim on issue #10): *"I don't want the AI to take any initiatives on its own. … Tickets are the sources of truth, of communication with agents and humans, and of triggers for the agents to continue or not."*
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Board as control surface — tickets are truth, communication, and trigger; CLI = bootstrap + kill-switch** ✔ | One interaction surface, decisions happen where the work is visible; the purest form of the directive; substrate-feasible on evidence (P20–P22: fixed status enum maps 1:1, every mutation pushes a WS frame, actor attribution is first-class) | The conductor must watch and attribute board changes (proven cheap: `issue:updated` + `activity:created` frames) |
+| CLI-mediated approval (the original M2b plan) | Deterministic; no watcher needed for the gate | Two surfaces — board to see, terminal to act; daily CLI dependence; contradicts the directive |
+| Dual surface (CLI mirrors every board action) | Flexibility | Two UXes to keep consistent; surface drift becomes its own bug class |
+
+**Zero discretion, full mechanics (normative):** Guild never invents work, never changes scope, never self-approves. It only executes transitions that a human-approved plan already authorizes and that a validated contract permits. Corollaries: **nothing runs unless its ticket sits in a go lane**, and tickets reach go lanes only via explicit operator action or the approved plan's mechanics; **an agent moving its own ticket forward is ignored** — validation verdicts are the only forward path (multica#1579 discipline extended to the board); every Guild-made transition traces to the authorizing `planVersion` + contract verdict in the append-only `decisions` table.
+
+**Lane projection (normative):** Multica issue statuses are a fixed, server-enforced enum (P20: `backlog, todo, in_progress, in_review, done, blocked, cancelled`). The six-lane board is Guild's projection onto it, and the conductor owns lane authority — nothing substrate-side auto-moves issue status, including task completion (P19):
+
+| Lane | EngagementState(s) | Multica status |
+|---|---|---|
+| Backlog | Planned, Gated (stage plan not yet approved) | `backlog` |
+| Ready to work | Dispatched, Bounced | `todo` |
+| In progress | Working | `in_progress` |
+| Waiting for feedback | Blocked, Validated (awaiting acceptance), Escalated | `blocked` |
+| Ready for testing | Reported | `in_review` |
+| Done | Accepted | `done` |
+| — (terminal, off-board) | Cancelled | `cancelled` |
+
+**Triggers and attribution (normative):** `issue:updated` frames (full before/after diff with per-field changed booleans) and `activity:created` entries (`actor_id` + `actor_type`, `details.from/to`) push every board change (P21/P22); reconciliation reads remain the truth path on start and reconnect (conductor runtime semantics, below). The conductor authenticates as **its own Multica member identity** — its own PAT, hence a distinct `actor_id` — so a human move and a Guild move are distinguished first-class; agent-authored changes carry `actor_type`/`author_type`/`source_task_id`. The idempotent-echo rule (the conductor knows what it wrote) stays as belt-and-braces.
+
+**Interaction grammar (normative):**
+
+- **Idea entry — the idea is a ticket.** The operator writes the idea as a board ticket; the conductor recognizes operator-authored tickets carrying no engagement marker and answers with a plan ticket. There is no `guild idea` verb.
+- **Plan approval:** the plan ticket waits in Waiting for feedback; the operator's lane move to Ready to work — a human-actor `status_changed` activity — **is** the explicit approval. The conductor records the `GateDecision`, moves the plan ticket to Done, and dispatches the stage's engagement tickets per the approved plan. D6's explicit-by-default rule is unchanged; the bounded auto-approve timer stays a per-project opt-in.
+- **Stage acceptance:** validated work waits in Waiting for feedback; the operator's move to Done is the acceptance.
+- **Questions:** a blocker moves the engagement ticket to Waiting for feedback; the operator answers in ticket comments (Multica's verified routing delivers the reply to the asking agent with session continuity); the conductor returns the ticket to work.
+- **CLI scope:** `guild init`, `guild doctor`, and the emergency kill-switch. Nothing else.
+
+Resolves Open Question 2. Supersedes the CLI-approval mechanism noted under D5. Evidence: capability-matrix addendum 2026-08-02 (P19–P22). Decision trail: issue #10. **Revisit if:** the status enum changes at a pin bump (conformance suite asserts the mapping), or Multica ships native gates (D8's partial-native-landing ladder governs).
+
 ## Engagement lifecycle
 
 ```
 Planned → Gated(awaiting approval) → Dispatched → Working ⇄ Blocked(question) → Reported → Validated | Bounced → Accepted
 Terminal: Accepted | Cancelled | Escalated (bounce limit → operator)
 ```
+
+The board projection of these states — six lanes over Multica's fixed status enum, with the conductor as sole lane authority — is normative in D11.
 
 **Conductor runtime semantics (added 2026-07-30, Anthropic review — the design as a running system, not just a specification):**
 
@@ -182,7 +237,7 @@ flowchart TB
 ## Open Questions
 
 1. Multica's agent/squad **management** API surface (create/configure agents programmatically) — required for M3 hiring, unverified; resolve by probing the API against a local instance early in M1. **Fallback pre-declared (2026-07-30):** if runtime agent creation proves unusable, "dynamic hiring" means selecting from a pre-registered idle pool of role agents — same product outcome, known-supported registry mechanics.
-2. Plan-approval UX: CLI-only vs. also mirroring the plan as a Multica issue the operator approves by comment. Decide in M2 (where the gate is built) from actual use.
+2. ~~Plan-approval UX~~ — **resolved 2026-08-02 by D11**: the plan is itself a board ticket; approval is the operator's lane move (a human-actor `status_changed` activity, P22). The comment-mirror question dissolved — there is nothing to mirror when the board is the primary surface.
 3. ~~Where generated products live~~ — **resolved 2026-07-30 for MVP**: one git repository per project on the operator's GitHub (created at project start; M1's integration test uses a scratch repo); the daemon pushes engagement branches there. An in-cluster forge (e.g. Gitea) stays a documented fully-local alternative for later.
 4. Whether Multica's usage/timeline API exposes enough per-task cost for the watchdog to cross-check the gateway numbers (nice-to-have reconciliation).
 5. ~~Multica Postgres placement~~ — **reframed 2026-07-30 as a dual-mode requirement, not a choice**: the deploy supports and documents both in-cluster datastores (K8s Postgres instances with documented PVs) and external datastores (connection-string overrides, one DB/role per app, pgvector noted). Dev runs fully isolated ("test like a new user" — zero pre-existing services used). Both modes remain supported for other users; the author's own permanent-placement decision moved to the personal runbook (2026-07-30). The external mode gets its first real exercise at M4 (unconditional item).
