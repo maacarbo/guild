@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { StagePlan } from "@guild/shared";
 import type { DecisionEntry } from "../domain/decisions.js";
 import { PgGovernanceStore } from "./pg-governance-store.js";
 
@@ -31,7 +32,9 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     store = await PgGovernanceStore.connect(connectionString());
     // dev DB, our tables only
     const pool = (store as unknown as { pool: { query(sql: string): Promise<unknown> } }).pool;
-    await pool.query("TRUNCATE engagements, decisions, dispatch_intents, gate_tickets");
+    await pool.query(
+      "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock",
+    );
   });
 
   afterAll(async () => {
@@ -48,7 +51,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     expect(pool.listenerCount("error")).toBeGreaterThan(0);
   });
 
-  it("round-trips an engagement record including item ref and validated sha", async () => {
+  it("round-trips an engagement record including item ref, validated sha, and judged attempt", async () => {
     await store.saveEngagement({
       engagementId: "eng-pg-1",
       stageId: "stage-1",
@@ -66,6 +69,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       validatedSha: "abc123",
       lastBranch: "agent/worker/abc",
       lastJudgedSha: "abc123",
+      lastJudgedAttempt: "run-42",
     });
     const rec = await store.getEngagement("eng-pg-1");
     expect(rec).toEqual({
@@ -78,9 +82,79 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       validatedSha: "abc123",
       lastBranch: "agent/worker/abc",
       lastJudgedSha: "abc123",
+      lastJudgedAttempt: "run-42",
     });
     expect(await store.getEngagement("eng-none")).toBeNull();
     expect((await store.listEngagements()).map((r) => r.engagementId)).toContain("eng-pg-1");
+  });
+
+  it("saveEngagementIf is a state CAS: the stale writer loses (#11)", async () => {
+    const base = { engagementId: "eng-cas", stageId: "s", planVersion: 1, bounceCount: 0 } as const;
+    expect(await store.saveEngagementIf({ ...base, state: "dispatched" }, "gated"), "missing record").toBe(false);
+    await store.saveEngagement({ ...base, state: "gated" });
+    expect(await store.saveEngagementIf({ ...base, state: "dispatched" }, "gated")).toBe(true);
+    expect(await store.saveEngagementIf({ ...base, state: "working" }, "gated"), "stale expectation").toBe(false);
+    expect((await store.getEngagement("eng-cas"))?.state).toBe("dispatched");
+  });
+
+  it("gate decisions are first-writer-wins per (stageId, planVersion) (#11)", async () => {
+    const approved = { kind: "approved", stageId: "s-gd", planVersion: 1, by: "operator", at: "t1" } as const;
+    const rejected = { kind: "rejected", stageId: "s-gd", planVersion: 1, note: "late", at: "t2" } as const;
+    expect(await store.recordGateDecision(approved)).toBe(true);
+    expect(await store.recordGateDecision(rejected), "second decision loses").toBe(false);
+    expect(await store.recordGateDecision({ ...approved, planVersion: 2 }), "a new version regates").toBe(true);
+  });
+
+  it("gate tickets reverse-resolve from the board item", async () => {
+    await store.saveGateTicket("stg:idea:analysis", 3, { substrate: "multica", externalId: "gate-77" });
+    expect(await store.findGateTicketByItem({ substrate: "multica", externalId: "gate-77" })).toEqual({
+      stageId: "stg:idea:analysis",
+      planVersion: 3,
+    });
+    expect(await store.findGateTicketByItem({ substrate: "multica", externalId: "nope" })).toBeNull();
+  });
+
+  it("plan runs round-trip and update status", async () => {
+    const run = {
+      planId: "idea-1",
+      ideaItem: { substrate: "multica", externalId: "idea-1" },
+      stageIds: ["stg:idea-1:analysis", "stg:idea-1:architecture"],
+      status: "active" as const,
+    };
+    await store.savePlanRun(run);
+    expect(await store.getPlanRun("idea-1")).toEqual(run);
+    await store.savePlanRun({ ...run, status: "completed" });
+    expect((await store.getPlanRun("idea-1"))?.status).toBe("completed");
+    expect((await store.listPlanRuns()).map((r) => r.planId)).toContain("idea-1");
+    expect(await store.getPlanRun("idea-none")).toBeNull();
+  });
+
+  it("stage plans round-trip by (stageId, version); the latest version wins the stage lookup", async () => {
+    const plan = (v: number): StagePlan => ({
+      projectId: "ws",
+      stageId: "stg:idea-1:analysis",
+      planVersion: v,
+      kind: "analysis",
+      objective: `v${v}`,
+      budgetCents: 100,
+      engagements: [],
+    });
+    await store.saveStagePlan(plan(1));
+    await store.saveStagePlan(plan(2));
+    expect((await store.getStagePlan("stg:idea-1:analysis", 1))?.objective).toBe("v1");
+    expect((await store.getLatestStagePlan("stg:idea-1:analysis"))?.planVersion).toBe(2);
+    expect(await store.getStagePlan("stg:idea-1:analysis", 9)).toBeNull();
+    expect(await store.getLatestStagePlan("stg:none")).toBeNull();
+  });
+
+  it("the dispatch lock is a durable singleton: set, read, clear", async () => {
+    expect(await store.getDispatchLock()).toBeNull();
+    await store.setDispatchLock("budget_hard_cap: 1200/1000 cents", "t1");
+    expect(await store.getDispatchLock()).toEqual({ reason: "budget_hard_cap: 1200/1000 cents", at: "t1" });
+    await store.setDispatchLock("budget_hard_cap: updated", "t2");
+    expect((await store.getDispatchLock())?.at).toBe("t2");
+    await store.clearDispatchLock();
+    expect(await store.getDispatchLock()).toBeNull();
   });
 
   it("appends decisions and reads them back in order", async () => {

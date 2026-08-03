@@ -7,9 +7,14 @@
  */
 
 import pg from "pg";
-import type { WorkItemRef } from "@guild/shared";
+import type { EngagementState, GateDecision, StagePlan, WorkItemRef } from "@guild/shared";
 import type { DecisionEntry } from "../domain/decisions.js";
-import type { EngagementRecord, GovernanceStore } from "../ports/governance-store.js";
+import type {
+  EngagementRecord,
+  GateTicketKey,
+  GovernanceStore,
+  PlanRunRecord,
+} from "../ports/governance-store.js";
 
 interface EngagementRow {
   engagement_id: string;
@@ -21,6 +26,7 @@ interface EngagementRow {
   validated_sha: string | null;
   last_branch: string | null;
   last_judged_sha: string | null;
+  last_judged_attempt: string | null;
 }
 
 function toRecord(row: EngagementRow): EngagementRecord {
@@ -34,6 +40,7 @@ function toRecord(row: EngagementRow): EngagementRecord {
     ...(row.validated_sha ? { validatedSha: row.validated_sha } : {}),
     ...(row.last_branch ? { lastBranch: row.last_branch } : {}),
     ...(row.last_judged_sha ? { lastJudgedSha: row.last_judged_sha } : {}),
+    ...(row.last_judged_attempt ? { lastJudgedAttempt: row.last_judged_attempt } : {}),
   };
 }
 
@@ -71,6 +78,7 @@ export class PgGovernanceStore implements GovernanceStore {
       );
       ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_branch text;
       ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_judged_sha text;
+      ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_judged_attempt text;
       CREATE TABLE IF NOT EXISTS decisions (
         seq   bigserial PRIMARY KEY,
         entry jsonb NOT NULL
@@ -83,32 +91,82 @@ export class PgGovernanceStore implements GovernanceStore {
         gate_key text PRIMARY KEY,
         item     jsonb NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS gate_decisions (
+        gate_key text PRIMARY KEY,
+        decision jsonb NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS plan_runs (
+        plan_id   text PRIMARY KEY,
+        idea_item jsonb,
+        stage_ids jsonb NOT NULL,
+        status    text NOT NULL
+      );
+      ALTER TABLE plan_runs ALTER COLUMN idea_item DROP NOT NULL;
+      CREATE TABLE IF NOT EXISTS stage_plans (
+        stage_id     text NOT NULL,
+        plan_version integer NOT NULL,
+        plan         jsonb NOT NULL,
+        PRIMARY KEY (stage_id, plan_version)
+      );
+      CREATE TABLE IF NOT EXISTS dispatch_lock (
+        id     integer PRIMARY KEY CHECK (id = 1),
+        reason text NOT NULL,
+        at     text NOT NULL
+      );
     `);
+  }
+
+  private engagementParams(record: EngagementRecord): unknown[] {
+    return [
+      record.engagementId,
+      record.stageId,
+      record.planVersion,
+      record.state,
+      record.bounceCount,
+      record.item ? JSON.stringify(record.item) : null,
+      record.validatedSha ?? null,
+      record.lastBranch ?? null,
+      record.lastJudgedSha ?? null,
+      record.lastJudgedAttempt ?? null,
+    ];
   }
 
   async saveEngagement(record: EngagementRecord): Promise<void> {
     await this.pool.query(
-      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha, last_branch, last_judged_sha)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha, last_branch, last_judged_sha, last_judged_attempt)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (engagement_id) DO UPDATE SET
          state = EXCLUDED.state,
          bounce_count = EXCLUDED.bounce_count,
          item = EXCLUDED.item,
          validated_sha = EXCLUDED.validated_sha,
          last_branch = EXCLUDED.last_branch,
-         last_judged_sha = EXCLUDED.last_judged_sha`,
+         last_judged_sha = EXCLUDED.last_judged_sha,
+         last_judged_attempt = EXCLUDED.last_judged_attempt`,
+      this.engagementParams(record),
+    );
+  }
+
+  async saveEngagementIf(record: EngagementRecord, expectedState: EngagementState): Promise<boolean> {
+    // the state predicate rides in the UPDATE itself — a single-statement CAS (#11)
+    const res = await this.pool.query(
+      `UPDATE engagements SET
+         state = $2, bounce_count = $3, item = $4, validated_sha = $5,
+         last_branch = $6, last_judged_sha = $7, last_judged_attempt = $8
+       WHERE engagement_id = $1 AND state = $9`,
       [
         record.engagementId,
-        record.stageId,
-        record.planVersion,
         record.state,
         record.bounceCount,
         record.item ? JSON.stringify(record.item) : null,
         record.validatedSha ?? null,
         record.lastBranch ?? null,
         record.lastJudgedSha ?? null,
+        record.lastJudgedAttempt ?? null,
+        expectedState,
       ],
     );
+    return (res.rowCount ?? 0) > 0;
   }
 
   async getEngagement(engagementId: string): Promise<EngagementRecord | null> {
@@ -161,5 +219,107 @@ export class PgGovernanceStore implements GovernanceStore {
       [`${stageId}:v${planVersion}`],
     );
     return res.rows[0]?.item ?? null;
+  }
+
+  async findGateTicketByItem(item: WorkItemRef): Promise<GateTicketKey | null> {
+    const res = await this.pool.query<{ gate_key: string }>(
+      "SELECT gate_key FROM gate_tickets WHERE item->>'externalId' = $1",
+      [item.externalId],
+    );
+    const key = res.rows[0]?.gate_key;
+    if (!key) return null;
+    const at = key.lastIndexOf(":v");
+    return { stageId: key.slice(0, at), planVersion: Number.parseInt(key.slice(at + 2), 10) };
+  }
+
+  async recordGateDecision(decision: GateDecision): Promise<boolean> {
+    const res = await this.pool.query(
+      "INSERT INTO gate_decisions (gate_key, decision) VALUES ($1, $2) ON CONFLICT (gate_key) DO NOTHING",
+      [`${decision.stageId}:v${decision.planVersion}`, JSON.stringify(decision)],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async savePlanRun(run: PlanRunRecord): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO plan_runs (plan_id, idea_item, stage_ids, status) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (plan_id) DO UPDATE SET stage_ids = EXCLUDED.stage_ids, status = EXCLUDED.status`,
+      [run.planId, run.ideaItem ? JSON.stringify(run.ideaItem) : null, JSON.stringify(run.stageIds), run.status],
+    );
+  }
+
+  private static toPlanRun(row: {
+    plan_id: string;
+    idea_item: WorkItemRef | null;
+    stage_ids: string[];
+    status: PlanRunRecord["status"];
+  }): PlanRunRecord {
+    return {
+      planId: row.plan_id,
+      ...(row.idea_item ? { ideaItem: row.idea_item } : {}),
+      stageIds: row.stage_ids,
+      status: row.status,
+    };
+  }
+
+  async getPlanRun(planId: string): Promise<PlanRunRecord | null> {
+    const res = await this.pool.query<{
+      plan_id: string;
+      idea_item: WorkItemRef | null;
+      stage_ids: string[];
+      status: PlanRunRecord["status"];
+    }>("SELECT * FROM plan_runs WHERE plan_id = $1", [planId]);
+    return res.rows[0] ? PgGovernanceStore.toPlanRun(res.rows[0]) : null;
+  }
+
+  async listPlanRuns(): Promise<PlanRunRecord[]> {
+    const res = await this.pool.query<{
+      plan_id: string;
+      idea_item: WorkItemRef | null;
+      stage_ids: string[];
+      status: PlanRunRecord["status"];
+    }>("SELECT * FROM plan_runs ORDER BY plan_id");
+    return res.rows.map((row) => PgGovernanceStore.toPlanRun(row));
+  }
+
+  async saveStagePlan(plan: StagePlan): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO stage_plans (stage_id, plan_version, plan) VALUES ($1, $2, $3)
+       ON CONFLICT (stage_id, plan_version) DO UPDATE SET plan = EXCLUDED.plan`,
+      [plan.stageId, plan.planVersion, JSON.stringify(plan)],
+    );
+  }
+
+  async getStagePlan(stageId: string, planVersion: number): Promise<StagePlan | null> {
+    const res = await this.pool.query<{ plan: StagePlan }>(
+      "SELECT plan FROM stage_plans WHERE stage_id = $1 AND plan_version = $2",
+      [stageId, planVersion],
+    );
+    return res.rows[0]?.plan ?? null;
+  }
+
+  async getLatestStagePlan(stageId: string): Promise<StagePlan | null> {
+    const res = await this.pool.query<{ plan: StagePlan }>(
+      "SELECT plan FROM stage_plans WHERE stage_id = $1 ORDER BY plan_version DESC LIMIT 1",
+      [stageId],
+    );
+    return res.rows[0]?.plan ?? null;
+  }
+
+  async setDispatchLock(reason: string, at: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO dispatch_lock (id, reason, at) VALUES (1, $1, $2)
+       ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason, at = EXCLUDED.at`,
+      [reason, at],
+    );
+  }
+
+  async getDispatchLock(): Promise<{ reason: string; at: string } | null> {
+    const res = await this.pool.query<{ reason: string; at: string }>("SELECT reason, at FROM dispatch_lock WHERE id = 1");
+    return res.rows[0] ?? null;
+  }
+
+  async clearDispatchLock(): Promise<void> {
+    await this.pool.query("DELETE FROM dispatch_lock WHERE id = 1");
   }
 }

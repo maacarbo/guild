@@ -55,7 +55,13 @@ export type BudgetEvent =
       at: string;
     };
 
-export type CancellationReason = "budget_hard_cap" | "operator" | "bounce_limit" | "stage_rejected";
+export type CancellationReason =
+  | "budget_hard_cap"
+  | "operator"
+  | "bounce_limit"
+  | "stage_rejected"
+  /** superseded pre-dispatch by an amendment's re-gate (D12) — never spent a cent */
+  | "plan_amended";
 
 /**
  * Termination protocol (normative): entering any terminal state revokes the

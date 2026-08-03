@@ -30,4 +30,13 @@ describe.runIf(live)("GitSourceControl (live)", () => {
     const sha = stdout.trim().split(/\s/)[0]!;
     await source.fastForward(SCRATCH_REPO, "main", sha);
   }, 120_000);
+
+  it("reads a file at exactly a sha; a missing path degrades to null, never a crash (D12)", async () => {
+    const { stdout } = await exec("git", ["ls-remote", SCRATCH_REPO, "refs/heads/main"]);
+    const sha = stdout.trim().split(/\s/)[0]!;
+    // README.md exists at the scratch repo's main head (M1 smoke wrote it)
+    const content = await source.readFile(SCRATCH_REPO, sha, "README.md");
+    expect(content, "an existing file reads back non-empty").toBeTruthy();
+    expect(await source.readFile(SCRATCH_REPO, sha, "guild/handoff/never-written.checks.json")).toBeNull();
+  }, 120_000);
 });

@@ -111,7 +111,6 @@ function makeConductor(store: PgGovernanceStore): Conductor {
   const workRoot = join(repoRoot, ".cache", "validator");
   mkdirSync(workRoot, { recursive: true });
   return new Conductor(
-    world.plan!,
     {
       substrate: world.substrate!,
       gateway: world.gateway!,
@@ -119,7 +118,12 @@ function makeConductor(store: PgGovernanceStore): Conductor {
       source: world.source,
       store,
     },
-    { projectScope: world.workspaceId, repoUrl: SCRATCH_REPO, targetBranch: "main" },
+    {
+      projectScope: world.workspaceId,
+      repoUrl: SCRATCH_REPO,
+      targetBranch: "main",
+      defaultPlanBudgetCents: 50,
+    },
   );
 }
 
@@ -157,7 +161,9 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
   // the acceptance owns the dev governance DB — start from a clean slate
   const pool = new pg.Pool({ connectionString: pgUrl(), max: 1 });
   await pool
-    .query("TRUNCATE engagements, decisions, dispatch_intents, gate_tickets")
+    .query(
+      "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock",
+    )
     .catch(() => undefined); // first run: tables may not exist yet
   await pool.end();
   world.storeA = await PgGovernanceStore.connect(pgUrl());
@@ -213,7 +219,8 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
 });
 
 When("the conductor posts the stage for approval", async () => {
-  world.gate = await world.conductorA!.postStageForApproval();
+  await world.conductorA!.adoptStagePlan(world.plan!);
+  world.gate = await world.conductorA!.postStageForApproval(world.plan!.stageId);
   const snap = await world.substrate!.getWorkItem(world.gate);
   assert.equal(snap.lane, "waiting_for_feedback", "gate ticket awaits the operator");
   // event-driven conductor A takes over from here

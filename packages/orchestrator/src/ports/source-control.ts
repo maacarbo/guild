@@ -18,4 +18,11 @@ export interface SourceControl {
    * is an error, never a merge commit (merges are Guild-mediated, D6).
    */
   fastForward(repoUrl: string, targetBranch: string, sha: string): Promise<void>;
+  /**
+   * Read one file's content at exactly sha (D12 contract assembly: the
+   * upstream handoff artifact is read from the accepted stage's validated
+   * SHA, never from a movable ref). Null when the path does not exist at
+   * that commit — the floor-only degradation signal, not an error.
+   */
+  readFile(repoUrl: string, sha: string, path: string): Promise<string | null>;
 }
