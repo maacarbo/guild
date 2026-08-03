@@ -21,4 +21,7 @@ COPY packages ./packages
 RUN pnpm install --frozen-lockfile && chown -R node:node /app
 
 USER node
-ENTRYPOINT ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-conductor.ts"]
+# run from the orchestrator package so tsx resolves from ITS node_modules
+# (pnpm keeps dependencies package-local, never hoisted to the root)
+WORKDIR /app/packages/orchestrator
+ENTRYPOINT ["node", "--import", "tsx", "src/bin/guild-conductor.ts"]

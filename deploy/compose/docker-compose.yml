@@ -242,7 +242,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
-    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-init.ts"]
+    entrypoint: ["node", "--import", "tsx", "src/bin/guild-init.ts"]
     environment:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_OPERATOR_EMAIL: ${GUILD_OPERATOR_EMAIL:-operator@guild.local}
@@ -257,7 +257,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
-    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-demo.ts"]
+    entrypoint: ["node", "--import", "tsx", "src/bin/guild-demo.ts"]
     environment:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_OPERATOR_TOKEN: ${GUILD_OPERATOR_TOKEN:-}
@@ -271,7 +271,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
-    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-kill.ts"]
+    entrypoint: ["node", "--import", "tsx", "src/bin/guild-kill.ts"]
     environment:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_GATEWAY_URL: http://litellm:4000
