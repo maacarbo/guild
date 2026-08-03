@@ -9,7 +9,7 @@ Component-by-component detail and every data/event flow (sequence diagrams, data
 ```mermaid
 flowchart LR
     OP((Operator))
-    CLI[Guild CLI]
+    CLI[Guild CLI - init / demo / kill only, D11]
     subgraph GUILD["guild conductor (packages/orchestrator)"]
         Planner[Stage planner]
         Gate[Approval gate]
@@ -25,8 +25,8 @@ flowchart LR
     LLM[LiteLLM gateway]
     PG[(Guild Postgres)]
 
-    OP --> CLI --> GUILD
-    OP --> Board
+    OP -->|ideas, approvals, answers - all board moves| Board
+    OP -.->|bootstrap + emergency stop| CLI
     Port <--> API
     Daemon -->|CLI env: base URL| LLM
     Watchdog --> LLM
