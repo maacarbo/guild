@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { Given, Then, When, setDefaultTimeout } from "@cucumber/cucumber";
+import { After, Given, Then, When, setDefaultTimeout } from "@cucumber/cucumber";
 import pg from "pg";
 import type { ExecutionSubstrate, StageKind, WorkItemRef } from "@guild/shared";
 import { createMulticaSubstrate } from "@guild/substrate-multica";
@@ -107,6 +107,14 @@ async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, what:
 function stageIdOf(ideaId: string, kind: StageKind): string {
   return `stg:${ideaId}:${kind}`;
 }
+
+// a mid-scenario failure must not leave the watch loop and pg pool holding
+// the process open — the happy path also lands here (abort is idempotent)
+After(async () => {
+  world.abort.abort();
+  await world.runLoop?.catch(() => undefined);
+  await world.store?.close().catch(() => undefined);
+});
 
 Given("the live stack, the four role agents, and a clean governance database", async () => {
   const health = await (await fetch(`${MULTICA_URL}/healthz`)).json();
@@ -441,8 +449,6 @@ Then("the overspend halts cleanly: work cancelled, dispatch locked, explanation 
   );
 
   // leave the board clean for the next run: the halted idea goes off-board
+  // (loop/store teardown lives in the After hook — it must run on failure too)
   await operatorMovesTicket(world.idea2Id, "cancelled");
-  world.abort.abort();
-  await world.runLoop;
-  await world.store!.close();
 });
