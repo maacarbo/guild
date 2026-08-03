@@ -67,6 +67,13 @@ export interface WorkReport {
   summary: string;
   /** advisory branch name the work landed on; resolve to SHA immediately, then discard */
   branchHint?: string;
+  /**
+   * substrate-native id of the attempt (task run) that produced this report —
+   * the per-attempt rework signal: a bounced engagement whose branch head has
+   * not moved but whose attemptId HAS is a hollow rework, judged as such
+   * instead of stranded (M2a verify follow-up, issue #11; evidence P13)
+   */
+  attemptId?: string;
 }
 
 export interface WorkItemSnapshot {
@@ -74,6 +81,22 @@ export interface WorkItemSnapshot {
   status: WorkItemStatus;
   /** native status string, advisory — diagnostics and the decisions log only (P9b repair evidence) */
   nativeStatus?: string;
+  /** item title as the substrate shows it (P25: first-class on every read surface) */
+  title: string;
+  /** item body — the planner reads idea and amendment text from here (P25) */
+  body: string;
+  /**
+   * who created the item (D12 idea detection): attributed from native creator
+   * identity exactly like lane_moved actors (P25: issue creator_id shares the
+   * actor id space); unmapped creator types surface as "unknown" (D8)
+   */
+  createdBy: BoardActor;
+  /**
+   * the embedded guild marker (engagement id or reserved-prefix ticket marker)
+   * if this item carries one — extraction is the adapter's job so marker
+   * ENCODING never crosses the port; absence marks an idea candidate (D12)
+   */
+  markerId?: string;
   /**
    * board lane (D11) — independent of the execution status above: nothing
    * substrate-side auto-moves the lane, including task completion (P19), so
@@ -139,6 +162,22 @@ export type BoardActor = "operator" | "conductor" | "agent" | "unknown";
 export type SubstrateEvent =
   | { kind: "status"; eventId: string; item: WorkItemRef; status: WorkItemStatus; at: string }
   /**
+   * an item appeared on the board (D12 idea detection; evidence P24:
+   * issue:created pushes the full issue with creator attribution). Carries the
+   * creation-time content so live detection needs no follow-up read; the
+   * reconciliation listWorkItems read stays the truth path.
+   */
+  | {
+      kind: "item_created";
+      eventId: string;
+      item: WorkItemRef;
+      title: string;
+      body: string;
+      createdBy: BoardActor;
+      lane: Lane | "unknown";
+      at: string;
+    }
+  /**
    * a board lane change (D11 trigger surface; evidence P21: pushed on every
    * mutation, no polling needed). lane is the mapped value of the NEW native
    * board status; nativeStatus preserves it for diagnostics.
@@ -199,7 +238,12 @@ export interface ExecutionSubstrate {
   /** dispatch-saga idempotency lookup: called before createWorkItem/createTicket; keyed on the embedded marker */
   findWorkItem(engagementId: string): Promise<WorkItemRef | null>;
   getWorkItem(item: WorkItemRef): Promise<WorkItemSnapshot>;
-  /** reconciliation read — the normative truth path after any WS gap or conductor restart */
+  /**
+   * Reconciliation read — the normative truth path after any WS gap or
+   * conductor restart. Returns the WHOLE board (M2b): marker-less items are
+   * exactly the idea candidates (D12) — callers do marker discipline via
+   * snapshot.markerId, never by expecting the adapter to pre-filter.
+   */
   listWorkItems(projectScope: string): Promise<WorkItemSnapshot[]>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
   /**

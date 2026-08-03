@@ -242,6 +242,57 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       expect(move!.actor).toBe("conductor");
     }, 60_000);
 
+    it("snapshots carry content, creator, and marker surfaces (D12 idea-detection reads)", async () => {
+      // creator attribution: the suite's single credential IS the adapter's own
+      // identity, so createdBy must read "conductor" — operator attribution is
+      // unit-tested adapter-side (P25: creator_id shares the actor id space)
+      const e = await env();
+      const markerId = `content:conformance:${Date.now().toString(36)}`;
+      const body = "Content-surface fixture — the planner reads ideas from snapshots.";
+      const ref = await e.substrate.createTicket({ markerId, title: "conformance: content surfaces", body });
+      created.push(ref);
+      const snap = await e.substrate.getWorkItem(ref);
+      expect(snap.title).toBe("conformance: content surfaces");
+      expect(snap.body, "body carries the authored text (marker may be appended)").toContain(body);
+      expect(snap.createdBy).toBe("conductor");
+      expect(snap.markerId, "the embedded marker is exposed — absence marks an idea candidate").toBe(markerId);
+      const listed = (await e.substrate.listWorkItems(e.projectScope)).find(
+        (s) => s.item.externalId === ref.externalId,
+      );
+      expect(listed?.markerId, "the list read exposes the same marker").toBe(markerId);
+    });
+
+    it("item creation surfaces as item_created with creator attribution (D12 idea trigger)", async () => {
+      const e = await env();
+      const events: SubstrateEvent[] = [];
+      const abort = new AbortController();
+      let ref: WorkItemRef | undefined;
+      const consumer = (async () => {
+        for await (const ev of e.substrate.watch(e.projectScope, { signal: abort.signal })) {
+          events.push(ev);
+          if (ev.kind === "item_created" && ev.item.externalId === ref?.externalId) break;
+        }
+      })();
+      await new Promise((r) => setTimeout(r, 2000)); // let the socket authenticate
+      ref = await e.substrate.createTicket({
+        markerId: `birth:conformance:${Date.now().toString(36)}`,
+        title: "conformance: creation event",
+        body: "Creation-event fixture.",
+      });
+      created.push(ref);
+      await Promise.race([consumer, new Promise((r) => setTimeout(r, 30_000))]);
+      abort.abort();
+      await consumer;
+      const birth = events.find(
+        (ev): ev is Extract<SubstrateEvent, { kind: "item_created" }> =>
+          ev.kind === "item_created" && ev.item.externalId === ref!.externalId,
+      );
+      expect(birth, "item_created observed over watch").toBeTruthy();
+      expect(birth!.title).toBe("conformance: creation event");
+      expect(birth!.createdBy).toBe("conductor");
+      expect(birth!.at).toBeTruthy();
+    }, 60_000);
+
     it("classifies bad credentials as auth", async () => {
       const e = await env();
       const err = await e

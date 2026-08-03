@@ -161,3 +161,59 @@ describe("activity:created status_changed → lane_moved (D11 trigger surface, P
     expect(substrateEventFromFrame("multica", frame, at, SELF)).toBeNull();
   });
 });
+
+describe("issue:created → item_created (M2b idea detection, P24)", () => {
+  const SELF = "8b2e9ba1-0514-4613-9678-c5e33c561cad";
+  // verbatim frame captured live 2026-08-03 (P24b probe), trimmed to consumed fields
+  const issueCreated = (over: Record<string, unknown> = {}) => ({
+    type: "issue:created",
+    payload: {
+      issue: {
+        id: "94440df3-59bf-4033-8db8-8532d19a1575",
+        workspace_id: "52c7bd55-d258-4c69-96b4-f5131c83fe7d",
+        number: 91,
+        identifier: "GUI-91",
+        title: "P24b probe: operator idea ticket",
+        description: "Creation-frame capture with auth handshake.",
+        status: "todo",
+        creator_type: "member",
+        creator_id: "7e3fa62b-f769-4c66-8204-83d821c2be48",
+        created_at: "2026-08-03T19:04:16Z",
+        updated_at: "2026-08-03T19:04:16Z",
+        ...over,
+      },
+    },
+  });
+
+  it("translates a member-created issue to item_created attributed to the operator", () => {
+    const e = substrateEventFromFrame("multica", issueCreated(), at, SELF);
+    expect(e).toEqual({
+      kind: "item_created",
+      item: { substrate: "multica", externalId: "94440df3-59bf-4033-8db8-8532d19a1575" },
+      title: "P24b probe: operator idea ticket",
+      body: "Creation-frame capture with auth handshake.",
+      createdBy: "operator",
+      lane: "ready_to_work",
+      at: "2026-08-03T19:04:16Z",
+    });
+  });
+
+  it("attributes the conductor's own issue creation as conductor — an ignorable echo", () => {
+    const e = substrateEventFromFrame("multica", issueCreated({ creator_id: SELF }), at, SELF);
+    expect(e).toMatchObject({ kind: "item_created", createdBy: "conductor" });
+  });
+
+  it("attributes an agent-created issue as agent — never an idea", () => {
+    const e = substrateEventFromFrame("multica", issueCreated({ creator_type: "agent", creator_id: "agent-1" }), at, SELF);
+    expect(e).toMatchObject({ kind: "item_created", createdBy: "agent" });
+  });
+
+  it("surfaces an unmapped native creation status as lane unknown (D8)", () => {
+    const e = substrateEventFromFrame("multica", issueCreated({ status: "triaging" }), at, SELF);
+    expect(e).toMatchObject({ kind: "item_created", lane: "unknown" });
+  });
+
+  it("ignores an issue:created frame with no issue id", () => {
+    expect(substrateEventFromFrame("multica", { type: "issue:created", payload: { issue: {} } }, at, SELF)).toBeNull();
+  });
+});

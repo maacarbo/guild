@@ -181,7 +181,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       const issue = await this.api.getIssue(item.externalId);
       const runs = await this.api.listTaskRuns(item.externalId);
       const agentName = issue.assignee_id ? await this.agentNameFor(issue.assignee_id) : "";
-      return deriveSnapshot(item, issue, runs, agentName);
+      return deriveSnapshot(item, issue, runs, agentName, this.config.selfMemberId);
     } catch (e) {
       return this.fail(e);
     }
@@ -190,11 +190,10 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async listWorkItems(projectScope: string): Promise<WorkItemSnapshot[]> {
     this.assertScope(projectScope);
     try {
+      // the WHOLE board (M2b): marker-less items are the idea candidates —
+      // marker discipline is the caller's, via snapshot.markerId (D12)
       const issues = await this.api.listIssues();
-      const guildIssues = issues.filter((i) => extractEngagementId(i.description) !== null);
-      return Promise.all(
-        guildIssues.map((i) => this.getWorkItem({ substrate: this.name, externalId: i.id })),
-      );
+      return Promise.all(issues.map((i) => this.getWorkItem({ substrate: this.name, externalId: i.id })));
     } catch (e) {
       return this.fail(e);
     }

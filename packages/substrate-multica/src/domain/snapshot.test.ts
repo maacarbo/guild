@@ -56,7 +56,7 @@ describe("deriveSnapshot", () => {
       ],
       "worker",
     );
-    expect(s.report).toEqual({ summary: "Done.", branchHint: "agent/worker/11111111" });
+    expect(s.report).toEqual({ summary: "Done.", branchHint: "agent/worker/11111111", attemptId: "11111111-a" });
   });
 
   it("derives branchHint from the run that produced the report (P7: per-task branches)", () => {
@@ -130,6 +130,66 @@ describe("deriveSnapshot", () => {
       "worker",
     );
     expect(s.updatedAt).toBe("2026-07-31T10:02:00Z");
+  });
+});
+
+describe("content and creator surfaces (M2b idea detection + rework attempts, P24/P25)", () => {
+  const SELF = "8b2e9ba1-0514-4613-9678-c5e33c561cad";
+
+  it("carries the issue title and body — the planner reads ideas from snapshots", () => {
+    const s = deriveSnapshot(ref, issue({ title: "Idea: tiny utility", description: "budget: 2.00" }), [], "worker", SELF);
+    expect(s.title).toBe("Idea: tiny utility");
+    expect(s.body).toBe("budget: 2.00");
+  });
+
+  it("attributes a member-created issue to the operator", () => {
+    const s = deriveSnapshot(ref, issue({ creator_type: "member", creator_id: "someone-else" }), [], "worker", SELF);
+    expect(s.createdBy).toBe("operator");
+  });
+
+  it("attributes the conductor's own issues as conductor", () => {
+    const s = deriveSnapshot(ref, issue({ creator_type: "member", creator_id: SELF }), [], "worker", SELF);
+    expect(s.createdBy).toBe("conductor");
+  });
+
+  it("attributes agent-created issues as agent and unmapped creator types as unknown (D8)", () => {
+    expect(deriveSnapshot(ref, issue({ creator_type: "agent", creator_id: "a1" }), [], "worker", SELF).createdBy).toBe(
+      "agent",
+    );
+    expect(deriveSnapshot(ref, issue({ creator_type: "webhook", creator_id: "w1" }), [], "worker", SELF).createdBy).toBe(
+      "unknown",
+    );
+  });
+
+  it("exposes an embedded guild marker; absent marker means idea candidate (D12)", () => {
+    const marked = deriveSnapshot(
+      ref,
+      issue({ description: "brief\n\n<!-- guild:engagement=eng-7 -->" }),
+      [],
+      "worker",
+      SELF,
+    );
+    expect(marked.markerId).toBe("eng-7");
+    expect(deriveSnapshot(ref, issue({ description: "just an idea" }), [], "worker", SELF).markerId).toBeUndefined();
+  });
+
+  it("stamps the report with the completed run's id — the per-attempt rework signal (#11)", () => {
+    const s = deriveSnapshot(ref, issue(), [run({ id: "555f8277-x" })], "worker", SELF);
+    expect(s.report?.attemptId).toBe("555f8277-x");
+  });
+
+  it("the attempt id follows the run that produced the report, not a later in-flight run", () => {
+    const s = deriveSnapshot(
+      ref,
+      issue(),
+      [
+        run({ id: "11111111-a", status: "completed", created_at: "2026-07-31T10:01:00Z" }),
+        run({ id: "22222222-b", status: "running", created_at: "2026-07-31T10:05:00Z", completed_at: null, result: null }),
+      ],
+      "worker",
+      SELF,
+    );
+    expect(s.report?.attemptId).toBe("11111111-a");
   });
 });
 

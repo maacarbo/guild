@@ -10,7 +10,14 @@
 
 import type { WorkItemRef, WorkItemSnapshot } from "@guild/shared";
 import type { MulticaIssue, MulticaTaskRun } from "./multica-types.js";
-import { branchHintFor, classifyFailure, laneFromNativeStatus, statusFromTaskState } from "./translation.js";
+import {
+  actorFrom,
+  branchHintFor,
+  classifyFailure,
+  extractEngagementId,
+  laneFromNativeStatus,
+  statusFromTaskState,
+} from "./translation.js";
 
 function latestOf(runs: MulticaTaskRun[]): MulticaTaskRun | undefined {
   return [...runs].sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1);
@@ -21,6 +28,8 @@ export function deriveSnapshot(
   issue: MulticaIssue,
   runs: MulticaTaskRun[],
   agentName: string,
+  /** the adapter's own member id — creator attribution (P25, same space as lane actors) */
+  selfMemberId = "",
 ): WorkItemSnapshot {
   const latest = latestOf(runs);
   const latestCompleted = latestOf(runs.filter((r) => r.status === "completed" && r.result));
@@ -34,11 +43,16 @@ export function deriveSnapshot(
     issue.updated_at,
     ...runs.flatMap((r) => [r.created_at, r.started_at ?? "", r.completed_at ?? ""]),
   ].filter(Boolean);
+  const markerId = extractEngagementId(issue.description);
 
   return {
     item,
     status: latest ? statusFromTaskState(latest.status) : "queued",
     nativeStatus: `issue:${issue.status};task:${latest?.status ?? "none"}`,
+    title: issue.title,
+    body: issue.description,
+    createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId),
+    ...(markerId !== null ? { markerId } : {}),
     lane: laneFromNativeStatus(issue.status),
     ...(latest?.status === "failed"
       ? { failure: classifyFailure(latest.failure_reason ?? latest.error) }
@@ -48,6 +62,7 @@ export function deriveSnapshot(
           report: {
             summary: latestCompleted.result.output,
             branchHint: branchHintFor(agentName, latestCompleted.id),
+            attemptId: latestCompleted.id,
           },
         }
       : {}),

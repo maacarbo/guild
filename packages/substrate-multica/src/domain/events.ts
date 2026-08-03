@@ -12,7 +12,8 @@ import { actorFrom, laneFromNativeStatus, statusFromTaskState } from "./translat
 export type RawSubstrateEvent =
   | Omit<Extract<SubstrateEvent, { kind: "status" }>, "eventId">
   | Omit<Extract<SubstrateEvent, { kind: "lane_moved" }>, "eventId">
-  | Omit<Extract<SubstrateEvent, { kind: "comment" }>, "eventId">;
+  | Omit<Extract<SubstrateEvent, { kind: "comment" }>, "eventId">
+  | Omit<Extract<SubstrateEvent, { kind: "item_created" }>, "eventId">;
 
 interface TaskFramePayload {
   issue_id?: string;
@@ -30,6 +31,19 @@ interface ActivityFramePayload {
     actor_type?: string;
     created_at?: string;
     details?: { to?: string; from?: string };
+  };
+}
+
+/** live shape 2026-08-03 (P24): the full issue rides in payload.issue */
+interface IssueCreatedFramePayload {
+  issue?: {
+    id?: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    creator_type?: string;
+    creator_id?: string;
+    created_at?: string;
   };
 }
 
@@ -78,6 +92,21 @@ export function substrateEventFromFrame(
       item: { substrate: substrateName, externalId: p.issue_id },
       status: statusFromTaskState(native),
       at: receivedAt,
+    };
+  }
+  if (frame.type === "issue:created") {
+    // idea-detection trigger (D12): the full issue rides in the frame (P24) —
+    // no follow-up read needed; reconciliation reads stay the truth path
+    const issue = ((frame.payload ?? {}) as IssueCreatedFramePayload).issue;
+    if (!issue?.id) return null;
+    return {
+      kind: "item_created",
+      item: { substrate: substrateName, externalId: issue.id },
+      title: issue.title ?? "",
+      body: issue.description ?? "",
+      createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId),
+      lane: laneFromNativeStatus(issue.status ?? ""),
+      at: issue.created_at ?? receivedAt,
     };
   }
   if (frame.type === "comment:created") {

@@ -190,12 +190,16 @@ describe("getWorkItem / listWorkItems", () => {
     expect(snap.report?.branchHint).toBe("agent/worker-agent/abcd1234");
   });
 
-  it("lists only guild-marked work items, not foreign issues in the workspace", async () => {
+  it("lists the WHOLE board — marker-less operator tickets are idea candidates (D12), markers exposed", async () => {
+    // pre-M2b this filtered to guild-marked items; idea detection needs the
+    // full board, and the conductor does marker discipline via snapshot.markerId
     const { api, substrate } = make();
-    await api.createIssue({ title: "human issue", description: "no marker" });
+    await api.createIssue({ title: "human idea", description: "no marker here" });
     await substrate.createWorkItem(spec("eng-1"));
     const items = await substrate.listWorkItems("ws-1");
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
+    const markers = items.map((s) => s.markerId).sort();
+    expect(markers).toEqual(["eng-1", undefined]);
   });
 
   it("wraps a missing issue as a not_found substrate error", async () => {

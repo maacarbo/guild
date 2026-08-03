@@ -26,6 +26,9 @@ export interface MulticaIssue {
   /** native string kept wide: unknown statuses must survive translation as data */
   status: string;
   assignee_id: string | null;
+  /** creator attribution (P25): creator_id shares the /api/me actor id space */
+  creator_type?: string;
+  creator_id?: string;
   updated_at: string;
 }
 
