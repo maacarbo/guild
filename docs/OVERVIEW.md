@@ -119,26 +119,30 @@ stateDiagram-v2
 
 ## Flows
 
-### F1–F2 · Idea → plan → approval gate
+### F1–F2 · Idea → plan → approval gate (board-mediated, D11/D12)
 
 ```mermaid
 sequenceDiagram
     participant OP as Operator
-    participant CLI as Guild CLI
+    participant BE as Multica board
     participant C as Conductor
     participant G as Guild PG
-    OP->>CLI: submit idea
-    CLI->>C: create project
-    C->>C: planner: stages, roles,<br/>engagements, budgets
-    C->>G: persist StagePlan
-    C-->>CLI: plan for approval (explicit by default, timer opt-in)
-    CLI-->>OP: present plan
-    OP->>CLI: approve / amend
-    CLI->>C: gate decision
-    C->>G: append gate decision
+    OP->>BE: idea as a board ticket
+    BE-->>C: item_created (creator-attributed, P24)
+    C->>C: planner (D12): fixed stage template,<br/>roles, integer-cent budgets - deterministic
+    C->>G: persist plan run + stage plan v1
+    C->>BE: stage gate ticket (Waiting for feedback)
+    opt amendment
+        OP->>BE: comment "amend: <note>" on the gate ticket
+        C->>G: amended decision; v1 engagements superseded
+        C->>BE: gate ticket v2 replaces v1 (re-gate)
+    end
+    OP->>BE: move gate ticket to Ready to work
+    BE-->>C: lane_moved (operator-attributed)
+    C->>G: gate approval (first writer wins)
 ```
 
-No tokens are spent on execution before this gate — specification defects die here, at their cheapest.
+The idea is a ticket, the plan is a ticket, the lane move is the approval — there is no idea CLI verb (D11). Stage k+1 is derived only after stage k is accepted: its contract folds in the upstream handoff read from the validated SHA (D12). No tokens are spent on execution before the gate — specification defects die here, at their cheapest.
 
 ### F3–F4 · Contracted dispatch → execution → metering
 
@@ -237,10 +241,12 @@ sequenceDiagram
     else hard cap reached
         C->>A: cancel work item
         A->>BE: cancel task
-        C->>C: stop dispatching project
-        C-->>OP: halted + explanation
+        C->>C: persist dispatch lock (saga refuses new spend)
+        C-->>OP: halted + explanation on the idea ticket
     end
 ```
+
+The lock releases only when a raised hard cap is observed at conductor start (raise-and-restart, D12) — never automatically. `guild kill` is the same mechanism under a zero-cent cap.
 
 Multica records cost; only the gateway's numbers can *enforce* it — that is LiteLLM's reason for existing in this architecture.
 
