@@ -135,7 +135,7 @@ services:
     profiles: [daemon]
     # Published at release tags (quickstart pulls); the build section remains
     # for development and pre-release replays (docker compose ... --build).
-    image: ghcr.io/maacarbo/guild-daemon:${GUILD_IMAGE_TAG:-latest}
+    image: ghcr.io/maacarbo/guild-daemon:${GUILD_IMAGE_TAG:-v0.1.0}
     build:
       context: ../../docker/daemon
       args:
@@ -178,7 +178,8 @@ services:
   # network so agents and the daemon can never reach the Docker API.
   docker-socket-proxy:
     profiles: [conductor]
-    image: tecnativa/docker-socket-proxy:0.3.0
+    # Pinned by digest: 0.3.0 (repo convention: third-party infra pins are immutable)
+    image: tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -191,7 +192,7 @@ services:
   # ---- Guild conductor (M2b): the governance loop as a service ------------
   guild-conductor:
     profiles: [conductor]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-latest}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -238,7 +239,7 @@ services:
   #   docker compose run --rm guild-kill
   guild-init:
     profiles: [init]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-latest}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -253,7 +254,7 @@ services:
 
   guild-demo:
     profiles: [demo]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-latest}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -267,7 +268,7 @@ services:
 
   guild-kill:
     profiles: [kill]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-latest}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
