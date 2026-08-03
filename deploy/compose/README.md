@@ -58,6 +58,40 @@ error; that error names the variable, so it is the diagnosis (set it in
 `.env` and re-run). Reset everything with `docker compose down -v` and
 replay the quickstart.
 
+**6. Initialize Guild** (M2b — the governance layer itself). Create a
+workspace in the Multica UI (or reuse one), put its id in `.env` as
+`GUILD_WORKSPACE_ID`, then:
+
+```
+docker compose run --rm guild-init
+```
+
+It provisions the conductor's own member identity (D11: real operator-vs-
+conductor attribution) and the fixed four-role starter team, and prints the
+three conductor values — paste them into `.env`
+(`GUILD_MULTICA_TOKEN`, `GUILD_WORKSPACE_ID`, `GUILD_ROLE_AGENTS`), set
+`GUILD_REPO_URL` (HTTPS with the scoped PAT embedded), and start the
+conductor:
+
+```
+docker compose --profile conductor up -d --build
+```
+
+**7. Run the known-good demo.** Mint an operator PAT for yourself (Settings →
+API Tokens, like step 3) into `.env` as `GUILD_OPERATOR_TOKEN`, then:
+
+```
+docker compose run --rm guild-demo
+```
+
+It posts the demo idea as a board ticket; the conductor answers with a
+plan-approval ticket per stage. Everything after that happens on the board:
+move a plan ticket to *Ready to work* to approve, comment `amend: <note>` to
+revise, move a validated stage ticket to *Done* to accept. The emergency
+stop is `docker compose run --rm guild-kill` — it cancels in-flight work,
+revokes keys, and locks dispatch until you raise the caps in `.env` and
+restart the conductor.
+
 The daemon registers one runtime row per bundled CLI (sidebar: Configure → Runtimes;
 OpenCode — the default, D9 — and Claude Code), labeled by
 `$MULTICA_DAEMON_DEVICE_NAME`. All agent model traffic flows

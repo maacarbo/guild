@@ -116,10 +116,9 @@ services:
       POSTGRES_DB: guild
       POSTGRES_USER: guild
       POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:?set in .env}
-    ports:
-      # loopback-only, for the host-side conductor of the M1-M2a dev era
-      # (the conductor ships as a compose service at M2b - drop this then)
-      - "127.0.0.1:5442:5432"
+    # No host port: databases are stack-internal (security floor). The
+    # host-side dev harness (pnpm smoke / live tests) adds a loopback port
+    # via docker-compose.dev.yml - see deploy/README.md.
     volumes:
       - guild_pgdata:/var/lib/postgresql/data
     networks: [guild-dev]
@@ -170,6 +169,113 @@ services:
     networks: [guild-dev]
     restart: unless-stopped
 
+  # ---- Docker socket proxy: the ONLY route to the Docker API for the
+  # conductor's validator driver (a raw /var/run/docker.sock mount is
+  # host-root-equivalent and forbidden - D6 Tier 1 rule). Lives on its own
+  # network so agents and the daemon can never reach the Docker API.
+  docker-socket-proxy:
+    profiles: [conductor]
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [guild-validate]
+    restart: unless-stopped
+
+  # ---- Guild conductor (M2b): the governance loop as a service ------------
+  guild-conductor:
+    profiles: [conductor]
+    build:
+      context: ../..
+      dockerfile: docker/conductor/Dockerfile
+    depends_on:
+      multica-backend:
+        condition: service_started
+      litellm:
+        condition: service_started
+      guild-postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      GUILD_MULTICA_URL: http://multica-backend:8080
+      GUILD_GATEWAY_URL: http://litellm:4000
+      GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
+      # guild-init prints the three values below - see deploy/README.md
+      GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
+      GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
+      GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
+      # HTTPS with the scoped git PAT embedded, e.g.
+      # https://x-access-token:<PAT>@github.com/you/your-product.git
+      GUILD_REPO_URL: ${GUILD_REPO_URL:-}
+      GUILD_TARGET_BRANCH: ${GUILD_TARGET_BRANCH:-main}
+      GUILD_PLAN_BUDGET_CENTS: ${GUILD_PLAN_BUDGET_CENTS:-100}
+      GUILD_PROJECT_SOFT_CAP_CENTS: ${GUILD_PROJECT_SOFT_CAP_CENTS:-}
+      GUILD_PROJECT_HARD_CAP_CENTS: ${GUILD_PROJECT_HARD_CAP_CENTS:-}
+      GUILD_VALIDATOR_IMAGE: ${GUILD_VALIDATOR_IMAGE:-node:22-alpine}
+      GUILD_VALIDATOR_WORK: /var/guild/validator-work
+      GUILD_VALIDATOR_VOLUME: guild-validator-work
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+    volumes:
+      - validator_work:/var/guild/validator-work
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    networks: [guild-dev, guild-validate]
+    restart: unless-stopped
+
+  # ---- One-shot CLI verbs on the conductor image (D11 scope:
+  # init / demo / kill-switch; doctor below). Usage:
+  #   docker compose run --rm guild-init
+  #   docker compose run --rm guild-demo
+  #   docker compose run --rm guild-kill
+  guild-init:
+    profiles: [init]
+    build:
+      context: ../..
+      dockerfile: docker/conductor/Dockerfile
+    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-init.ts"]
+    environment:
+      GUILD_MULTICA_URL: http://multica-backend:8080
+      GUILD_OPERATOR_EMAIL: ${GUILD_OPERATOR_EMAIL:-operator@guild.local}
+      GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
+      GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v3-2}
+      MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
+    networks: [guild-dev]
+
+  guild-demo:
+    profiles: [demo]
+    build:
+      context: ../..
+      dockerfile: docker/conductor/Dockerfile
+    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-demo.ts"]
+    environment:
+      GUILD_MULTICA_URL: http://multica-backend:8080
+      GUILD_OPERATOR_TOKEN: ${GUILD_OPERATOR_TOKEN:-}
+      GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
+      GUILD_DEMO_BUDGET: ${GUILD_DEMO_BUDGET:-1.00}
+    networks: [guild-dev]
+
+  guild-kill:
+    profiles: [kill]
+    build:
+      context: ../..
+      dockerfile: docker/conductor/Dockerfile
+    entrypoint: ["node", "--import", "tsx", "packages/orchestrator/src/bin/guild-kill.ts"]
+    environment:
+      GUILD_MULTICA_URL: http://multica-backend:8080
+      GUILD_GATEWAY_URL: http://litellm:4000
+      GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
+      GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
+      GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
+      GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
+      GUILD_REPO_URL: ${GUILD_REPO_URL:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+    networks: [guild-dev]
+
   # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).
   # A Linux container, so the single bash implementation serves every host OS.
   doctor:
@@ -192,9 +298,16 @@ services:
 networks:
   guild-dev:
     name: guild-dev
+  # trust zone for the Docker API route - only the conductor and the proxy
+  guild-validate:
+    name: guild-validate
 
 volumes:
   multica_pgdata:
   multica_uploads:
   litellm_pgdata:
   guild_pgdata:
+  # shared by NAME with validator sandboxes (a bind path would resolve
+  # against the host, not the conductor container)
+  validator_work:
+    name: guild-validator-work

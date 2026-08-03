@@ -1,0 +1,12 @@
+# Dev override: the HOST-side harness (pnpm smoke / smoke:m2a / smoke:m2b and
+# the *.live.test.ts suites) runs a conductor on the host and needs the
+# governance DB on loopback. The base file keeps databases stack-internal
+# (security floor) — this mapping exists ONLY under the dev override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Never use this override on a stack reachable beyond 127.0.0.1.
+services:
+  guild-postgres:
+    ports:
+      - "127.0.0.1:5442:5432"

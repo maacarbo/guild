@@ -16,16 +16,21 @@ export { FsWorkspaceReader } from "./adapters/fs-workspace-reader.js";
 export { GitSourceCloner } from "./adapters/git-source-cloner.js";
 
 export interface ValidatorWiring {
-  /** host path for fresh clones — must be bind-mountable by the container runtime */
+  /** clone root: a bind-mountable host path — or, containerized, the mount point of workVolume */
   workRoot: string;
-  /** pinned sandbox image (M1b: alpine:3.22) */
+  /** pinned sandbox image (M1b: alpine:3.22; M2b demo floor: node:22-alpine) */
   image: string;
+  /** containerized-conductor mode: the named volume backing workRoot (see DockerRunnerConfig) */
+  workVolumeName?: string;
 }
 
 export function createContractValidator(wiring: ValidatorWiring): ContractValidator {
   return new ContractValidator(
     new GitSourceCloner(wiring.workRoot),
-    new DockerCommandRunner({ image: wiring.image }),
+    new DockerCommandRunner({
+      image: wiring.image,
+      ...(wiring.workVolumeName ? { workVolume: { name: wiring.workVolumeName, workRoot: wiring.workRoot } } : {}),
+    }),
     new FsWorkspaceReader(),
   );
 }

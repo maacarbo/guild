@@ -13,11 +13,63 @@
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { relative } from "node:path";
 import type { CommandOutcome, CommandRunner } from "../ports/validator.js";
 
 export interface DockerRunnerConfig {
   /** sandbox image; pinned by the caller (M1b: alpine:3.22, locally present) */
   image: string;
+  /**
+   * Containerized-conductor mode (M2b compose service): the validator work
+   * root is this NAMED volume, mounted at workRoot inside the conductor.
+   * Mount the volume by name and locate the clone by its path relative to
+   * workRoot — a bind path would resolve against the docker daemon's host
+   * filesystem, not this container's.
+   */
+  workVolume?: { name: string; workRoot: string };
+}
+
+/** pure argument assembly — the sandbox invariants, unit-testable */
+export function buildRunArgs(
+  config: DockerRunnerConfig,
+  cloneDir: string,
+  run: string,
+  containerName: string,
+  cwd?: string,
+): string[] {
+  let mount = `${cloneDir}:/work`;
+  let base = "/work";
+  if (config.workVolume) {
+    const rel = relative(config.workVolume.workRoot, cloneDir);
+    if (rel.startsWith("..") || rel.startsWith("/")) {
+      throw new Error(`clone dir ${cloneDir} is outside the validator work root ${config.workVolume.workRoot}`);
+    }
+    mount = `${config.workVolume.name}:/work`;
+    base = `/work/${rel}`;
+  }
+  return [
+    "run",
+    "--rm",
+    "--name",
+    containerName,
+    "--network",
+    "none",
+    "--cpus",
+    "1",
+    "--memory",
+    "512m",
+    "--pids-limit",
+    "256",
+    "--init",
+    "-v",
+    mount,
+    "-w",
+    cwd ? `${base}/${cwd}` : base,
+    config.image,
+    "sh",
+    "-c",
+    run,
+  ];
 }
 
 const EVIDENCE_BUFFER = 4 * 1024 * 1024;
@@ -26,31 +78,8 @@ export class DockerCommandRunner implements CommandRunner {
   constructor(private readonly config: DockerRunnerConfig) {}
 
   runCommand(cloneDir: string, run: string, timeoutSeconds: number, cwd?: string): Promise<CommandOutcome> {
-    const workdir = cwd ? `/work/${cwd}` : "/work";
     const name = `guild-validate-${randomUUID().slice(0, 8)}`;
-    const args = [
-      "run",
-      "--rm",
-      "--name",
-      name,
-      "--network",
-      "none",
-      "--cpus",
-      "1",
-      "--memory",
-      "512m",
-      "--pids-limit",
-      "256",
-      "--init",
-      "-v",
-      `${cloneDir}:/work`,
-      "-w",
-      workdir,
-      this.config.image,
-      "sh",
-      "-c",
-      run,
-    ];
+    const args = buildRunArgs(this.config, cloneDir, run, name, cwd);
     return new Promise((resolve, reject) => {
       execFile(
         "docker",

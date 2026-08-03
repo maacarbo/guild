@@ -138,16 +138,14 @@ Given("the live stack, the four role agents, and a clean governance database", a
   );
   world.gateway = new LiteLlmModelGateway({ baseUrl: GATEWAY_URL, masterKey: envValue("LITELLM_MASTER_KEY") });
 
-  // deterministic adoption: cancel any live marker-less operator tickets a
-  // previous run (or probe) left behind — they would be adopted as ideas
-  const strayRes = (await operatorApi("GET", "/api/issues").then((r) => r.json())) as
-    | Array<{ id: string; status: string; description: string | null }>
-    | { issues: Array<{ id: string; status: string; description: string | null }> };
-  const strays = Array.isArray(strayRes) ? strayRes : (strayRes.issues ?? []);
-  for (const issue of strays) {
-    if (["cancelled", "done"].includes(issue.status)) continue;
-    if (/guild:engagement=/.test(issue.description ?? "")) continue;
-    await operatorMovesTicket(issue.id, "cancelled");
+  // deterministic adoption: cancel every ticket the conductor WOULD adopt as
+  // an idea (live, marker-less, operator-authored) — through the substrate's
+  // own fully-paginated board read, exactly the adoption filter (a naive
+  // single-page GET misses old rows; found live 2026-08-03)
+  for (const snap of await world.substrate.listWorkItems(operator.workspaceId)) {
+    if (snap.lane === "cancelled" || snap.lane === "done") continue;
+    if (snap.markerId || snap.createdBy !== "operator") continue;
+    await operatorMovesTicket(snap.item.externalId, "cancelled");
   }
 
   // the validator sandbox needs node for the demo floor checks

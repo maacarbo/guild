@@ -1,0 +1,12 @@
+# Conductor image build context = repo root; keep it lean.
+.git
+.cache
+.github
+node_modules
+**/node_modules
+docs
+deploy
+docker/daemon
+docker/doctor
+*.md
+.env*
