@@ -88,5 +88,12 @@ export interface EngagementTerminated {
   engagementId: string;
   finalState: "accepted" | "cancelled" | "escalated";
   reason?: CancellationReason;
+  /**
+   * the engagement's final gateway spend reading, captured BEFORE revocation
+   * deletes the key — project accounting sums live keys plus these recordings
+   * (revoked keys are unreadable; found live at M2b). Absent when the key was
+   * already gone at capture time.
+   */
+  spentCents?: number;
   at: string;
 }

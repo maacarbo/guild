@@ -168,7 +168,13 @@ export class Conductor {
     const minted = await this.deps.store.listDispatchIntents();
     if (minted.length === 0) return;
     const spends = new Map<string, KeySpend>();
-    for (const id of minted) spends.set(id, await this.deps.gateway.getSpend(id));
+    for (const id of minted) {
+      try {
+        spends.set(id, await this.deps.gateway.getSpend(id));
+      } catch {
+        // revoked key — its final reading rides in the termination entry
+      }
+    }
     const decisions = await this.deps.store.listDecisions();
     const records = await this.deps.store.listEngagements();
     const ratio = this.config.softCapRatio ?? 0.8;
@@ -209,7 +215,16 @@ export class Conductor {
 
     const budget = this.config.projectBudget;
     if (!budget) return;
-    const totalSpent = [...spends.values()].reduce((sum, s) => sum + s.spentCents, 0);
+    // project total = live keys + terminated recordings (last entry wins);
+    // a live reading supersedes the recording for the same engagement
+    const terminatedSpend = new Map<string, number>();
+    for (const d of decisions) {
+      if (d.kind === "termination" && d.terminated.spentCents !== undefined) {
+        terminatedSpend.set(d.terminated.engagementId, d.terminated.spentCents);
+      }
+    }
+    let totalSpent = [...spends.values()].reduce((sum, s) => sum + s.spentCents, 0);
+    for (const [id, cents] of terminatedSpend) if (!spends.has(id)) totalSpent += cents;
 
     const lock = await this.deps.store.getDispatchLock();
     if (lock) {
@@ -689,6 +704,7 @@ export class Conductor {
     }
     // escalated: spend stops now; the ticket stays visible for the operator —
     // close/lock happens when the operator resolves (cancel or rescope)
+    const spentCents = await this.finalSpend(next.engagementId);
     await this.deps.gateway.revokeKey(next.engagementId);
     await this.setEngagementLane(next);
     await this.deps.substrate.comment(
@@ -697,7 +713,13 @@ export class Conductor {
     );
     await this.deps.store.appendDecision({
       kind: "termination",
-      terminated: { engagementId: next.engagementId, finalState: "escalated", reason: "bounce_limit", at: this.now() },
+      terminated: {
+        engagementId: next.engagementId,
+        finalState: "escalated",
+        reason: "bounce_limit",
+        ...(spentCents !== undefined ? { spentCents } : {}),
+        at: this.now(),
+      },
     });
   }
 
@@ -750,6 +772,19 @@ export class Conductor {
 
   // ----------------------------------------------------- accept / cancel
 
+  /**
+   * The engagement's final spend reading, captured BEFORE revocation deletes
+   * the key (revoked keys are unreadable — live finding, M2b): project
+   * accounting sums live keys plus these termination-entry recordings.
+   */
+  private async finalSpend(engagementId: string): Promise<number | undefined> {
+    try {
+      return (await this.deps.gateway.getSpend(engagementId)).spentCents;
+    } catch {
+      return undefined; // key already gone — nothing left to read
+    }
+  }
+
   private async accept(record: EngagementRecord): Promise<void> {
     if (!record.item || !record.validatedSha) return;
     // merge first: a fast-forward failure leaves the engagement validated and
@@ -757,11 +792,17 @@ export class Conductor {
     await this.deps.source.fastForward(this.config.repoUrl, this.config.targetBranch, record.validatedSha);
     const accepted = await this.applyTransition(record, { kind: "accepted" }, "operator accepted");
     if (!accepted) return;
+    const spentCents = await this.finalSpend(record.engagementId);
     await this.deps.gateway.revokeKey(record.engagementId);
     await this.deps.substrate.close(record.item);
     await this.deps.store.appendDecision({
       kind: "termination",
-      terminated: { engagementId: record.engagementId, finalState: "accepted", at: this.now() },
+      terminated: {
+        engagementId: record.engagementId,
+        finalState: "accepted",
+        ...(spentCents !== undefined ? { spentCents } : {}),
+        at: this.now(),
+      },
     });
     // stage sequencing (D12): an acceptance may complete its stage
     await this.advancePlanRuns();
@@ -771,11 +812,18 @@ export class Conductor {
     const cancelled = await this.applyTransition(record, { kind: "cancelled", reason }, `cancelled: ${reason}`);
     if (!cancelled) return;
     if (record.item) await this.deps.substrate.cancel(record.item, reason);
+    const spentCents = await this.finalSpend(record.engagementId);
     await this.deps.gateway.revokeKey(record.engagementId);
     if (record.item) await this.deps.substrate.close(record.item);
     await this.deps.store.appendDecision({
       kind: "termination",
-      terminated: { engagementId: record.engagementId, finalState: "cancelled", reason, at: this.now() },
+      terminated: {
+        engagementId: record.engagementId,
+        finalState: "cancelled",
+        reason,
+        ...(spentCents !== undefined ? { spentCents } : {}),
+        at: this.now(),
+      },
     });
   }
 
@@ -955,6 +1003,7 @@ export class Conductor {
           d.terminated.finalState === rec.state,
       );
       if (settled) continue;
+      const spentCents = await this.finalSpend(rec.engagementId);
       await this.deps.gateway.revokeKey(rec.engagementId);
       const reason =
         rec.state === "cancelled"
@@ -970,6 +1019,7 @@ export class Conductor {
           engagementId: rec.engagementId,
           finalState: rec.state as "accepted" | "cancelled" | "escalated",
           ...(reason ? { reason: reason as CancellationReason } : {}),
+          ...(spentCents !== undefined ? { spentCents } : {}),
           at: this.now(),
         },
       });

@@ -112,6 +112,8 @@ class FakeGateway implements ModelGateway {
   revokes: string[] = [];
   /** scripted spend per engagement — the watchdog meters from here */
   spend = new Map<string, number>();
+  /** keys the gateway no longer knows (revocation deletes them — live behavior) */
+  deadKeys = new Set<string>();
   constructor(private readonly ops: OpLog) {}
   async mintKey(engagementId: string, budgetCents: number): Promise<EngagementKey> {
     this.ops.push("mintKey");
@@ -122,6 +124,7 @@ class FakeGateway implements ModelGateway {
     this.revokes.push(engagementId);
   }
   async getSpend(engagementId: string): Promise<KeySpend> {
+    if (this.deadKeys.has(engagementId)) throw new Error(`no gateway key exists for engagement ${engagementId}`);
     const budgetCents = this.mints.find((m) => m.engagementId === engagementId)?.budgetCents ?? 0;
     const spentCents = this.spend.get(engagementId) ?? 0;
     return { engagementId, spentCents, budgetCents, exhausted: budgetCents > 0 && spentCents >= budgetCents };
@@ -1074,5 +1077,35 @@ describe("hollow rework detection (#11: a new attempt whose head never moved is 
     // and a settled escalation stays settled
     await w.conductor.reconcile();
     expect((await w.store.getEngagement("eng-1"))?.state).toBe("escalated");
+  });
+});
+
+describe("project accounting survives key revocation (termination captures the final spend)", () => {
+  it("acceptance records the engagement's final spend in its termination entry", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    w.gateway.spend.set("eng-1", 42);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    const term = (await w.store.listDecisions()).find((d) => d.kind === "termination");
+    expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 42 } });
+  });
+
+  it("the sweep totals live keys PLUS terminated recordings — a revoked key never crashes it", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 1, hardCapCents: 40 } });
+    // engagement 1: full lifecycle, 30¢ spent, key revoked at acceptance
+    const { item } = await driveToReported(w);
+    w.gateway.spend.set("eng-1", 30);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    w.gateway.deadKeys.add("eng-1"); // the gateway now throws for it
+    // engagement 2: a second idea's analysis in flight with 15¢ live spend
+    const { gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    w.gateway.spend.set("eng:stg:idea-1:analysis:v1", 15);
+
+    await w.conductor.sweep(); // 30 (terminated) + 15 (live) = 45 >= 40 → halt
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+    const hard = (await w.store.listDecisions()).find((d) => d.kind === "budget" && d.event.kind === "hard_cap");
+    expect(hard).toMatchObject({ event: { spentCents: 45, capCents: 40 } });
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
   });
 });
