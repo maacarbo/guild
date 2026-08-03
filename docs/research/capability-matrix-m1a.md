@@ -526,3 +526,16 @@ probe needed — task-run ids are already read (P13,
 `GET /api/issues/{id}/task-runs`) and the snapshot derivation already
 selects `latestCompleted.id`; exposing it as the report's attempt id is
 adapter work, not a capability question.
+
+### Invitation crash-recovery surfaces (closes the #11 ensureWorkspaceMember unknowns)
+
+- A duplicate member invite **409s** (`"invitation already pending for
+  this email"`) — it never duplicates.
+- Pending invitations are listable **owner-side** at
+  `GET /api/workspaces/{id}/invitations` (bare array with
+  `invitee_email`, `role`, `status: "pending"`, `expires_at` +7 days);
+  the invitee-side `GET /api/invitations` view exists too. A run that
+  crashed between invite and accept is adoptable from either side.
+- `DELETE /api/invitations/{id}` is **405** — pending invitations
+  cannot be revoked; they expire after 7 days. (One probe leftover for
+  watchdog@guild.local expires 2026-08-10 — harmless.)

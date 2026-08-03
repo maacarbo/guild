@@ -164,7 +164,11 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
     .query(
       "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock",
     )
-    .catch(() => undefined); // first run: tables may not exist yet
+    .catch((e: unknown) => {
+      // first run: tables may not exist yet (undefined_table); anything else
+      // must fail the run — a silently-skipped TRUNCATE leaves stale rows (#11)
+      if ((e as { code?: string }).code !== "42P01") throw e;
+    });
   await pool.end();
   world.storeA = await PgGovernanceStore.connect(pgUrl());
 
@@ -295,7 +299,28 @@ Then("the target branch fast-forwards to exactly the validated commit", async ()
 });
 
 Then("the decision trail records the complete governed lifecycle", async () => {
-  const ds = await decisions(world.storeB!);
+  // #11: every assertion is scoped to THIS run's stage/engagement — stale
+  // rows (or another plan's entries) can never satisfy the lifecycle bar
+  const stageId = world.plan!.stageId;
+  const ds = (await decisions(world.storeB!)).filter((d) => {
+    switch (d.kind) {
+      case "gate_posted":
+        return d.stageId === stageId;
+      case "gate":
+        return d.decision.stageId === stageId;
+      case "dispatch":
+        return d.outcome.engagementId === engagementId;
+      case "transition":
+      case "verdict":
+        return d.engagementId === engagementId;
+      case "bounce":
+        return d.outcome.engagementId === engagementId;
+      case "termination":
+        return d.terminated.engagementId === engagementId;
+      default:
+        return false;
+    }
+  });
   const kinds = new Set(ds.map((d) => d.kind));
   for (const k of ["gate_posted", "gate", "dispatch", "verdict", "bounce", "termination"]) {
     assert.ok(kinds.has(k as DecisionEntry["kind"]), `trail has a ${k} entry`);

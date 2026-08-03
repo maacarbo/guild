@@ -156,6 +156,10 @@ export async function acquireMemberToken(
  * (live-proven 2026-08-02: POST /api/workspaces/{id}/members mints a pending
  * invitation; the invitee accepts via POST /api/invitations/{id}/accept; a
  * role change is remove + re-invite — the member-row PUT is 405).
+ * Crash-safe (#11, live-probed 2026-08-03): a duplicate invite 409s
+ * ("invitation already pending"), and pending invitations are listable
+ * owner-side at GET /api/workspaces/{id}/invitations — a run that died
+ * between invite and accept is adopted, never wedged.
  */
 export async function ensureWorkspaceMember(
   baseUrl: string,
@@ -168,24 +172,57 @@ export async function ensureWorkspaceMember(
     email: string;
     role: string;
   }
-  const rows = await api<MemberRow[]>(baseUrl, "GET", `/api/workspaces/${workspaceId}/members`, {
-    token: ownerToken,
-    workspaceId,
-  });
-  const existing = rows.find((r) => r.email === member.email);
+  interface InvitationRow {
+    id: string;
+    invitee_email: string;
+    status: string;
+  }
+  const acceptPending = async (): Promise<boolean> => {
+    const invitations = await api<InvitationRow[]>(baseUrl, "GET", `/api/workspaces/${workspaceId}/invitations`, {
+      token: ownerToken,
+      workspaceId,
+    });
+    const pending = invitations.find((i) => i.invitee_email === member.email && i.status === "pending");
+    if (!pending) return false;
+    await api(baseUrl, "POST", `/api/invitations/${pending.id}/accept`, { token: member.token });
+    return true;
+  };
+
+  const members = () =>
+    api<MemberRow[]>(baseUrl, "GET", `/api/workspaces/${workspaceId}/members`, {
+      token: ownerToken,
+      workspaceId,
+    });
+
+  let rows = await members();
+  let existing = rows.find((r) => r.email === member.email);
   if (existing?.role === member.role) return;
+
+  // a prior run may have crashed between invite and accept — adopt its invite
+  if (!existing && (await acceptPending())) {
+    rows = await members();
+    existing = rows.find((r) => r.email === member.email);
+    if (existing?.role === member.role) return;
+  }
+
   if (existing) {
     await api(baseUrl, "DELETE", `/api/workspaces/${workspaceId}/members/${existing.id}`, {
       token: ownerToken,
       workspaceId,
     });
   }
-  const invitation = await api<{ id: string }>(baseUrl, "POST", `/api/workspaces/${workspaceId}/members`, {
-    token: ownerToken,
-    workspaceId,
-    body: { email: member.email, role: member.role },
-  });
-  await api(baseUrl, "POST", `/api/invitations/${invitation.id}/accept`, { token: member.token });
+  try {
+    const invitation = await api<{ id: string }>(baseUrl, "POST", `/api/workspaces/${workspaceId}/members`, {
+      token: ownerToken,
+      workspaceId,
+      body: { email: member.email, role: member.role },
+    });
+    await api(baseUrl, "POST", `/api/invitations/${invitation.id}/accept`, { token: member.token });
+  } catch (e) {
+    // 409 = already pending (raced or crashed earlier) — accept that one
+    if (e instanceof Error && e.message.includes("409") && (await acceptPending())) return;
+    throw e;
+  }
 }
 
 export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveEnv> {
