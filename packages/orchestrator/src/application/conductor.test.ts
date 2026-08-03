@@ -110,6 +110,8 @@ class FakeSubstrate implements ExecutionSubstrate {
 class FakeGateway implements ModelGateway {
   mints: Array<{ engagementId: string; budgetCents: number }> = [];
   revokes: string[] = [];
+  /** scripted spend per engagement — the watchdog meters from here */
+  spend = new Map<string, number>();
   constructor(private readonly ops: OpLog) {}
   async mintKey(engagementId: string, budgetCents: number): Promise<EngagementKey> {
     this.ops.push("mintKey");
@@ -120,7 +122,9 @@ class FakeGateway implements ModelGateway {
     this.revokes.push(engagementId);
   }
   async getSpend(engagementId: string): Promise<KeySpend> {
-    return { engagementId, spentCents: 0, budgetCents: 0, exhausted: false };
+    const budgetCents = this.mints.find((m) => m.engagementId === engagementId)?.budgetCents ?? 0;
+    const spentCents = this.spend.get(engagementId) ?? 0;
+    return { engagementId, spentCents, budgetCents, exhausted: budgetCents > 0 && spentCents >= budgetCents };
   }
 }
 
@@ -182,7 +186,7 @@ const plan: StagePlan = {
   budgetCents: 500,
 };
 
-function makeWorld() {
+function makeWorld(configOver: Partial<ConstructorParameters<typeof Conductor>[1]> = {}) {
   const ops: OpLog = [];
   const substrate = new FakeSubstrate(ops);
   const gateway = new FakeGateway(ops);
@@ -203,6 +207,7 @@ function makeWorld() {
       repoUrl: "git@example.com:owner/product.git",
       targetBranch: "main",
       defaultPlanBudgetCents: 1000,
+      ...configOver,
     },
   );
   return { ops, substrate, gateway, validator, source, store, conductor };
@@ -891,5 +896,183 @@ describe("the whole pipeline (the M2 demo skeleton)", () => {
       "implementation accepted at sha-2",
       "test accepted at sha-3",
     ]);
+  });
+});
+
+// ------------------------------- M2b: budget watchdog + terminal recovery
+
+describe("budget watchdog (D12: warn at the soft cap, halt at the project hard cap)", () => {
+  it("warns ONCE per engagement at the soft cap: comment + budget decision, deduped across sweeps", async () => {
+    const w = makeWorld();
+    const { item } = await postAndApprove(w); // eng-1, budget 500¢, soft cap 400¢
+    w.gateway.spend.set("eng-1", 420);
+    await w.conductor.sweep();
+    await w.conductor.sweep();
+    const warns = w.substrate.comments.filter((c) => c.id === item.externalId && /soft/i.test(c.body));
+    expect(warns).toHaveLength(1);
+    const budget = (await w.store.listDecisions()).filter((d) => d.kind === "budget");
+    expect(budget).toHaveLength(1);
+    expect(budget[0]).toMatchObject({
+      event: { kind: "soft_cap", scope: "engagement", engagementId: "eng-1", spentCents: 420, capCents: 400 },
+    });
+  });
+
+  it("below the soft cap nothing happens", async () => {
+    const w = makeWorld();
+    await postAndApprove(w);
+    w.gateway.spend.set("eng-1", 100);
+    await w.conductor.sweep();
+    expect((await w.store.listDecisions()).filter((d) => d.kind === "budget")).toHaveLength(0);
+  });
+
+  it("the project hard cap cancels in-flight work, locks dispatch, and explains itself — once", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { idea, gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    const item = (await w.substrate.findWorkItem("eng:stg:idea-1:analysis:v1"))!;
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.gateway.spend.set("eng:stg:idea-1:analysis:v1", 900);
+    await w.conductor.sweep();
+    await w.conductor.sweep();
+
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+    expect(w.substrate.cancels).toContain(item.externalId);
+    expect(w.gateway.revokes).toContain("eng:stg:idea-1:analysis:v1");
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+    const hard = (await w.store.listDecisions()).filter(
+      (d) => d.kind === "budget" && d.event.kind === "hard_cap",
+    );
+    expect(hard).toHaveLength(1);
+    expect(hard[0]).toMatchObject({
+      event: { scope: "project", spentCents: 900, capCents: 800, cancelled: ["eng:stg:idea-1:analysis:v1"] },
+    });
+    expect(w.substrate.comments.some((c) => c.id === idea.externalId && /hard cap/i.test(c.body))).toBe(true);
+  });
+
+  it("the project soft cap warns on the idea ticket without cancelling anything", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 5000 } });
+    const { idea, gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    w.gateway.spend.set("eng:stg:idea-1:analysis:v1", 700);
+    await w.conductor.sweep();
+    await w.conductor.sweep();
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+    const softs = (await w.store.listDecisions()).filter(
+      (d) => d.kind === "budget" && d.event.kind === "soft_cap" && d.event.scope === "project",
+    );
+    expect(softs).toHaveLength(1);
+    expect(w.substrate.comments.some((c) => c.id === idea.externalId && /soft/i.test(c.body))).toBe(true);
+  });
+
+  it("a validated engagement survives the hard cap — done work awaiting acceptance is not destroyed", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { item } = await driveToReported(w); // eng-1 validated
+    w.gateway.spend.set("eng-1", 900);
+    await w.conductor.sweep();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("validated");
+    expect(w.substrate.cancels).not.toContain(item.externalId);
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+  });
+
+  it("a raised hard cap releases the lock at the next sweep with a trail entry (the only exit — D12)", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 6000, hardCapCents: 9000 } });
+    await postAndApprove(w);
+    await w.store.setDispatchLock("budget_hard_cap: spend 900 >= cap 800", "t0");
+    w.gateway.spend.set("eng-1", 900);
+    await w.conductor.sweep();
+    expect(await w.store.getDispatchLock()).toBeNull();
+    const released = (await w.store.listDecisions()).find(
+      (d) => d.kind === "budget" && d.event.kind === "lock_released",
+    );
+    expect(released).toMatchObject({ event: { spentCents: 900, capCents: 9000 } });
+  });
+});
+
+describe("terminal-effect recovery (#11: a crash between the terminal transition and its effects)", () => {
+  it("reconcile re-drives acceptance effects: revoke, close, termination entry — exactly once", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    // crash simulation: the terminal transition persisted, effects never ran
+    const rec = (await w.store.getEngagement("eng-1"))!;
+    await w.store.saveEngagement({ ...rec, state: "accepted" });
+    expect(w.gateway.revokes).toHaveLength(0);
+
+    await w.conductor.reconcile();
+    expect(w.gateway.revokes).toContain("eng-1");
+    expect(w.substrate.closes).toContain(item.externalId);
+    const terms = (await w.store.listDecisions()).filter(
+      (d) => d.kind === "termination" && d.terminated.engagementId === "eng-1",
+    );
+    expect(terms).toHaveLength(1);
+    expect(terms[0]).toMatchObject({ terminated: { finalState: "accepted" } });
+    await w.conductor.reconcile();
+    expect(
+      (await w.store.listDecisions()).filter((d) => d.kind === "termination" && d.terminated.engagementId === "eng-1"),
+    ).toHaveLength(1);
+  });
+
+  it("reconcile re-drives a cancelled engagement's effects with the recovered reason", async () => {
+    const w = makeWorld();
+    const { item } = await postAndApprove(w);
+    const rec = (await w.store.getEngagement("eng-1"))!;
+    // crash after the transition write of an operator cancellation
+    await w.store.saveEngagement({ ...rec, state: "cancelled" });
+    await w.store.appendDecision({
+      kind: "transition",
+      engagementId: "eng-1",
+      from: "dispatched",
+      to: "cancelled",
+      cause: "cancelled: operator",
+      at: "t0",
+    });
+    await w.conductor.reconcile();
+    expect(w.gateway.revokes).toContain("eng-1");
+    expect(w.substrate.cancels).toContain(item.externalId);
+    const term = (await w.store.listDecisions()).find((d) => d.kind === "termination");
+    expect(term).toMatchObject({ terminated: { finalState: "cancelled", reason: "operator" } });
+  });
+
+  it("reconcile re-drives an escalated engagement's key revocation and trail entry", async () => {
+    const w = makeWorld();
+    await postAndApprove(w);
+    const rec = (await w.store.getEngagement("eng-1"))!;
+    await w.store.saveEngagement({ ...rec, state: "escalated" });
+    await w.conductor.reconcile();
+    expect(w.gateway.revokes).toContain("eng-1");
+    const term = (await w.store.listDecisions()).find((d) => d.kind === "termination");
+    expect(term).toMatchObject({ terminated: { finalState: "escalated", reason: "bounce_limit" } });
+  });
+});
+
+describe("hollow rework detection (#11: a new attempt whose head never moved is judged, not stranded)", () => {
+  it("reconcile bounces a second hollow completion via the attempt signal and escalates the third", async () => {
+    const w = makeWorld();
+    // attempt 1: hollow (branch never pushed) → bounce 1
+    await driveToReported(w, { report: { summary: "ack", branchHint: "agent/worker/h1", attemptId: "run-1" } });
+    w.source.shas.delete("agent/worker/abc12345");
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("bounced");
+    expect((await w.store.getEngagement("eng-1"))?.bounceCount).toBe(1);
+
+    // attempt 2: rework reports done, still nothing pushed — only the attempt id moved
+    const item = (await w.substrate.findWorkItem("eng-1"))!;
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "done again", branchHint: "agent/worker/h2", attemptId: "run-2" },
+    });
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.bounceCount).toBe(2);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("bounced");
+
+    // attempt 3: hollow again → past MAX_BOUNCES → escalated
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "totally done", branchHint: "agent/worker/h3", attemptId: "run-3" },
+    });
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("escalated");
+
+    // and a settled escalation stays settled
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("escalated");
   });
 });

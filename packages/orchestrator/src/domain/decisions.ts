@@ -6,6 +6,7 @@
 
 import type {
   BounceOutcome,
+  BudgetEvent,
   ContractVerdict,
   DispatchOutcome,
   EngagementState,
@@ -20,4 +21,6 @@ export type DecisionEntry =
   | { kind: "transition"; engagementId: string; from: EngagementState; to: EngagementState; cause: string; at: string }
   | { kind: "verdict"; engagementId: string; verdict: ContractVerdict }
   | { kind: "bounce"; outcome: BounceOutcome }
-  | { kind: "termination"; terminated: EngagementTerminated };
+  | { kind: "termination"; terminated: EngagementTerminated }
+  /** watchdog provenance (D12): every cap event and lock release is queryable */
+  | { kind: "budget"; event: BudgetEvent };

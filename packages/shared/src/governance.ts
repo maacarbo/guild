@@ -44,16 +44,31 @@ export interface ProjectBudget {
 
 /** caps trigger at spentCents >= capCents; the gateway is the source of truth when telemetry lags */
 export type BudgetEvent =
-  | { kind: "soft_cap"; scope: "engagement" | "project"; spentCents: number; capCents: number; at: string }
+  | {
+      kind: "soft_cap";
+      scope: "engagement" | "project";
+      /** present for engagement scope — the warned engagement (trail dedup key) */
+      engagementId?: string;
+      spentCents: number;
+      capCents: number;
+      at: string;
+    }
   | {
       kind: "hard_cap";
       scope: "engagement" | "project";
+      engagementId?: string;
       spentCents: number;
       capCents: number;
       /** engagement ids whose in-flight work was cancelled; dispatch is locked until operator action */
       cancelled: string[];
       at: string;
-    };
+    }
+  /**
+   * the dispatch lock cleared at conductor start: the configured hard cap
+   * again exceeds recorded spend (raise-the-cap-and-restart, D12) — the only
+   * lock exit; there is no CLI verb (D11 scope)
+   */
+  | { kind: "lock_released"; spentCents: number; capCents: number; at: string };
 
 export type CancellationReason =
   | "budget_hard_cap"

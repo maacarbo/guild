@@ -65,8 +65,22 @@ export class PgGovernanceStore implements GovernanceStore {
     await this.pool.end();
   }
 
+  /** two conductors booting on a fresh database race their DDL without this (#11) */
+  private static readonly SCHEMA_LOCK_KEY = 0x6775696c; // 'guil'
+
   private async ensureSchema(): Promise<void> {
-    await this.pool.query(`
+    const client = await this.pool.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock($1)", [PgGovernanceStore.SCHEMA_LOCK_KEY]);
+      await this.createTables(client);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [PgGovernanceStore.SCHEMA_LOCK_KEY]).catch(() => undefined);
+      client.release();
+    }
+  }
+
+  private async createTables(client: pg.PoolClient): Promise<void> {
+    await client.query(`
       CREATE TABLE IF NOT EXISTS engagements (
         engagement_id text PRIMARY KEY,
         stage_id      text NOT NULL,

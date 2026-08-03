@@ -18,12 +18,16 @@
  */
 
 import type {
+  CancellationReason,
   ContractCheck,
   ContractVerdict,
   EngagementPlan,
+  EngagementState,
   ExecutionSubstrate,
   GateDecision,
+  KeySpend,
   ModelGateway,
+  ProjectBudget,
   StageKind,
   StagePlan,
   SubstrateEvent,
@@ -69,9 +73,16 @@ export interface ConductorConfig {
   targetBranch: string;
   /** governs derived plans when the idea names no budget: directive (D12) */
   defaultPlanBudgetCents: number;
+  /** the project ceiling the watchdog enforces; absent = engagement caps only */
+  projectBudget?: ProjectBudget;
+  /** engagement soft-cap warning threshold as a fraction of budgetCents (D12 default 0.8) */
+  softCapRatio?: number;
 }
 
 const TERMINAL_WORK: ReadonlySet<string> = new Set(["done", "failed", "cancelled"]);
+/** states holding a live key whose work the hard cap cancels — validated work survives (D12) */
+const SPENDING: ReadonlySet<EngagementState> = new Set(["dispatched", "working", "blocked", "reported", "bounced"]);
+const TERMINAL_STATES: ReadonlySet<EngagementState> = new Set(["accepted", "cancelled", "escalated"]);
 
 /** stage ids are conductor-minted as `stg:<ideaId>:<kind>` (planner identity rule) */
 function stageKindOf(stageId: string): StageKind {
@@ -141,6 +152,137 @@ export class Conductor {
       if (!plan) throw new Error(`no persisted plan for stage ${stageId}`);
       return this.postGate(plan, []);
     });
+  }
+
+  /**
+   * The budget watchdog pass (D12): engagement soft caps warn once; the
+   * project hard cap cancels every spending engagement, locks dispatch, and
+   * explains itself on the idea ticket; a raised cap releases the lock — the
+   * only exit. Metered from the gateway: it is the spend source of truth.
+   */
+  sweep(): Promise<void> {
+    return this.serialize(() => this.sweepUnsafe());
+  }
+
+  private async sweepUnsafe(): Promise<void> {
+    const minted = await this.deps.store.listDispatchIntents();
+    if (minted.length === 0) return;
+    const spends = new Map<string, KeySpend>();
+    for (const id of minted) spends.set(id, await this.deps.gateway.getSpend(id));
+    const decisions = await this.deps.store.listDecisions();
+    const records = await this.deps.store.listEngagements();
+    const ratio = this.config.softCapRatio ?? 0.8;
+
+    // engagement soft caps — one warning each, deduped through the trail
+    for (const rec of records) {
+      if (!SPENDING.has(rec.state) && rec.state !== "validated") continue;
+      const spend = spends.get(rec.engagementId);
+      if (!spend || spend.budgetCents <= 0) continue;
+      const capCents = Math.floor(spend.budgetCents * ratio);
+      if (spend.spentCents < capCents) continue;
+      const warned = decisions.some(
+        (d) =>
+          d.kind === "budget" &&
+          d.event.kind === "soft_cap" &&
+          d.event.scope === "engagement" &&
+          d.event.engagementId === rec.engagementId,
+      );
+      if (warned) continue;
+      await this.deps.store.appendDecision({
+        kind: "budget",
+        event: {
+          kind: "soft_cap",
+          scope: "engagement",
+          engagementId: rec.engagementId,
+          spentCents: spend.spentCents,
+          capCents,
+          at: this.now(),
+        },
+      });
+      if (rec.item) {
+        await this.deps.substrate.comment(
+          rec.item,
+          `Budget soft cap: this engagement has spent ${spend.spentCents}¢ of its ${spend.budgetCents}¢ cap. The gateway hard-stops at the cap.`,
+        );
+      }
+    }
+
+    const budget = this.config.projectBudget;
+    if (!budget) return;
+    const totalSpent = [...spends.values()].reduce((sum, s) => sum + s.spentCents, 0);
+
+    const lock = await this.deps.store.getDispatchLock();
+    if (lock) {
+      if (totalSpent < budget.hardCapCents) {
+        // raise-the-cap-and-restart (D12): the only lock exit, trail-recorded
+        await this.deps.store.clearDispatchLock();
+        await this.deps.store.appendDecision({
+          kind: "budget",
+          event: { kind: "lock_released", spentCents: totalSpent, capCents: budget.hardCapCents, at: this.now() },
+        });
+      }
+      return;
+    }
+
+    if (totalSpent >= budget.hardCapCents) {
+      const cancelled: string[] = [];
+      for (const rec of records) {
+        if (!SPENDING.has(rec.state)) continue;
+        await this.cancelEngagement(rec, "budget_hard_cap");
+        cancelled.push(rec.engagementId);
+      }
+      await this.deps.store.setDispatchLock(
+        `budget_hard_cap: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢`,
+        this.now(),
+      );
+      await this.deps.store.appendDecision({
+        kind: "budget",
+        event: {
+          kind: "hard_cap",
+          scope: "project",
+          spentCents: totalSpent,
+          capCents: budget.hardCapCents,
+          cancelled,
+          at: this.now(),
+        },
+      });
+      const target = await this.projectNoticeTarget();
+      if (target) {
+        await this.deps.substrate.comment(
+          target,
+          `Budget hard cap reached: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢. ` +
+            `In-flight work was cancelled and dispatch is locked. ` +
+            `To resume: raise the hard cap in configuration and restart the conductor.`,
+        );
+      }
+      return;
+    }
+
+    if (totalSpent >= budget.softCapCents) {
+      const warned = decisions.some(
+        (d) => d.kind === "budget" && d.event.kind === "soft_cap" && d.event.scope === "project",
+      );
+      if (warned) return;
+      await this.deps.store.appendDecision({
+        kind: "budget",
+        event: { kind: "soft_cap", scope: "project", spentCents: totalSpent, capCents: budget.softCapCents, at: this.now() },
+      });
+      const target = await this.projectNoticeTarget();
+      if (target) {
+        await this.deps.substrate.comment(
+          target,
+          `Budget soft cap: project spend ${totalSpent}¢ has crossed the ${budget.softCapCents}¢ warning line (hard cap ${budget.hardCapCents}¢).`,
+        );
+      }
+    }
+  }
+
+  /** where project-level budget notices land: the active run's idea ticket */
+  private async projectNoticeTarget(): Promise<WorkItemRef | null> {
+    for (const run of await this.deps.store.listPlanRuns()) {
+      if (run.status === "active" && run.ideaItem) return run.ideaItem;
+    }
+    return null;
   }
 
   // ------------------------------------------------------- event routing
@@ -401,11 +543,22 @@ export class Conductor {
     for (const ep of plan.engagements) {
       const rec = await this.deps.store.getEngagement(ep.engagementId);
       if (rec?.state === "gated") {
-        await this.applyTransition(
+        const superseded = await this.applyTransition(
           rec,
           { kind: "cancelled", reason: "plan_amended" },
           `superseded by v${gateKey.planVersion + 1}`,
         );
+        if (superseded) {
+          await this.deps.store.appendDecision({
+            kind: "termination",
+            terminated: {
+              engagementId: ep.engagementId,
+              finalState: "cancelled",
+              reason: "plan_amended",
+              at: ev.at,
+            },
+          });
+        }
       }
     }
     const oldGate = await this.deps.store.getGateTicket(gateKey.stageId, gateKey.planVersion);
@@ -789,8 +942,56 @@ export class Conductor {
       }
     }
 
-    // 5. stage sequencing: acceptances that landed above may complete stages
+    // 5. terminal-effect re-drive (#11): a crash between the terminal
+    //    transition and its effects leaves a terminal record with no
+    //    termination entry — re-run the (idempotent) effects and append it
+    const decisions = await this.deps.store.listDecisions();
+    for (const rec of await this.deps.store.listEngagements()) {
+      if (!TERMINAL_STATES.has(rec.state)) continue;
+      const settled = decisions.some(
+        (d) =>
+          d.kind === "termination" &&
+          d.terminated.engagementId === rec.engagementId &&
+          d.terminated.finalState === rec.state,
+      );
+      if (settled) continue;
+      await this.deps.gateway.revokeKey(rec.engagementId);
+      const reason =
+        rec.state === "cancelled"
+          ? this.recoverCancelReason(decisions, rec.engagementId)
+          : rec.state === "escalated"
+            ? "bounce_limit"
+            : undefined;
+      if (rec.state === "cancelled" && rec.item) await this.deps.substrate.cancel(rec.item, reason as CancellationReason);
+      if (rec.state !== "escalated" && rec.item) await this.deps.substrate.close(rec.item);
+      await this.deps.store.appendDecision({
+        kind: "termination",
+        terminated: {
+          engagementId: rec.engagementId,
+          finalState: rec.state as "accepted" | "cancelled" | "escalated",
+          ...(reason ? { reason: reason as CancellationReason } : {}),
+          at: this.now(),
+        },
+      });
+    }
+
+    // 6. stage sequencing: acceptances that landed above may complete stages
     await this.advancePlanRuns();
+  }
+
+  /** the cancellation reason lives in the transition cause when the entry is missing */
+  private recoverCancelReason(
+    decisions: Awaited<ReturnType<GovernanceStore["listDecisions"]>>,
+    engagementId: string,
+  ): CancellationReason {
+    for (let i = decisions.length - 1; i >= 0; i--) {
+      const d = decisions[i]!;
+      if (d.kind !== "transition" || d.engagementId !== engagementId || d.to !== "cancelled") continue;
+      if (d.cause.startsWith("cancelled: ")) return d.cause.slice("cancelled: ".length) as CancellationReason;
+      if (d.cause.includes("stage rejected")) return "stage_rejected";
+      if (d.cause.startsWith("superseded")) return "plan_amended";
+    }
+    return "operator";
   }
 
   // ------------------------------------------------------------- helpers
