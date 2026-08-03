@@ -193,7 +193,7 @@ When("the operator posts the demo idea as a board ticket", async () => {
       "only argument; zero runtime dependencies; tests runnable offline with",
       "`node --test`.",
       "",
-      "budget: 1.00",
+      "budget: 3.00",
     ].join("\n"),
   });
   assert.ok(res.ok, `idea ticket → ${res.status}`);
@@ -214,12 +214,12 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
   );
   // the plan allocated 15% of the idea's 100¢
   const plan = await world.store!.getStagePlan(stageIdOf(world.ideaId, "analysis"), 1);
-  assert.equal(plan?.budgetCents, 15, "analysis v1 carries the mechanical allocation");
+  assert.equal(plan?.budgetCents, 45, "analysis v1 carries the mechanical allocation (15% of 300¢)");
 });
 
 When("the operator amends the analysis plan with a budget directive", async () => {
   const res = await operatorApi("POST", `/api/issues/${world.gateV1!.externalId}/comments`, {
-    content: "amend: sharpen the spec toward CLI ergonomics. budget: 0.20",
+    content: "amend: sharpen the spec toward CLI ergonomics. budget: 0.60",
   });
   assert.ok(res.ok, `amend comment → ${res.status}`);
 });
@@ -232,7 +232,7 @@ Then("a version-2 analysis gate supersedes the first", async () => {
     3 * 60 * 1000,
   );
   const v2 = (await world.store!.getStagePlan(stageId, 2))!;
-  assert.equal(v2.budgetCents, 20, "the amendment repriced the stage");
+  assert.equal(v2.budgetCents, 60, "the amendment repriced the stage");
   assert.ok(v2.objective.includes("CLI ergonomics"), "the note folded into the objective");
   assert.equal((await world.store!.getEngagement(`eng:${stageId}:v1`))?.state, "cancelled", "v1 superseded");
   const gate2 = await world.substrate!.findWorkItem(`gate:${stageId}:v2`);

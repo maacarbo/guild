@@ -11,7 +11,7 @@ const env = readEnv([
   { name: "GUILD_MULTICA_URL", source: "Multica backend URL", fallback: "http://127.0.0.1:8080" },
   { name: "GUILD_OPERATOR_TOKEN", source: "the OPERATOR's PAT (ideas must be operator-authored)" },
   { name: "GUILD_WORKSPACE_ID", source: "the project workspace" },
-  { name: "GUILD_DEMO_BUDGET", source: "plan budget in dollars", fallback: "1.00" },
+  { name: "GUILD_DEMO_BUDGET", source: "plan budget in dollars", fallback: "3.00" },
 ]);
 
 async function main(): Promise<void> {

@@ -256,7 +256,7 @@ services:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_OPERATOR_TOKEN: ${GUILD_OPERATOR_TOKEN:-}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
-      GUILD_DEMO_BUDGET: ${GUILD_DEMO_BUDGET:-1.00}
+      GUILD_DEMO_BUDGET: ${GUILD_DEMO_BUDGET:-3.00}
     networks: [guild-dev]
 
   guild-kill:
