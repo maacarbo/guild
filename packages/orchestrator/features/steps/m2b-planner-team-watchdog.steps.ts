@@ -291,11 +291,17 @@ Then(
     const idea = await world.substrate!.getWorkItem({ substrate: "multica", externalId: world.ideaId });
     assert.equal(idea.lane, "done", "the idea ticket landed in Done");
 
-    // the M2 bar, asserted directly: a fresh clone of main passes its tests
+    // the M2 bar, asserted directly: a fresh clone of main passes its tests.
+    // Color env is scrubbed: this driver shell exports FORCE_COLOR, which the
+    // demo CLI would inherit and ANSI-wrap its output — a cosmetic artifact of
+    // the harness environment, not of the product (found live 2026-08-03; the
+    // sandboxed validator env is neutral and passed the same tree).
+    const neutral: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+    delete neutral.FORCE_COLOR;
     const dir = mkdtempSync(join(tmpdir(), "guild-m2b-final-"));
     try {
       await exec("git", ["clone", "--depth", "1", SCRATCH_REPO, dir], { timeout: 120_000 });
-      await exec("node", ["--test"], { cwd: dir, timeout: 120_000 });
+      await exec("node", ["--test"], { cwd: dir, timeout: 120_000, env: neutral });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
