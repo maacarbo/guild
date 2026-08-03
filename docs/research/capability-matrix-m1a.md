@@ -476,3 +476,53 @@ governs what cheap models do.
   the host-side conductor of the M1–M2a dev era — a documented deviation
   from the databases-internal floor, dropped when the conductor ships as a
   compose service (M2b).
+
+## Addendum 2026-08-03 — P24/P25: issue-creation events and creator attribution (M2b idea detection)
+
+Probes run live against the same v0.4.15 stack before the M2b planner
+depends on them (script: session-local; artifacts GUI-89–GUI-92 created
+and cancelled off-board same-day).
+
+### P24 — issue-creation WS frames: PASS
+
+Creating an issue over REST pushes, on the authenticated workspace
+socket (auth is a post-open frame `{type:"auth",payload:{token}}` —
+an unauthenticated socket connects but receives **nothing**):
+
+- **`issue:created`** carrying the FULL issue object (title,
+  `description`, `status`, `creator_type`/`creator_id`) in
+  `payload.issue`, plus top-level `actor_id`/`actor_type` on the frame
+  itself — live idea detection needs no follow-up read;
+- **`activity:created`** with `entry.action: "created"` and the same
+  actor attribution — the audit-trail source, same shape P21/P22
+  catalogued for `status_changed`;
+- `subscriber:added` (reason `creator`) — noise, ignorable.
+
+New issues default to **status `todo`** (the ready-to-work lane), not
+`backlog` — an operator-authored idea ticket arrives in a go lane and
+the conductor must not read that as a dispatch signal for anything
+(idea tickets carry no engagement marker; D11's marker discipline is
+the guard, not the lane).
+
+### P25 — issue creator + body surfaces: PASS (one id space everywhere)
+
+- Issue rows carry `creator_type` ("member") + `creator_id`
+  first-class, on POST echo, `GET /api/issues/{id}`, AND the list
+  endpoint — reconcile-based idea detection works from reads alone.
+- `description` rides in full on all three surfaces — the planner can
+  (re-)read the idea body without any new endpoint.
+- **Id space is uniform**: issue `creator_id` == `/api/me` `.id` ==
+  activity `actor_id` (verified for both the operator and conductor
+  identities). The existing `selfMemberId` comparison attributes
+  creators exactly as it attributes lane moves. (The workspace
+  members-list row ids are a DIFFERENT space — never compare against
+  those.)
+- `GET /api/issues/{id}/activities` is 404 — no REST read for the
+  activity trail; activities are WS-only, reads-as-truth stays on the
+  issue/list surfaces.
+
+Per-attempt signal for rework detection (#11 double-hollow): no new
+probe needed — task-run ids are already read (P13,
+`GET /api/issues/{id}/task-runs`) and the snapshot derivation already
+selects `latestCompleted.id`; exposing it as the report's attempt id is
+adapter work, not a capability question.
