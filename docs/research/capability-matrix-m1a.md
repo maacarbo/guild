@@ -539,3 +539,45 @@ adapter work, not a capability question.
 - `DELETE /api/invitations/{id}` is **405** — pending invitations
   cannot be revoked; they expire after 7 days. (One probe leftover for
   watchdog@guild.local expires 2026-08-10 — harmless.)
+
+## Addendum 2026-08-03 (later) — M2b live facts
+
+Found while driving the M2b acceptance (five-stage demo pipeline, four
+role agents, real gates on the live stack); each fact is now load-bearing
+in code or harness.
+
+- **Stage economics (opencode + or-deepseek-v3-2):** a stage session
+  costs ~10–25¢ (measured across one green run: analysis 19¢,
+  architecture 10¢, implementation 11¢, test 19¢, delivery 18¢ — 77¢
+  for the whole five-stage delivery). A $1.00 plan starves its stages:
+  the first live run's architecture engagement hit its 15¢ key cap and
+  the gateway hard-stopped serving at $0.1506 (+0.4% overshoot — the
+  D2 insurance layer behaving exactly as its M1a evidence predicted).
+  The demo plan ships at $3.00.
+- **Key revocation deletes spend readback.** `/key/delete` removes the
+  key AND its `/key/info` spend surface — a terminated engagement's
+  spend becomes unreadable. Consequence (now normative in the
+  conductor): every termination captures the final gateway reading
+  into its trail entry BEFORE revoking; project accounting sums live
+  keys plus terminated recordings.
+- **Issue status ≠ task lifecycle, in BOTH directions.** P19 showed
+  task completion never moves issue status; the converse also holds:
+  setting an issue to `cancelled` does NOT kill its running task —
+  only `POST /api/tasks/{id}/cancel` does (the adapter's `cancel()`
+  has always done this; manual board hygiene must too, or the agent
+  grinds on against a capped key in retry backoff, P10).
+- **Issue listing is paginated** — a naive single-page
+  `GET /api/issues` silently misses old rows (four ancient probe
+  tickets got adopted as ideas through exactly this gap in a harness
+  sweep). The adapter's self-consistent paginated sweep (M1b verify
+  hardening) is the only trusted board read.
+- **Driver-environment color leak:** harnesses exporting `FORCE_COLOR`
+  make spawned Node CLIs ANSI-wrap `console.log` output, breaking
+  string assertions that pass in the (neutral-env) validator sandbox.
+  Acceptance asserts run under a scrubbed env.
+- **The whole D11/D12 grammar is live-proven:** operator ticket →
+  deterministic plan answer; `amend:` comment → superseded v1, re-gated
+  v2 (repriced); five sequential stage gates each opened only after the
+  prior acceptance, with the upstream handoff read from the validated
+  SHA; and the watchdog hard-cap halt cancels in-flight work, locks
+  dispatch, and explains itself on the idea ticket.
