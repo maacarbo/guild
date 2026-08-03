@@ -10,7 +10,8 @@
     "test": "pnpm -r test",
     "smoke": "pnpm --filter @guild/orchestrator smoke",
     "deps:check": "depcruise packages/*/src --config .dependency-cruiser.cjs",
-    "smoke:m2a": "pnpm --filter @guild/orchestrator smoke:m2a"
+    "smoke:m2a": "pnpm --filter @guild/orchestrator smoke:m2a",
+    "smoke:m2b": "pnpm --filter @guild/orchestrator smoke:m2b"
   },
   "devDependencies": {
     "dependency-cruiser": "18.1.0"

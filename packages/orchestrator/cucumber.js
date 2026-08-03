@@ -10,3 +10,7 @@ export const m2a = {
   paths: ["features/m2a-governed-engagement.feature"],
   import: ["features/steps/m2a-governed-engagement.steps.ts"],
 };
+export const m2b = {
+  paths: ["features/m2b-planner-team-watchdog.feature"],
+  import: ["features/steps/m2b-planner-team-watchdog.steps.ts"],
+};

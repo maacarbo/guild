@@ -128,3 +128,15 @@ Quarantined honestly — do not cite as fact:
 - M5: scope DNS in the NetworkPolicy to the cluster resolver, cluster-internal only; note prompt-path exfiltration via LiteLLM is a governance item, not a NetworkPolicy item.
 - M5 (upgraded per challenge): add an explicit evaluation gate — assess K8s Agent Sandbox (SandboxTemplate/WarmPool/Claim: pause/resume, persistent storage, hardened runtimes) against Job-per-engagement BEFORE building the M5 substrate, since it natively covers what the D3 handle, D5 runtime, and PVC amendments each hand-roll.
 - Split observability: M1 — enable LiteLLM spend logging + OTel/Langfuse export at the gateway (concrete mechanism for 'tracked from M1'); M5 — full GenAI-semconv tracing with version-pinned instrumentation and budget for at least one attribute-rename migration.
+
+---
+
+## Addendum 2026-08-03 (M2 ship prep — issue #9; the file above is frozen, never edited)
+
+The absolute machine path in the Scope line ("`/Users/maarten/git/bitstrum/agents/guild/docs/ARCHITECTURE.md`")
+is the report generator's local checkout path at capture time; it refers to
+**this repository's `docs/ARCHITECTURE.md`** as it stood on 2026-07-29
+(decision records D1–D5 of that date — several since superseded; see the
+current D-record statuses). Per the frozen-doc convention (operator decision
+2026-08-02, issue #9), the historical text stands unredacted and this
+addendum supplies the portable reference.
