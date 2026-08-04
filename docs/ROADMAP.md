@@ -17,7 +17,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 ### M1a — Capability proof
 
 - Compose stack: pinned Multica + isolated LiteLLM; scratch GitHub repo. **Deliverable: this compose stack is the shipped Tier 1 quickstart** (`deploy/README.md`) — new users install what the milestone proves
-- Daemon container e2e (amd64, creds at runtime; Claude Code at the time of the probe — image scope now OpenCode default + Claude Code per D9, 2026-07-30): claims + completes a task, pushes an engagement branch
+- Daemon container e2e (amd64, creds at runtime; Claude Code at the time of the probe — image scope now OpenCode-only per the D9 amendment, 2026-08-04): claims + completes a task, pushes an engagement branch
 - Gateway proofs: prompt caching + extended thinking via LiteLLM logs/headers; **virtual key minted with `max_budget` stops serving at cap** — record how the 429 classifies in Multica
 - Spend attribution: per-engagement key → task → attributable spend read back
 - API probes: issue create/assign/comment/cancel; **cancel kills the forked CLI and stops gateway traffic**; WS events (+ REST read endpoints for reconciliation); **does a top-level conductor-PAT comment trigger the implementing agent** (bounce delivery — currently unverified and load-bearing); **do replies on closed issues still enqueue tasks** (termination protocol); **does bounce survive a daemon restart** (continuity floor); agent/squad management endpoints (**best-effort** — the idle-pool fallback stands either way; the result feeds M3 team evolution directly)

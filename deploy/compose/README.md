@@ -95,13 +95,12 @@ revokes keys, and locks dispatch until you raise the caps in `.env` and
 restart the conductor.
 
 The daemon registers one runtime row per bundled CLI (sidebar: Configure → Runtimes;
-OpenCode — the default, D9 — and Claude Code), labeled by
+OpenCode — the sole runtime, D9 as amended 2026-08-04), labeled by
 `$MULTICA_DAEMON_DEVICE_NAME`. All agent model traffic flows
 `CLI → litellm:4000 → provider`, authenticated by the virtual key — never a
 provider key — so every call is metered and hard-capped (`max_budget`).
 OpenCode agents use `provider/model`-qualified models against the baked
-`litellm` provider (e.g. `litellm/or-claude-haiku-4-5`); Claude Code agents
-use the bare gateway alias (e.g. `or-claude-haiku-4-5`).
+`litellm` provider (e.g. `litellm/or-claude-haiku-4-5`).
 
 ## Version pins
 
@@ -109,8 +108,7 @@ use the bare gateway alias (e.g. `or-claude-haiku-4-5`).
 |---|---|---|
 | Multica control plane | `v0.4.15` | `.env` `MULTICA_VERSION` |
 | Multica CLI (in daemon image) | `0.4.15` | build arg `MULTICA_VERSION` |
-| OpenCode CLI (in daemon image, default runtime — D9) | `1.18.10` | build arg `OPENCODE_VERSION` |
-| Claude Code CLI (in daemon image) | `2.1.220` | build arg `CLAUDE_CODE_VERSION` |
+| OpenCode CLI (in daemon image, sole runtime — D9 as amended 2026-08-04) | `1.18.10` | build arg `OPENCODE_VERSION` |
 | LiteLLM | `v1.94.0` by digest `sha256:5287…b1e906` | `docker-compose.yml` |
 | Postgres (Multica) | `pgvector/pgvector:pg17` | upstream requirement |
 | Postgres (LiteLLM, Guild) | `postgres:17` | `docker-compose.yml` |

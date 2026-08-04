@@ -70,7 +70,7 @@ Guild no longer operates an agent-to-agent bus: Multica owns agent coordination 
 
 ### D2 — Model access: LiteLLM gateway — **RETAINED, mechanism changed**
 
-The gateway now sits behind the daemon image: agent CLIs inside the container are pointed at LiteLLM (`ANTHROPIC_BASE_URL` et al.), preserving per-role model policy, central spend metering, and the supply-chain rules from the original D2 (pin version + image digest; delayed scanned upgrades; hardened gateway container/pod). This is also what makes budget *enforcement* possible at all — verified in Multica's source: it records cost but enforces nothing, so the watchdog's data must come from Guild's own gateway. Feature-parity acceptance test (prompt caching, extended thinking through the proxy) carries over to M1.
+The gateway now sits behind the daemon image: agent CLIs inside the container are pointed at LiteLLM (OpenCode's baked provider config since the 2026-08-04 D9 amendment; `ANTHROPIC_BASE_URL` in the two-CLI era), preserving per-role model policy, central spend metering, and the supply-chain rules from the original D2 (pin version + image digest; delayed scanned upgrades; hardened gateway container/pod). This is also what makes budget *enforcement* possible at all — verified in Multica's source: it records cost but enforces nothing, so the watchdog's data must come from Guild's own gateway. Feature-parity acceptance test (prompt caching, extended thinking through the proxy) carries over to M1.
 
 ### D3 — AgentRuntimeAdapter — **SUPERSEDED by D8, narrowed to the `ExecutionSubstrate` port**
 

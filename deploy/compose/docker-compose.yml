@@ -140,7 +140,6 @@ services:
       context: ../../docker/daemon
       args:
         MULTICA_VERSION: ${MULTICA_VERSION:-v0.4.15}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.220}
         OPENCODE_VERSION: ${OPENCODE_VERSION:-1.18.10}
     platform: linux/amd64
     init: true
@@ -157,10 +156,8 @@ services:
       MULTICA_DAEMON_DEVICE_NAME: ${MULTICA_DAEMON_DEVICE_NAME:-guild-daemon-1}
       # All model traffic through the gateway; the token is a LiteLLM virtual
       # key (never a provider key) so every call is metered and budget-capped.
-      # Claude Code reads ANTHROPIC_*; OpenCode's baked provider config reads
-      # GUILD_DAEMON_VIRTUAL_KEY directly ({env:...} in opencode.json).
-      ANTHROPIC_BASE_URL: http://litellm:4000
-      ANTHROPIC_AUTH_TOKEN: ${GUILD_DAEMON_VIRTUAL_KEY:-}
+      # OpenCode's baked provider config reads GUILD_DAEMON_VIRTUAL_KEY
+      # directly ({env:...} in opencode.json) and targets http://litellm:4000/v1.
       GUILD_DAEMON_VIRTUAL_KEY: ${GUILD_DAEMON_VIRTUAL_KEY:-}
       # Scratch-repo git auth (HTTPS + PAT), written to an ephemeral
       # credential store by the entrypoint — never baked into the image.
