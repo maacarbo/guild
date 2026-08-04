@@ -123,6 +123,16 @@ Hexagonal seam (D7 applied): the gateway is a driven adapter behind the `ModelGa
 
 **Revisit if:** OpenCode's headless contract regresses at a pin bump (conformance suite catches it — fall back to Claude Code default without a design change), or Anthropic ships sanctioned automation terms for subscription plans.
 
+**Amendment (2026-08-04, operator decision session; supersedes "Claude Code remains supported"):**
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Drop Claude Code entirely — OpenCode via LiteLLM is the sole runtime** ✔ | Model reach was never Claude Code's job (gateway routes cover Anthropic models through OpenCode); one less pin; resolves the redistribution question on the public daemon image — `opencode-ai` is MIT while `@anthropic-ai/claude-code` (npm 2.1.221, verified 2026-08-04) ships "© Anthropic PBC. All rights reserved" | No pre-baked second runtime: an OpenCode headless regression at a pin bump is handled by pinning back + fixing forward (the conformance suite still detects it) |
+| Drop from the published image, keep the build-arg | Clean redistribution story with a documented local-build fallback | Keeps the pin and a second image variant to document and test |
+| Keep both (status quo ante) | Instant fallback | The fallback narrows to Anthropic-format models exactly when invoked; unverified proprietary-redistribution exposure on a public GHCR image (clean-and-legal gate); standing pin + image cost |
+
+The fallback clause in the revisit line above is superseded accordingly. Implementation, license-terms verification, and disposition of the already-published `v0.1.0` image: issue #13.
+
 ### D10 — Multi-project mapping: one Multica workspace per Guild project (added 2026-08-02)
 
 | Option | Pros | Cons |
@@ -197,6 +207,34 @@ Normative consequences:
 - **Concurrency discipline (#11 CAS items land here):** one in-process async mutex serializes event handling, reconciliation, and watchdog sweeps; the store adds optimistic concurrency on engagement saves (revision counter) and first-writer-wins uniqueness on gate decisions per (stageId, planVersion) — cross-process safety established **before** any concurrent-conductor topology exists.
 
 Evidence: capability-matrix addendum 2026-08-03 (P24/P25). **Revisit if:** M3's role memory and dynamic hiring make an LLM-assisted planner worth an operator-gated design pass, or multi-engagement stages become a real template need.
+
+**Amendment (2026-08-04, operator decision session — the template revisit answered for M3):**
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Template catalog + `template:` directive** ✔ | Determinism and zero discretion survive — the catalog is fixed data and the choice is the operator's one-word directive in the idea body (same parse discipline as `budget:`, default `standard`); overkill is impossible by default; richer shapes become expressible (e.g. `enterprise`: business analysis → technical analysis → architecture+security → implementation → test → delivery; `quick-fix`: implementation → test) | Catalog curation is a new data surface (rides M3's role-template registry) |
+| LLM-drafted decomposition | Maximum tailoring | Still rejected on this record's original grounds (nondeterministic acceptance, pre-gate spend, a discretion surface). An LLM *suggesting which catalog entry fits* — suggestion only, the plan stays deterministic — is a recorded M3+ candidate |
+| Keep the single fixed template | Zero work | The enterprise scenario stays inexpressible; the revisit trigger stays unanswered |
+
+Big-idea splitting (the companion decision, same day, recorded on issue #8): a business-plan-sized idea starts with a small gated **scoping delivery** whose contracted artifact *is* the proposed milestone list; operator ratification posts each milestone as its own grouped, sequenced idea (grouping via D10's reserved Multica project entity; milestone *k+1* opens only after *k*'s delivery is accepted), each with its own pipeline template. A `milestones:` directive covers the operator-already-knows case — same machinery, two feeds. M3+ scope.
+
+### D13 — Agent rules: layered storage, the project charter, and rule-file maintenance (added 2026-08-04, operator decision session)
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Hybrid: global role templates as registry data; per-project rules as a repo file** ✔ | Each layer in its natural home — role defaults structured and queryable in the M3 role-template registry; project ways-of-working versioned, diffable, and PR-reviewable in the project's own git history; D6-compatible (everything still composes into the brief at dispatch) | Two mechanisms to maintain |
+| Files everywhere (global default file + per-project override) | The familiar CLAUDE.md model, fully hand-editable | Global-layer changes aren't gated or queryable; merging two prose files is fuzzier than template + additions |
+| Registry data only | Fully gated and trail-recorded | Rules invisible outside Guild — no repo diff, no PR review of a rules change |
+
+Normative consequences:
+
+- **Global layer:** role templates in the M3 role-template registry (existing roadmap bullet) carry each role's instructions and context as data — this replaces the v1 hardcoded `roleContext` in the planner.
+- **Project layer:** one AGENTS.md-style rules file in the project repo; the planner reads it at the validated SHA (the D12 handoff-checks mechanism) and folds it into every brief — D6's "briefs carry everything" is unchanged.
+- **Setup surface — the project charter ticket (D11 grammar extended):** at project creation the operator authors a charter ticket holding the rules text and any custom role requests; the conductor persists it and materializes the repo rules file through the normal gated mechanics. Board-mediated: no new UI, no new CLI verb.
+- **Custom roles:** the charter may request roles beyond the starter four from the registry. A **focus-monitor role template ships opt-in** with observe-and-flag-only powers — zero discretion (D11) holds: a monitor never moves tickets or redirects work; deterministic contract validation remains the enforcement mechanism (self-reports stay untrusted). The monitor adds early *soft-drift observation* at visible, budgeted engagement cost — projects that want the extra eyes pay for them.
+- **Maintenance — optimization is an idea ticket:** improving the default or per-project rules file is an ordinary governed delivery (e.g. `template: quick-fix`): an agent proposes the rewrite as a diff, the contract validates shape, the operator reviews/amends/accepts at the gate. Documented as a recipe; D11's CLI scope is unchanged.
+
+Decision trail: issue #4 (M3 scope comment, 2026-08-04). **Revisit if:** the M3 registry design pass finds the charter ticket insufficient for role parameterization, or per-project rule files grow beyond what brief composition can reasonably carry.
 
 ## Engagement lifecycle
 
