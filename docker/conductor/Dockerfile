@@ -18,7 +18,12 @@ RUN apk add --no-cache git docker-cli && npm install -g pnpm@10
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages ./packages
-RUN pnpm install --frozen-lockfile && chown -R node:node /app
+# the validator work root must be node-owned IN THE IMAGE: a fresh named
+# volume inherits the image path's ownership on first mount — without this
+# the mountpoint is root-owned and every clone fails EACCES (M2b verify,
+# reproduced live)
+RUN pnpm install --frozen-lockfile && chown -R node:node /app \
+    && mkdir -p /var/guild/validator-work && chown -R node:node /var/guild
 
 USER node
 # run from the orchestrator package so tsx resolves from ITS node_modules

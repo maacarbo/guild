@@ -11,6 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { redactUrlCredentials } from "../domain/redact.js";
 import type { SourceControl } from "../ports/source-control.js";
 
 const exec = promisify(execFile);
@@ -56,7 +57,7 @@ export class GitSourceControl implements SourceControl {
         timeout: this.timeoutMs,
       });
     } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
+      const detail = redactUrlCredentials(e instanceof Error ? e.message : String(e));
       throw new Error(`fast-forward of ${targetBranch} to ${sha} failed (non-ff or transport): ${detail}`);
     } finally {
       await rm(dir, { recursive: true, force: true });

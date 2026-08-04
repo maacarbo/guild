@@ -292,6 +292,23 @@ export class Conductor {
     }
   }
 
+  /**
+   * The kill-switch (D11 CLI scope, `guild kill`): lock FIRST — nothing new
+   * can spend even if a later step fails — then cancel every spending
+   * engagement (substrate cancel kills the agent process, P4/P10). Recovery
+   * is raise-the-cap-and-restart (D12); never automatic.
+   */
+  emergencyStop(): Promise<void> {
+    return this.serialize(async () => {
+      if (!(await this.deps.store.getDispatchLock())) {
+        await this.deps.store.setDispatchLock("kill_switch: operator emergency stop", this.now());
+      }
+      for (const rec of await this.deps.store.listEngagements()) {
+        if (SPENDING.has(rec.state)) await this.cancelEngagement(rec, "operator");
+      }
+    });
+  }
+
   /** where project-level budget notices land: the active run's idea ticket */
   private async projectNoticeTarget(): Promise<WorkItemRef | null> {
     for (const run of await this.deps.store.listPlanRuns()) {
@@ -466,7 +483,12 @@ export class Conductor {
     if (ev.lane === "cancelled") return this.cancelEngagement(record, "operator");
   }
 
-  /** idempotent by the store's first-writer-wins gate decision (#11) */
+  /**
+   * Idempotent by the store's first-writer-wins gate decision (#11). A loser
+   * of the race acts on what actually STUCK: a re-driven approve resumes
+   * dispatch only when the recorded decision is an approval — a stale approve
+   * against a rejected gate does nothing (M2b verify finding).
+   */
   private async approveStage(gateKey: GateTicketKey, at: string): Promise<void> {
     const plan = await this.deps.store.getLatestStagePlan(gateKey.stageId);
     if (!plan) return;
@@ -481,6 +503,9 @@ export class Conductor {
     if (outcome.kind !== "authorized") return; // stale gates authorize nothing (D6)
     if (await this.deps.store.recordGateDecision(decision)) {
       await this.deps.store.appendDecision({ kind: "gate", decision });
+    } else {
+      const recorded = await this.deps.store.getGateDecision(gateKey.stageId, gateKey.planVersion);
+      if (recorded?.kind !== "approved" && recorded?.kind !== "auto_approved") return;
     }
     for (const ep of outcome.engagements) await this.dispatch(ep);
     const gate = await this.deps.store.getGateTicket(gateKey.stageId, gateKey.planVersion);
@@ -500,6 +525,11 @@ export class Conductor {
     if (applyGateDecision(plan, decision).kind !== "rejected") return;
     if (await this.deps.store.recordGateDecision(decision)) {
       await this.deps.store.appendDecision({ kind: "gate", decision });
+    } else {
+      // a late reject against a gate that was actually APPROVED must be inert
+      // — the unconditional loser path stranded live runs (M2b verify finding)
+      const recorded = await this.deps.store.getGateDecision(gateKey.stageId, gateKey.planVersion);
+      if (recorded?.kind !== "rejected") return;
     }
     for (const ep of plan.engagements) {
       const rec = await this.deps.store.getEngagement(ep.engagementId);
@@ -1130,6 +1160,13 @@ export class Conductor {
       ...plan.engagements.flatMap((e) => [
         `- **${e.title}** (${e.role}, ${e.budgetCents}¢) — contract ${e.brief.contract.contractId} v${e.brief.contract.version} (authored by ${e.brief.contract.authoredBy})`,
         ...e.brief.contract.checks.map((c) => `  ${this.renderCheck(c)}`),
+        // the WHOLE contract is what approval covers (D12) — upstream-authored
+        // gherkin included, verbatim, so nothing reaches an agent unreviewed
+        "",
+        "  Acceptance criteria (gherkin, verbatim):",
+        "  ```gherkin",
+        ...e.brief.contract.gherkin.split("\n").map((line) => `  ${line}`),
+        "  ```",
       ]),
       ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
       "",

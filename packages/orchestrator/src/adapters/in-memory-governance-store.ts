@@ -72,6 +72,9 @@ export class InMemoryGovernanceStore implements GovernanceStore {
     this.gateDecisions.set(key, decision);
     return true;
   }
+  async getGateDecision(stageId: string, planVersion: number): Promise<GateDecision | null> {
+    return this.gateDecisions.get(`${stageId}:v${planVersion}`) ?? null;
+  }
   async savePlanRun(run: PlanRunRecord): Promise<void> {
     this.planRuns.set(run.planId, { ...run, stageIds: [...run.stageIds] });
   }

@@ -74,6 +74,13 @@ export interface GovernanceStore {
    * and executes it); false = the gate was already decided.
    */
   recordGateDecision(decision: GateDecision): Promise<boolean>;
+  /**
+   * What actually stuck for this gate — losers of the race consult it: a
+   * re-driven approve resumes dispatch only when the recorded decision IS an
+   * approval; a stale reject against an approved gate does nothing (M2b
+   * verify finding: an unconditional loser path stranded approved runs).
+   */
+  getGateDecision(stageId: string, planVersion: number): Promise<GateDecision | null>;
   savePlanRun(run: PlanRunRecord): Promise<void>;
   getPlanRun(planId: string): Promise<PlanRunRecord | null>;
   listPlanRuns(): Promise<PlanRunRecord[]>;

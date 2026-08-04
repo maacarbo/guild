@@ -7,6 +7,7 @@
 
 import type { ContractCheck, ContractVerdict, HandoffContract } from "@guild/shared";
 import { assembleVerdict } from "../domain/verdict.js";
+import { redactUrlCredentials } from "../domain/redact.js";
 import type { CommandRunner, SourceCloner, WorkspaceReader } from "../ports/validator.js";
 
 export interface ValidationInput {
@@ -43,7 +44,7 @@ export class ContractValidator {
       // no checks ran — infrastructure fault, retry validation, never bounce.
       // Outcome is explicit, not derived: with zero checks the derived rule
       // would read an empty result set as a vacuous pass.
-      const detail = `clone failed: ${e instanceof Error ? e.message : String(e)}`;
+      const detail = redactUrlCredentials(`clone failed: ${e instanceof Error ? e.message : String(e)}`);
       return {
         ...ctx,
         outcome: "validator_error",
@@ -99,7 +100,7 @@ export class ContractValidator {
       return {
         check,
         outcome: "error" as const,
-        detail: e instanceof Error ? e.message : String(e),
+        detail: redactUrlCredentials(e instanceof Error ? e.message : String(e)),
       };
     }
   }

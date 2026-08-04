@@ -254,6 +254,14 @@ export class PgGovernanceStore implements GovernanceStore {
     return (res.rowCount ?? 0) > 0;
   }
 
+  async getGateDecision(stageId: string, planVersion: number): Promise<GateDecision | null> {
+    const res = await this.pool.query<{ decision: GateDecision }>(
+      "SELECT decision FROM gate_decisions WHERE gate_key = $1",
+      [`${stageId}:v${planVersion}`],
+    );
+    return res.rows[0]?.decision ?? null;
+  }
+
   async savePlanRun(run: PlanRunRecord): Promise<void> {
     await this.pool.query(
       `INSERT INTO plan_runs (plan_id, idea_item, stage_ids, status) VALUES ($1, $2, $3, $4)

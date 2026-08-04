@@ -12,6 +12,7 @@ import { GitSourceControl } from "../adapters/git-source-control.js";
 import { LiteLlmModelGateway } from "../adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../adapters/pg-governance-store.js";
 import { createContractValidator } from "../index.js";
+import { redactUrlCredentials } from "../domain/redact.js";
 import { intEnv, readEnv } from "./env.js";
 
 const env = readEnv([
@@ -24,7 +25,7 @@ const env = readEnv([
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
   { name: "GUILD_REPO_URL", source: "product repository (HTTPS with the scoped git PAT embedded)" },
   { name: "GUILD_TARGET_BRANCH", source: "acceptance fast-forward target", fallback: "main" },
-  { name: "GUILD_PLAN_BUDGET_CENTS", source: "default plan budget when the idea names none", fallback: "100" },
+  { name: "GUILD_PLAN_BUDGET_CENTS", source: "default plan budget when the idea names none", fallback: "300" },
   { name: "GUILD_PROJECT_SOFT_CAP_CENTS", source: "project soft cap (watchdog warn)", optional: true },
   { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
   { name: "GUILD_VALIDATOR_IMAGE", source: "sandbox image for contract checks", fallback: "node:22-alpine" },
@@ -96,10 +97,10 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => stop("SIGINT"));
 
   const sweeper = setInterval(() => {
-    conductor.sweep().catch((e) => console.error(`sweep failed (retried next tick): ${e?.message ?? e}`));
+    conductor.sweep().catch((e) => console.error(redactUrlCredentials(`sweep failed (retried next tick): ${e?.message ?? e}`)));
   }, intEnv(env, "GUILD_SWEEP_SECONDS") * 1000);
   const reconciler = setInterval(() => {
-    conductor.reconcile().catch((e) => console.error(`reconcile failed (retried next tick): ${e?.message ?? e}`));
+    conductor.reconcile().catch((e) => console.error(redactUrlCredentials(`reconcile failed (retried next tick): ${e?.message ?? e}`)));
   }, intEnv(env, "GUILD_RECONCILE_SECONDS") * 1000);
 
   console.log(`guild-conductor: workspace ${env.GUILD_WORKSPACE_ID}, member ${selfMemberId}`);
@@ -107,11 +108,11 @@ async function main(): Promise<void> {
     while (!stopping) {
       // reads first, on start and after every stream drop — a missed event
       // must never strand an engagement (conductor runtime semantics)
-      await conductor.reconcile().catch((e) => console.error(`reconcile failed: ${e?.message ?? e}`));
+      await conductor.reconcile().catch((e) => console.error(redactUrlCredentials(`reconcile failed: ${e?.message ?? e}`)));
       try {
         await conductor.run({ signal: abort.signal });
       } catch (e) {
-        console.error(`watch stream error: ${(e as Error)?.message ?? e}`);
+        console.error(redactUrlCredentials(`watch stream error: ${(e as Error)?.message ?? e}`));
       }
       if (!stopping) await new Promise((r) => setTimeout(r, 5000));
     }
@@ -123,6 +124,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error(redactUrlCredentials(e instanceof Error ? (e.stack ?? e.message) : String(e)));
   process.exit(1);
 });

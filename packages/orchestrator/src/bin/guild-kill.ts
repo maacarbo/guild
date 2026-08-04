@@ -1,18 +1,21 @@
 /**
- * `guild kill` — the emergency stop (D11 CLI scope). Cancels every spending
- * engagement (substrate cancel kills the agent process — P10), revokes their
- * keys, and locks dispatch. Mechanically: one watchdog sweep under a
- * zero-cent hard cap, plus an explicit lock when nothing was ever minted.
- * Recovery is raise-the-cap-and-restart (D12) — deliberate, never automatic.
+ * `guild kill` — the emergency stop (D11 CLI scope). Locks dispatch FIRST
+ * (nothing new can spend even if a later step fails), then cancels every
+ * spending engagement — substrate cancel kills the agent process (P4/P10)
+ * and revokes its key. Recovery is raise-the-cap-and-restart (D12) —
+ * deliberate, never automatic.
+ *
+ * Deliberately needs NO validator and NO filesystem: a kill switch that can
+ * crash on a permission error before locking is not a kill switch (M2b
+ * verify finding).
  */
 
-import { mkdirSync } from "node:fs";
 import { createMulticaSubstrate } from "@guild/substrate-multica";
 import { Conductor } from "../application/conductor.js";
 import { GitSourceControl } from "../adapters/git-source-control.js";
 import { LiteLlmModelGateway } from "../adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../adapters/pg-governance-store.js";
-import { createContractValidator } from "../index.js";
+import { redactUrlCredentials } from "../domain/redact.js";
 import { readEnv } from "./env.js";
 
 const env = readEnv([
@@ -23,8 +26,6 @@ const env = readEnv([
   { name: "GUILD_GATEWAY_URL", source: "LiteLLM base URL" },
   { name: "LITELLM_MASTER_KEY", source: "gateway master key" },
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
-  { name: "GUILD_REPO_URL", source: "product repository" },
-  { name: "GUILD_VALIDATOR_WORK", source: "clone root", fallback: "/var/guild/validator-work" },
 ]);
 
 async function main(): Promise<void> {
@@ -33,7 +34,6 @@ async function main(): Promise<void> {
   });
   const selfMemberId = me.ok ? ((await me.json()) as { id: string }).id : "";
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);
-  mkdirSync(env.GUILD_VALIDATOR_WORK, { recursive: true });
   const conductor = new Conductor(
     {
       substrate: createMulticaSubstrate(
@@ -45,29 +45,28 @@ async function main(): Promise<void> {
         },
       ),
       gateway: new LiteLlmModelGateway({ baseUrl: env.GUILD_GATEWAY_URL, masterKey: env.LITELLM_MASTER_KEY }),
-      validator: createContractValidator({ workRoot: env.GUILD_VALIDATOR_WORK, image: "node:22-alpine" }),
+      // the kill path never validates anything — a stub keeps the wiring honest
+      validator: {
+        validate: () => Promise.reject(new Error("guild-kill never validates")),
+      },
       source: new GitSourceControl(),
       store,
     },
     {
       projectScope: env.GUILD_WORKSPACE_ID,
-      repoUrl: env.GUILD_REPO_URL,
+      repoUrl: "unused://guild-kill",
       targetBranch: "main",
       defaultPlanBudgetCents: 0,
-      projectBudget: { projectId: env.GUILD_WORKSPACE_ID, softCapCents: 0, hardCapCents: 0 },
     },
   );
-  await conductor.sweep();
-  if (!(await store.getDispatchLock())) {
-    await store.setDispatchLock("kill_switch: operator emergency stop", new Date().toISOString());
-  }
+  await conductor.emergencyStop();
   const lock = await store.getDispatchLock();
   console.log(`KILL: dispatch locked (${lock?.reason}). In-flight work cancelled; keys revoked.`);
-  console.log("To resume: raise/restore the project caps in deploy/compose/.env and restart the conductor.");
+  console.log("To resume: restore/raise the project caps in deploy/compose/.env and restart the conductor.");
   await store.close();
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error(redactUrlCredentials(e instanceof Error ? (e.stack ?? e.message) : String(e)));
   process.exit(1);
 });

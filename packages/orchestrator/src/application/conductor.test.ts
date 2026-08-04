@@ -50,10 +50,12 @@ class FakeSubstrate implements ExecutionSubstrate {
     this.items.set(id, { markerId: spec.engagementId, title: spec.title, lane: "backlog", assigned: spec.role });
     return this.ref(id);
   }
+  ticketBodies = new Map<string, string>();
   async createTicket(spec: TicketSpec): Promise<WorkItemRef> {
     this.ops.push("createTicket");
     const id = `ticket-${++this.seq}`;
     this.items.set(id, { markerId: spec.markerId, title: spec.title, lane: "backlog" });
+    this.ticketBodies.set(id, spec.body);
     return this.ref(id);
   }
   async findWorkItem(markerId: string): Promise<WorkItemRef | null> {
@@ -1107,5 +1109,84 @@ describe("project accounting survives key revocation (termination captures the f
     const hard = (await w.store.listDecisions()).find((d) => d.kind === "budget" && d.event.kind === "hard_cap");
     expect(hard).toMatchObject({ event: { spentCents: 45, capCents: 40 } });
     expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+  });
+});
+
+describe("gate decisions are exclusive — losers of the race act on what actually stuck (M2b verify)", () => {
+  it("a late reject against an approved gate is inert: the run stays active, work continues", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect(w.gateway.mints).toHaveLength(1);
+    // weeks later: the Done gate ticket gets dragged off-board during cleanup
+    await w.conductor.handleEvent(laneMove(gate, "cancelled", "operator"));
+    expect((await w.store.getPlanRun("idea-1"))?.status).toBe("active");
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+    expect(w.substrate.comments.filter((c) => /rejected/.test(c.body))).toHaveLength(0);
+  });
+
+  it("a late approve against a rejected gate dispatches nothing and leaves the gate off-board", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "cancelled", "operator"));
+    expect((await w.store.getPlanRun("idea-1"))?.status).toBe("rejected");
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect(w.gateway.mints).toHaveLength(0);
+    expect((await w.substrate.getWorkItem(gate)).lane).not.toBe("done");
+  });
+
+  it("an approve re-drive after a crash mid-dispatch still resumes: the recorded decision IS an approval", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    // crash simulation: the decision landed but no dispatch effect ran
+    await w.store.recordGateDecision({
+      kind: "approved",
+      stageId: "stg:idea-1:analysis",
+      planVersion: 1,
+      by: "operator",
+      at: "t0",
+    });
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect(w.gateway.mints).toHaveLength(1);
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+  });
+});
+
+describe("emergency stop (guild kill — D11 scope)", () => {
+  it("locks dispatch FIRST, then cancels every spending engagement", async () => {
+    const w = makeWorld();
+    const { item } = await postAndApprove(w);
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    await w.conductor.emergencyStop();
+    expect((await w.store.getDispatchLock())?.reason).toMatch(/kill/);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("cancelled");
+    expect(w.substrate.cancels).toContain(item.externalId);
+    expect(w.gateway.revokes).toContain("eng-1");
+  });
+
+  it("locks even when nothing was ever dispatched, and is idempotent", async () => {
+    const w = makeWorld();
+    await w.conductor.emergencyStop();
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+    await w.conductor.emergencyStop();
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+  });
+});
+
+describe("the gate body renders the WHOLE contract (D12: approval covers content)", () => {
+  it("upstream-authored gherkin appears in the gate ticket body, not just the checks", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    w.source.files.set(
+      "sha-a:guild/handoff/architecture.checks.json",
+      JSON.stringify({ gherkin: "Feature: sneaky upstream criteria", checks: [] }),
+    );
+    await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-a");
+    const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
+    const stored = w.substrate.items.get(gate2.externalId);
+    expect(stored).toBeTruthy();
+    // the fake keeps only title; assert via the createTicket capture instead
+    const body = w.substrate.ticketBodies.get(gate2.externalId) ?? "";
+    expect(body).toContain("sneaky upstream criteria");
   });
 });
