@@ -1,6 +1,7 @@
 # LiteLLM gateway config — Guild Tier 1 dev stack.
 #
-# Every agent CLI is pointed at this proxy (ANTHROPIC_BASE_URL) and
+# Every agent CLI is pointed at this proxy (OpenCode's baked provider config,
+# docker/daemon/opencode.json) and
 # authenticates with a LiteLLM virtual key, never a provider key. Virtual keys
 # are minted per engagement with `max_budget` (integer-cents cap upstream in
 # Guild; dollars here — LiteLLM's unit). Budget exhaustion returns HTTP 429
@@ -8,10 +9,10 @@
 # writes are batched (~60s window), so treat the cap as insurance, not a
 # precision cutoff — matches ARCHITECTURE.md D2.
 #
-# Model names are what Multica agents are configured with; Claude Code passes
-# them through as-is. `or-` entries are the OpenRouter-backed fallback used
-# when no ANTHROPIC_API_KEY is available; the capability matrix records which
-# backend served each probe.
+# Model names are what Multica agents are configured with (OpenCode uses the
+# `litellm/`-qualified form). `or-` entries are the OpenRouter-backed fallback
+# used when no ANTHROPIC_API_KEY is available; the capability matrix records
+# which backend served each probe.
 
 model_list:
   # Anthropic direct (requires ANTHROPIC_API_KEY in the gateway env)
@@ -23,12 +24,6 @@ model_list:
     litellm_params:
       model: anthropic/claude-haiku-4-5
       api_key: os.environ/ANTHROPIC_API_KEY
-  # Dated IDs Claude Code 2.1.x requests for its default/small-model calls
-  - model_name: claude-haiku-4-5-20251001
-    litellm_params:
-      model: anthropic/claude-haiku-4-5-20251001
-      api_key: os.environ/ANTHROPIC_API_KEY
-
   # OpenRouter routes (require OPENROUTER_API_KEY in the gateway env) — the
   # recommended default: one key reaches Claude AND the cheap testing tier.
   - model_name: or-claude-sonnet-5
