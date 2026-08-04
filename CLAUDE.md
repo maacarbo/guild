@@ -71,6 +71,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 - Commits: imperative summary line, body explains why, reference the milestone/issue.
 - Docs are normative. A behavior change updates `ARCHITECTURE.md` / `PRODUCT.md` / `ROADMAP.md` in the same MR. A decision change gets a D-record with an alternatives table — no silent reversals.
 - Version pins are deliberate (LiteLLM digest, Claude Agent SDK — see D2/D3): never bump inside an unrelated MR.
+- **The live dev stack mirrors `main`** (operator directive 2026-08-04): after merging anything that changes image inputs (`docker/daemon/`, `docker/conductor/`, compose build args) or conductor code, rebuild and recreate the affected compose services (`docker compose … build guild-daemon guild-conductor && docker compose … up -d guild-daemon guild-conductor` — explicit `build` first: one-shot `up -d --build` has been observed to skip the conductor's root-context build) — never leave the running stack on stale images.
 
 ## Guardrails
 
