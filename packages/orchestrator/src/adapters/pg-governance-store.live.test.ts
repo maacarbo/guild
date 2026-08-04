@@ -97,12 +97,14 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     expect((await store.getEngagement("eng-cas"))?.state).toBe("dispatched");
   });
 
-  it("gate decisions are first-writer-wins per (stageId, planVersion) (#11)", async () => {
+  it("gate decisions are first-writer-wins per (stageId, planVersion); losers read what stuck (#11)", async () => {
     const approved = { kind: "approved", stageId: "s-gd", planVersion: 1, by: "operator", at: "t1" } as const;
     const rejected = { kind: "rejected", stageId: "s-gd", planVersion: 1, note: "late", at: "t2" } as const;
     expect(await store.recordGateDecision(approved)).toBe(true);
     expect(await store.recordGateDecision(rejected), "second decision loses").toBe(false);
     expect(await store.recordGateDecision({ ...approved, planVersion: 2 }), "a new version regates").toBe(true);
+    expect((await store.getGateDecision("s-gd", 1))?.kind, "the loser sees the winner").toBe("approved");
+    expect(await store.getGateDecision("s-gd", 9)).toBeNull();
   });
 
   it("gate tickets reverse-resolve from the board item", async () => {
