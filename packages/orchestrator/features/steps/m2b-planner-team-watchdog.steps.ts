@@ -187,7 +187,19 @@ Given("the live stack, the four role agents, and a clean governance database", a
       defaultPlanBudgetCents: 100,
     },
   );
-  world.runLoop = world.conductor.run({ signal: world.abort.signal }).catch(() => undefined);
+  // reconnect on stream drop, mirroring the production bin: a single run()
+  // call leaves the harness event-dead after one WS error, and amendment has
+  // no reconcile fallback (issue #12) — found the hard way mid-revalidation
+  world.runLoop = (async () => {
+    while (!world.abort.signal.aborted) {
+      try {
+        await world.conductor!.run({ signal: world.abort.signal });
+      } catch {
+        // transient stream error — reconcile ticks cover the gap
+      }
+      if (!world.abort.signal.aborted) await sleep(3000);
+    }
+  })();
 });
 
 When("the operator posts the demo idea as a board ticket", async () => {
