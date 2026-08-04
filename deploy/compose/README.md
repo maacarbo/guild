@@ -55,8 +55,10 @@ broken prerequisite, the fix, and which `.env` secret owns it. One boundary:
 if a *core* secret is missing entirely, Compose itself refuses to start
 anything — including doctor — with a `required variable <NAME> is missing`
 error; that error names the variable, so it is the diagnosis (set it in
-`.env` and re-run). Reset everything with `docker compose down -v` and
-replay the quickstart.
+`.env` and re-run). Reset everything with `docker compose --profile "*" down -v` and
+replay the quickstart (the `--profile "*"` matters: profile-gated services
+like the daemon and conductor survive a plain `down` and would keep running
+against the wiped databases — found live during the v0.1.0 replay).
 
 **6. Initialize Guild** (M2b — the governance layer itself). Create a
 workspace in the Multica UI (or reuse one), put its id in `.env` as
