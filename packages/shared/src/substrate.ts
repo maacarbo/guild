@@ -282,12 +282,15 @@ export interface ExecutionSubstrate {
   cancel(item: WorkItemRef, reason: CancellationReason): Promise<void>;
   /**
    * termination protocol: terminal engagement state ⇒ revoke virtual key +
-   * close/lock the item. Verified (M1a P6): substrate-side status does NOT
-   * gate execution — replies on a closed item still enqueue work — so close is
-   * advisory bookkeeping; the enforcement layer is key revocation plus the
-   * conductor's ignore-after-terminal rule (first persisted decision wins).
+   * close/lock the item in its terminal lane. Verified (M1a P6): substrate-side
+   * status does NOT gate execution — replies on a closed item still enqueue
+   * work — so close is advisory bookkeeping; the enforcement layer is key
+   * revocation plus the conductor's ignore-after-terminal rule (first persisted
+   * decision wins). terminalLane distinguishes accepted work (done) from
+   * cancelled/killed/capped work (cancelled) so the board's Done lane never
+   * shows work that was not accepted (D11 lane table; #17 B9).
    */
-  close(item: WorkItemRef): Promise<void>;
+  close(item: WorkItemRef, terminalLane?: Lane): Promise<void>;
   /**
    * Event stream (latency optimization; reads are truth). Cancellation: abort
    * the signal — that closes the underlying transport and ends the iterable

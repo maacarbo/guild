@@ -890,7 +890,8 @@ export class Conductor {
     if (record.item) await this.deps.substrate.cancel(record.item, reason);
     const spentCents = await this.finalSpend(record.engagementId);
     await this.deps.gateway.revokeKey(record.engagementId);
-    if (record.item) await this.deps.substrate.close(record.item);
+    // close in the cancelled lane, never Done — this is not accepted work (B9)
+    if (record.item) await this.deps.substrate.close(record.item, "cancelled");
     await this.deps.store.appendDecision({
       kind: "termination",
       terminated: {
@@ -1092,7 +1093,9 @@ export class Conductor {
             ? "bounce_limit"
             : undefined;
       if (rec.state === "cancelled" && rec.item) await this.deps.substrate.cancel(rec.item, reason as CancellationReason);
-      if (rec.state !== "escalated" && rec.item) await this.deps.substrate.close(rec.item);
+      // accepted → done, cancelled → cancelled: laneFor projects the terminal
+      // state onto the right board lane so a re-driven cancel isn't mislabelled (B9)
+      if (rec.state !== "escalated" && rec.item) await this.deps.substrate.close(rec.item, laneFor(rec.state));
       await this.deps.store.appendDecision({
         kind: "termination",
         terminated: {

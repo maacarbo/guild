@@ -103,8 +103,10 @@ class FakeSubstrate implements ExecutionSubstrate {
   async cancel(item: WorkItemRef): Promise<void> {
     this.cancels.push(item.externalId);
   }
-  async close(item: WorkItemRef): Promise<void> {
+  async close(item: WorkItemRef, terminalLane: Lane = "done"): Promise<void> {
     this.closes.push(item.externalId);
+    const it = this.items.get(item.externalId);
+    if (it) it.lane = terminalLane;
   }
   // eslint-disable-next-line require-yield
   async *watch(): AsyncIterable<SubstrateEvent> {
@@ -451,6 +453,16 @@ describe("acceptance and termination (D6: ff-only to exactly the validated SHA)"
     expect(w.substrate.cancels).toContain(item.externalId);
     expect(w.gateway.revokes).toContain("eng-1");
     expect(w.substrate.closes).toContain(item.externalId);
+    // cancelled work must NOT show as accepted on the board (D11; #17 B9)
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("cancelled");
+  });
+
+  it("a validated engagement accepted by the operator closes in the Done lane (B9 does not mislabel acceptance)", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("accepted");
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("done");
   });
 });
 

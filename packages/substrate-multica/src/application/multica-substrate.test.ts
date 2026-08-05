@@ -314,11 +314,18 @@ describe("watch scope faults (async-generator semantics)", () => {
 });
 
 describe("close (advisory bookkeeping, P6)", () => {
-  it("marks the issue done", async () => {
+  it("marks the issue done by default", async () => {
     const { api, substrate } = make();
     const ref = await substrate.createWorkItem(spec("eng-1"));
     await substrate.close(ref);
     expect((await api.getIssue(ref.externalId)).status).toBe("done");
+  });
+
+  it("closes cancelled work in the cancelled status, never Done (B9)", async () => {
+    const { api, substrate } = make();
+    const ref = await substrate.createWorkItem(spec("eng-1"));
+    await substrate.close(ref, "cancelled");
+    expect((await api.getIssue(ref.externalId)).status).toBe("cancelled");
   });
 });
 

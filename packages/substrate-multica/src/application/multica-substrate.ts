@@ -268,9 +268,11 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     }
   }
 
-  async close(item: WorkItemRef): Promise<void> {
+  async close(item: WorkItemRef, terminalLane: Lane = "done"): Promise<void> {
     try {
-      await this.api.updateIssue(item.externalId, { status: "done" });
+      // the terminal lane is the board truth: cancelled/killed/capped work must
+      // land in the cancelled status, never Done (D11 lane table; #17 B9)
+      await this.api.updateIssue(item.externalId, { status: nativeStatusFromLane(terminalLane) });
     } catch (e) {
       return this.fail(e);
     }
