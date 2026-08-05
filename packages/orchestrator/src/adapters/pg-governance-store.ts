@@ -127,6 +127,7 @@ export class PgGovernanceStore implements GovernanceStore {
         reason text NOT NULL,
         at     text NOT NULL
       );
+      ALTER TABLE dispatch_lock ADD COLUMN IF NOT EXISTS cap_cents integer;
     `);
   }
 
@@ -328,17 +329,21 @@ export class PgGovernanceStore implements GovernanceStore {
     return res.rows[0]?.plan ?? null;
   }
 
-  async setDispatchLock(reason: string, at: string): Promise<void> {
+  async setDispatchLock(reason: string, at: string, capCents?: number): Promise<void> {
     await this.pool.query(
-      `INSERT INTO dispatch_lock (id, reason, at) VALUES (1, $1, $2)
-       ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason, at = EXCLUDED.at`,
-      [reason, at],
+      `INSERT INTO dispatch_lock (id, reason, at, cap_cents) VALUES (1, $1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET reason = EXCLUDED.reason, at = EXCLUDED.at, cap_cents = EXCLUDED.cap_cents`,
+      [reason, at, capCents ?? null],
     );
   }
 
-  async getDispatchLock(): Promise<{ reason: string; at: string } | null> {
-    const res = await this.pool.query<{ reason: string; at: string }>("SELECT reason, at FROM dispatch_lock WHERE id = 1");
-    return res.rows[0] ?? null;
+  async getDispatchLock(): Promise<{ reason: string; at: string; capCents?: number } | null> {
+    const res = await this.pool.query<{ reason: string; at: string; cap_cents: number | null }>(
+      "SELECT reason, at, cap_cents FROM dispatch_lock WHERE id = 1",
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    return { reason: row.reason, at: row.at, ...(row.cap_cents !== null ? { capCents: row.cap_cents } : {}) };
   }
 
   async clearDispatchLock(): Promise<void> {

@@ -982,7 +982,9 @@ describe("budget watchdog (D12: warn at the soft cap, halt at the project hard c
   it("a raised hard cap releases the lock at the next sweep with a trail entry (the only exit — D12)", async () => {
     const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 6000, hardCapCents: 9000 } });
     await postAndApprove(w);
-    await w.store.setDispatchLock("budget_hard_cap: spend 900 >= cap 800", "t0");
+    // the lock was set at the moment the cap it breached was 800; the running
+    // config now carries the raised cap (9000) — that raise is what releases it
+    await w.store.setDispatchLock("budget_hard_cap: spend 900 >= cap 800", "t0", 800);
     w.gateway.spend.set("eng-1", 900);
     await w.conductor.sweep();
     expect(await w.store.getDispatchLock()).toBeNull();
@@ -990,6 +992,17 @@ describe("budget watchdog (D12: warn at the soft cap, halt at the project hard c
       (d) => d.kind === "budget" && d.event.kind === "lock_released",
     );
     expect(released).toMatchObject({ event: { spentCents: 900, capCents: 9000 } });
+  });
+
+  it("does NOT release a budget lock while the cap is unchanged, even as spend sits below it (A1)", async () => {
+    // the budget lock records the cap it breached; a sweep at spend-below-cap
+    // must not clear it — only a genuine raise-and-restart does
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    await postAndApprove(w);
+    await w.store.setDispatchLock("budget_hard_cap: spend 810 >= cap 800", "t0", 800);
+    w.gateway.spend.set("eng-1", 100); // a revoked/terminated reading dropped it below the cap
+    await w.conductor.sweep();
+    expect(await w.store.getDispatchLock(), "lock stays until the cap is raised").toBeTruthy();
   });
 });
 
@@ -1170,6 +1183,45 @@ describe("emergency stop (guild kill — D11 scope)", () => {
     expect(await w.store.getDispatchLock()).toBeTruthy();
     await w.conductor.emergencyStop();
     expect(await w.store.getDispatchLock()).toBeTruthy();
+  });
+
+  it("the kill lock is NOT auto-released by a budget sweep when spend is below the cap (A1)", async () => {
+    // the core-promise regression: `guild kill` fires while spend is below the
+    // hard cap (the normal case), so a sweep that releases on spend<cap would
+    // clear the kill lock on its very next tick and let a later approval dispatch
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { item } = await postAndApprove(w); // eng-1 dispatched → a minted intent exists so the sweep runs
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.gateway.spend.set("eng-1", 100); // well below the 800 hard cap
+    await w.conductor.emergencyStop();
+    await w.conductor.sweep();
+    await w.conductor.sweep();
+    const lock = await w.store.getDispatchLock();
+    expect(lock, "the kill switch must stay engaged across sweeps").toBeTruthy();
+    expect(lock?.reason).toMatch(/kill/);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("cancelled");
+  });
+
+  it("a kill lock releases only after the operator raises the hard cap and restarts (A1 recovery)", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { item } = await postAndApprove(w);
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.gateway.spend.set("eng-1", 100);
+    await w.conductor.emergencyStop();
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+    // operator raises GUILD_PROJECT_HARD_CAP_CENTS and restarts — same store, new cap
+    const restarted = new Conductor(
+      { substrate: w.substrate, gateway: w.gateway, validator: w.validator, source: w.source, store: w.store, now: () => "2026-08-02T00:00:00Z" },
+      {
+        projectScope: "ws-1",
+        repoUrl: "git@example.com:owner/product.git",
+        targetBranch: "main",
+        defaultPlanBudgetCents: 1000,
+        projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 5000 },
+      },
+    );
+    await restarted.sweep();
+    expect(await w.store.getDispatchLock(), "a genuine cap raise clears the kill lock").toBeNull();
   });
 });
 

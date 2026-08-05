@@ -278,6 +278,9 @@ services:
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      # recorded on the kill lock so it never self-releases; recovery is raising
+      # this same cap above its kill-time value and restarting the conductor (D14/A1)
+      GUILD_PROJECT_HARD_CAP_CENTS: ${GUILD_PROJECT_HARD_CAP_CENTS:-}
     networks: [guild-dev]
 
   # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).

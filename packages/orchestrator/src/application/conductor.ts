@@ -228,8 +228,14 @@ export class Conductor {
 
     const lock = await this.deps.store.getDispatchLock();
     if (lock) {
-      if (totalSpent < budget.hardCapCents) {
-        // raise-the-cap-and-restart (D12): the only lock exit, trail-recorded
+      // Raise-the-cap-and-restart (D12) is the ONLY sweep-driven exit, and it
+      // is gated on a genuine raise: the configured hard cap must exceed the cap
+      // in force when the lock was set. Spend alone must never release a lock —
+      // the kill switch fires while spend is below the cap (A1), so a
+      // spend-below-cap release would clear `guild kill` on the very next tick.
+      // A lock with no recorded cap (a kill with no project budget) is never
+      // released here; recovery is a deliberate operator act, never automatic.
+      if (lock.capCents !== undefined && budget.hardCapCents > lock.capCents) {
         await this.deps.store.clearDispatchLock();
         await this.deps.store.appendDecision({
           kind: "budget",
@@ -249,6 +255,7 @@ export class Conductor {
       await this.deps.store.setDispatchLock(
         `budget_hard_cap: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢`,
         this.now(),
+        budget.hardCapCents,
       );
       await this.deps.store.appendDecision({
         kind: "budget",
@@ -295,13 +302,20 @@ export class Conductor {
   /**
    * The kill-switch (D11 CLI scope, `guild kill`): lock FIRST — nothing new
    * can spend even if a later step fails — then cancel every spending
-   * engagement (substrate cancel kills the agent process, P4/P10). Recovery
-   * is raise-the-cap-and-restart (D12); never automatic.
+   * engagement (substrate cancel kills the agent process, P4/P10). The lock
+   * records the hard cap in force so the budget sweep can never self-release it
+   * (A1) — recovery is the same deliberate raise-the-cap-and-restart as the
+   * budget lock (D12), never automatic. When `guild kill` runs with no project
+   * budget configured, no cap is recorded and the lock is never sweep-released.
    */
   emergencyStop(): Promise<void> {
     return this.serialize(async () => {
       if (!(await this.deps.store.getDispatchLock())) {
-        await this.deps.store.setDispatchLock("kill_switch: operator emergency stop", this.now());
+        await this.deps.store.setDispatchLock(
+          "kill_switch: operator emergency stop",
+          this.now(),
+          this.config.projectBudget?.hardCapCents,
+        );
       }
       for (const rec of await this.deps.store.listEngagements()) {
         if (SPENDING.has(rec.state)) await this.cancelEngagement(rec, "operator");

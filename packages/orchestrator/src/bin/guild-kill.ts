@@ -26,7 +26,23 @@ const env = readEnv([
   { name: "GUILD_GATEWAY_URL", source: "LiteLLM base URL" },
   { name: "LITELLM_MASTER_KEY", source: "gateway master key" },
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
+  // Recorded on the kill lock so the budget sweep can never self-release it (A1):
+  // the operator resumes by raising this cap above its kill-time value and
+  // restarting the conductor — the SAME .env the conductor reads. Optional and
+  // parsed leniently: the kill path must never fail to lock over a bad cap.
+  { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
 ]);
+
+/** the cap that arms raise-cap-and-restart recovery; a bad/absent value ⇒ no cap recorded */
+function killLockBudget(): { projectId: string; softCapCents: number; hardCapCents: number } | undefined {
+  const raw = env.GUILD_PROJECT_HARD_CAP_CENTS;
+  if (raw === undefined) return undefined;
+  const hardCapCents = Number.parseInt(raw, 10);
+  if (!Number.isInteger(hardCapCents) || hardCapCents < 0) return undefined;
+  // softCapCents is unused on the kill path (no sweep runs here); it exists only
+  // to satisfy the ProjectBudget shape carrying the hard cap onto the lock.
+  return { projectId: env.GUILD_WORKSPACE_ID, softCapCents: hardCapCents, hardCapCents };
+}
 
 async function main(): Promise<void> {
   const me = await fetch(`${env.GUILD_MULTICA_URL}/api/me`, {
@@ -57,6 +73,7 @@ async function main(): Promise<void> {
       repoUrl: "unused://guild-kill",
       targetBranch: "main",
       defaultPlanBudgetCents: 0,
+      ...(killLockBudget() ? { projectBudget: killLockBudget()! } : {}),
     },
   );
   await conductor.emergencyStop();

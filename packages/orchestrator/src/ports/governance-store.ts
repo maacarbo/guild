@@ -89,8 +89,14 @@ export interface GovernanceStore {
   getStagePlan(stageId: string, planVersion: number): Promise<StagePlan | null>;
   /** the highest-version plan for a stage — the only version a gate may still act on */
   getLatestStagePlan(stageId: string): Promise<StagePlan | null>;
-  /** project-wide dispatch lockout (budget hard cap): the saga checks before minting */
-  setDispatchLock(reason: string, at: string): Promise<void>;
-  getDispatchLock(): Promise<{ reason: string; at: string } | null>;
+  /**
+   * project-wide dispatch lockout (budget hard cap OR kill switch): the saga
+   * checks before minting. capCents is the project hard cap in force when the
+   * lock was set — the sweep releases a lock only when the configured cap is
+   * raised above it (raise-the-cap-and-restart, D12). Absent capCents means the
+   * lock is never sweep-released (a kill fired with no project budget) (A1).
+   */
+  setDispatchLock(reason: string, at: string, capCents?: number): Promise<void>;
+  getDispatchLock(): Promise<{ reason: string; at: string; capCents?: number } | null>;
   clearDispatchLock(): Promise<void>;
 }
