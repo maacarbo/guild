@@ -169,7 +169,14 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async findWorkItem(engagementId: string): Promise<WorkItemRef | null> {
     try {
       const issues = await this.api.listIssues();
-      const match = issues.find((i) => extractEngagementId(i.description) === engagementId);
+      // Guild only ever looks up items IT created (engagement work items and
+      // governance tickets are all conductor-authored). Binding on the marker
+      // alone let a planted issue carrying a derivable gate/engagement marker be
+      // adopted as the real one — a self-approval injection (A5a). Constrain the
+      // match to the conductor's own creations (P25 creator attribution).
+      const match = issues.find(
+        (i) => i.creator_id === this.config.selfMemberId && extractEngagementId(i.description) === engagementId,
+      );
       return match ? { substrate: this.name, externalId: match.id } : null;
     } catch (e) {
       return this.fail(e);

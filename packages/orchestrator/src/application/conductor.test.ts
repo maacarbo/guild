@@ -54,7 +54,10 @@ class FakeSubstrate implements ExecutionSubstrate {
   async createTicket(spec: TicketSpec): Promise<WorkItemRef> {
     this.ops.push("createTicket");
     const id = `ticket-${++this.seq}`;
-    this.items.set(id, { markerId: spec.markerId, title: spec.title, lane: "backlog" });
+    // faithful to Multica: a freshly created issue defaults to the `todo` status
+    // = the ready_to_work go-lane (P24). postGate moves it to waiting_for_feedback
+    // right after — the gap between is exactly the A5b crash window.
+    this.items.set(id, { markerId: spec.markerId, title: spec.title, lane: "ready_to_work" });
     this.ticketBodies.set(id, spec.body);
     return this.ref(id);
   }
@@ -862,6 +865,63 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
       (d) => d.kind === "gate_posted" && d.stageId === "stg:idea-1:architecture",
     );
     expect(posted).toHaveLength(1);
+  });
+});
+
+describe("reconcile attribution (A5: unattributed board state must not self-approve)", () => {
+  it("does not read a crash-created gate ticket's go-lane default as an operator approval (A5b)", async () => {
+    const w = makeWorld();
+    // crash the initial resting-lane set: the gate ticket is created (landing in
+    // the ready_to_work go-lane default) but never moved to waiting_for_feedback,
+    // and no gate_posted decision is recorded
+    const realSetLane = w.substrate.setLane.bind(w.substrate);
+    let crashed = false;
+    w.substrate.setLane = async (item, lane) => {
+      if (!crashed) {
+        crashed = true;
+        throw new Error("crash after createTicket, before the gate's resting-lane set");
+      }
+      return realSetLane(item, lane);
+    };
+    const idea = seedIdea(w, "idea-1", "Idea", "A CLI that counts words.");
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea", "A CLI that counts words.")).catch(() => {});
+    w.substrate.setLane = realSetLane;
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    expect((await w.substrate.getWorkItem(gate)).lane, "the crashed gate sits in the go-lane").toBe("ready_to_work");
+
+    await w.conductor.reconcile();
+
+    expect(w.gateway.mints, "a crash-created gate must never be read as an approval").toHaveLength(0);
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("gated");
+    expect((await w.substrate.getWorkItem(gate)).lane, "reconcile re-asserts the resting lane").toBe(
+      "waiting_for_feedback",
+    );
+  });
+
+  it("honors an operator reject made during the gate crash window — does not clobber it (A5b)", async () => {
+    const w = makeWorld();
+    const realSetLane = w.substrate.setLane.bind(w.substrate);
+    let crashed = false;
+    w.substrate.setLane = async (item, lane) => {
+      if (!crashed) {
+        crashed = true;
+        throw new Error("crash after createTicket, before the gate's resting-lane set");
+      }
+      return realSetLane(item, lane);
+    };
+    const idea = seedIdea(w, "idea-1", "Idea", "A CLI that counts words.");
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea", "A CLI that counts words.")).catch(() => {});
+    w.substrate.setLane = realSetLane;
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    // the operator sees the crashed gate and rejects it (off-board) during the window
+    await w.substrate.setLane(gate, "cancelled");
+
+    await w.conductor.reconcile();
+
+    // the reject is honored, not overwritten back to waiting_for_feedback
+    expect((await w.store.getPlanRun("idea-1"))?.status).toBe("rejected");
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+    expect(w.gateway.mints).toHaveLength(0);
   });
 });
 

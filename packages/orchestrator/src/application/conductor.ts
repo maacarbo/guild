@@ -447,6 +447,14 @@ export class Conductor {
     return `gate:${stageId}:v${planVersion}`;
   }
 
+  /** whether this gate was fully posted (recorded only after its resting-lane set) */
+  private async gatePosted(stageId: string, planVersion: number): Promise<boolean> {
+    const decisions = await this.deps.store.listDecisions();
+    return decisions.some(
+      (d) => d.kind === "gate_posted" && d.stageId === stageId && d.planVersion === planVersion,
+    );
+  }
+
   /**
    * Post a stage plan as a gate ticket in waiting-for-feedback (D11: the
    * operator's lane move to ready-to-work IS the approval). Idempotent across
@@ -459,6 +467,25 @@ export class Conductor {
     if (existing) {
       await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, existing);
       await this.ensureEngagementsGated(plan);
+      // Complete an interrupted post (A5b): gate_posted is only recorded AFTER
+      // the resting-lane set, so its absence means the gate was created (landing
+      // in the substrate's ready_to_work go-lane default) but never moved to
+      // waiting_for_feedback. Reconcile would otherwise read that creation
+      // artifact as an operator approval. Neutralize ONLY the go-lane default —
+      // an operator who rejected during the crash window (an off-board lane) must
+      // be honored, not clobbered — then record the post so a later genuine
+      // approval (which always follows a completed post) is read as a go-signal.
+      if (!(await this.gatePosted(plan.stageId, plan.planVersion))) {
+        if ((await this.deps.substrate.getWorkItem(existing)).lane === "ready_to_work") {
+          await this.deps.substrate.setLane(existing, "waiting_for_feedback");
+        }
+        await this.deps.store.appendDecision({
+          kind: "gate_posted",
+          stageId: plan.stageId,
+          planVersion: plan.planVersion,
+          at: this.now(),
+        });
+      }
       return existing;
     }
 
@@ -962,9 +989,13 @@ export class Conductor {
     }
 
     // 2. ensure every active run's current stage is posted; honor gate moves
-    //    made while down. Attribution note: a gate ticket is never assigned,
-    //    and the conductor only ever moves it to done/cancelled, so a go- or
-    //    off-board lane found on it can only be the operator's move (D11).
+    //    made while down. Attribution (D15): a gate ticket is conductor-authored
+    //    (findWorkItem enforces that — A5a) and, once fully posted, only ever
+    //    moved by the conductor to done/cancelled; postGate re-asserts the
+    //    resting lane for a not-yet-fully-posted gate (A5b), so a go-lane found
+    //    on a posted gate is the operator's move. NOTE: reconcile still cannot
+    //    read the ACTOR of that move from a snapshot — the residual A5c/A5d
+    //    attribution gap is tracked in D15 (needs a Multica activity probe).
     for (const run of await this.deps.store.listPlanRuns()) {
       if (run.status !== "active") continue;
       for (const [index, stageId] of run.stageIds.entries()) {

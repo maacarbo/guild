@@ -253,6 +253,26 @@ Normative consequences:
 
 Decision trail: issue #17 (A1). **Revisit if:** a concurrent-conductor topology needs the lock to also carry the acting identity, or a first-class `guild resume` verb is ever admitted to D11's CLI scope.
 
+### D15 — Reconcile attribution: the truth path must know who moved a lane (added 2026-08-05, audit #17 A5)
+
+The live event path guards every forward move with `ev.actor === "operator"` (agent and conductor moves are never forward signals, D11). Reconcile reads **snapshots** — which carry no actor — and acted on the lane alone, so unattributed board state could stand in for an operator approval/acceptance (audit #17 A5). Two vectors are closed in code now; two remain gated on a substrate capability.
+
+**Fixed (this record's shipped consequences):**
+- **A5a — marker binding constrained to conductor authorship:** `findWorkItem` now matches only issues the conductor created (P25 `creator_id`). A planted issue carrying a derivable `gate:…`/engagement marker can no longer be adopted as the real ticket. Guild only ever looks up items it authored, so this is loss-free.
+- **A5b — interrupted-post completion:** `gate_posted` is recorded only *after* a gate's resting-lane set, so its absence means the gate is still in the substrate's `ready_to_work` creation default (a crash between create and the initial set). `postGate` now re-asserts `waiting_for_feedback` and records the post when `gate_posted` is absent — a genuine operator approval always follows a *completed* post, so this never clobbers a real go-signal.
+
+**Open (A5c reconcile-accept of a done-lane, A5d `actorFrom` mapping any non-conductor member to operator):** these need attribution the snapshot doesn't carry.
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Read lane-change attribution during reconcile (a Multica activity/history REST capability, P22-style)** ✔ (target) | The truth path gains exactly the actor the live path already has; reconcile-accept and gate-approval become as safe as the live guards; no feature loss | New `MulticaApi` method + adapter work, and the activity endpoint shape must be confirmed by a **live probe** before it is trusted (unverified at this record) |
+| Conservative reconcile — drop reconcile-accept; an operator acceptance made while down must be re-moved after restart (a live, attributed event) | No probe needed; never falsely accepts | Degrades a documented recovery — a missed acceptance event isn't recovered from reads (the engagement rests in `validated`, awaiting a re-move — not stranded, but not auto-healed) |
+| Trust lane state (status quo) | — | The A5c/A5d self-approval residual — rejected |
+
+Reachability caveat (why this is filed as a decision, not an emergency fix): both open vectors require an agent to move an *issue's* lane (status) or hold a member token. Whether Multica lets an agent change issue status — as opposed to task-run status — is unconfirmed; if it cannot, A5c/A5d are unreachable. The probe must answer that first.
+
+Decision trail: issue #17 (A5). **Revisit — required before closing #17:** run the Multica activity-attribution probe (does the REST surface expose per-item last-actor, and can an agent move an issue lane?), then choose option 1 or 2 with the operator.
+
 ## Engagement lifecycle
 
 ```
