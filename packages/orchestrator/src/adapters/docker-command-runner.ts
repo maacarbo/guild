@@ -1,7 +1,9 @@
 /**
  * CommandRunner over `docker run` — the Tier 1 least-trusted sandbox (D6):
  * the container sees only the clone bind-mount; no credentials, no network
- * (--network none), capped cpu/memory/pids. Every container is named so that
+ * (--network none), no Linux capabilities (--cap-drop ALL) and no privilege
+ * escalation (no-new-privileges), non-root in containerized mode, capped
+ * cpu/memory/pids (deploy/README Tier 1 floor). Every container is named so that
  * a client-side timeout can `docker rm -f` it — killing the `docker run`
  * client alone leaves the container running (verified live 2026-07-31).
  * Evidence overflow (> maxBuffer) resolves as a deterministic non-matching
@@ -52,8 +54,17 @@ export function buildRunArgs(
     "--rm",
     "--name",
     containerName,
+    // Sandbox invariants (deploy/README Tier 1 floor): no network, no Linux
+    // capabilities, no privilege escalation, capped cpu/memory/pids. The check
+    // command is hostile agent-authored input — `--network none` is not the
+    // only containment (A4). `--cap-drop ALL` means even container-root holds no
+    // capability; `no-new-privileges` blocks regaining any.
     "--network",
     "none",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
     "--cpus",
     "1",
     "--memory",
@@ -61,6 +72,12 @@ export function buildRunArgs(
     "--pids-limit",
     "256",
     "--init",
+    // Containerized mode: the conductor's `node` user (uid 1000, per
+    // docker/conductor/Dockerfile) creates the clone on the shared named volume,
+    // so the sandbox runs non-root as that same uid — it can read/write its own
+    // clone yet carries no host-root identity. Host mode's clone owner is the
+    // host conductor's uid (unknown here), so a fixed uid is not forced there.
+    ...(config.workVolume ? ["--user", "1000:1000"] : []),
     "-v",
     mount,
     "-w",

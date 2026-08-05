@@ -11,6 +11,24 @@ describe("docker run argument construction (Tier 1 sandbox invariants)", () => {
     expect(args[args.indexOf("-w") + 1]).toBe("/work");
   });
 
+  it("drops all Linux capabilities and forbids privilege escalation on every sandbox (A4)", () => {
+    // the check command is hostile, agent-authored input; the sandbox must run
+    // with no capabilities and no path to gaining any (deploy/README floor)
+    const args = buildRunArgs({ image: "node:22-alpine" }, "/tmp/wr/validate-abc", "node --test", "n1");
+    expect(args[args.indexOf("--cap-drop") + 1]).toBe("ALL");
+    expect(args[args.indexOf("--security-opt") + 1]).toBe("no-new-privileges");
+  });
+
+  it("runs the containerized sandbox as its non-root clone owner, never uid 0 (A4)", () => {
+    // the conductor's `node` user (uid 1000) creates the clone on the shared
+    // named volume; the sandbox runs as that same non-root uid — able to touch
+    // its own clone, holding no host-root identity
+    const config = { image: "node:22-alpine", workVolume: { name: "guild-validator-work", workRoot: "/var/guild/validator-work" } };
+    const args = buildRunArgs(config, "/var/guild/validator-work/validate-xyz", "node --test", "n2");
+    expect(args[args.indexOf("--user") + 1]).toBe("1000:1000");
+    expect(args[args.indexOf("--cap-drop") + 1]).toBe("ALL");
+  });
+
   it("host mode honors a repo-relative cwd", () => {
     const args = buildRunArgs({ image: "i" }, "/tmp/wr/validate-abc", "ls", "n1", "packages/app");
     expect(args[args.indexOf("-w") + 1]).toBe("/work/packages/app");
