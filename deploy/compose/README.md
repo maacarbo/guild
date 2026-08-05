@@ -31,8 +31,12 @@ docker compose up -d
 that's the ordering trap, now a documented step, not a surprise):
 
 - Multica UI at http://localhost:3000 — log in (dev stack: the fixed
-  verification code from `.env`), then Settings → API Tokens → create a personal
-  access token (`mul_…`) → paste into `.env` as `MULTICA_DAEMON_TOKEN`.
+  verification code from `.env`). **First login shows Multica's own onboarding
+  — tutorials, a questionnaire, "connect local agents" prompts. Skip it all:
+  none of it applies under Guild** (the daemon container *is* the agent
+  connection, and `guild init` creates the team — issue #16). Then Settings →
+  API Tokens → create a personal access token (`mul_…`) → paste into `.env` as
+  `MULTICA_DAEMON_TOKEN`.
 - LiteLLM admin UI at http://localhost:4000/ui — log in with
   `LITELLM_MASTER_KEY`, create a virtual key **with a `max_budget`** → paste
   into `.env` as `GUILD_DAEMON_VIRTUAL_KEY`.
