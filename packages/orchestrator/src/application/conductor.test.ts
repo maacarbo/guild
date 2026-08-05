@@ -568,6 +568,43 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
     expect(w.source.ffs).toEqual([{ targetBranch: "main", sha: "sha-validated" }]);
   });
 
+  it("isolates a permanently-throwing item so later engagements still reconcile (B2)", async () => {
+    const w = makeWorld();
+    // eng-1: validated, operator moved its ticket to Done while down, but the
+    // fast-forward permanently fails (a human pushed to main) — accept() throws
+    w.substrate.items.set("i1", { markerId: "eng-1", title: "one", lane: "done", createdBy: "conductor" });
+    await w.store.saveEngagement({
+      engagementId: "eng-1",
+      stageId: "s",
+      planVersion: 1,
+      state: "validated",
+      bounceCount: 0,
+      item: { substrate: "fake", externalId: "i1" },
+      validatedSha: "sha-bad",
+    });
+    w.source.fastForward = async () => {
+      throw new Error("non-fast-forward: main moved under us");
+    };
+    // eng-2: dispatched, its task started while down — must still advance
+    w.substrate.items.set("i2", { markerId: "eng-2", title: "two", lane: "ready_to_work", createdBy: "conductor" });
+    w.substrate.snapshots.set("i2", { status: "running" });
+    await w.store.saveEngagement({
+      engagementId: "eng-2",
+      stageId: "s",
+      planVersion: 1,
+      state: "dispatched",
+      bounceCount: 0,
+      item: { substrate: "fake", externalId: "i2" },
+    });
+
+    // reconcile surfaces an aggregate error (visibility preserved) but only AFTER
+    // attempting every item — swallow it here to inspect the per-item outcomes
+    await w.conductor.reconcile().catch(() => {});
+
+    expect((await w.store.getEngagement("eng-1"))?.state, "the failing accept left eng-1 untouched").toBe("validated");
+    expect((await w.store.getEngagement("eng-2"))?.state, "eng-2 reconciled despite eng-1 throwing").toBe("working");
+  });
+
   it("a settled state reconciles to zero new decisions", async () => {
     const w = makeWorld();
     const { item } = await driveToReported(w);
