@@ -80,7 +80,10 @@ export class ContractValidator {
         return { check, outcome: "passed" as const, detail: `artifact ${check.path} present` };
       }
       const run = await this.runner.runCommand(dir, check.run, check.timeoutSeconds, check.cwd);
-      const evidence = `${run.stderr}\n${run.stdout}`.trim().slice(0, OUTPUT_EVIDENCE_LIMIT);
+      // check output is hostile, agent-adjacent text that lands verbatim in the
+      // append-only decisions trail and on the board — a credential-bearing URL
+      // echoed by any failing command must never persist in plaintext (A3)
+      const evidence = redactUrlCredentials(`${run.stderr}\n${run.stdout}`.trim()).slice(0, OUTPUT_EVIDENCE_LIMIT);
       if (run.timedOut) {
         return {
           check,
