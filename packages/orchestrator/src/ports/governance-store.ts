@@ -99,4 +99,14 @@ export interface GovernanceStore {
   setDispatchLock(reason: string, at: string, capCents?: number): Promise<void>;
   getDispatchLock(): Promise<{ reason: string; at: string; capCents?: number } | null>;
   clearDispatchLock(): Promise<void>;
+  /**
+   * The project hard cap the RUNNING conductor is actually enforcing, persisted
+   * at conductor startup. A separate process (`guild kill`) reads this to stamp
+   * the kill lock's capCents with the conductor's authoritative frozen cap
+   * rather than its own — possibly divergent — env read (A1): the two processes
+   * must agree on the cap or the lock can self-release. Null until a conductor
+   * with a project budget has started.
+   */
+  setEnforcedHardCap(cents: number): Promise<void>;
+  getEnforcedHardCap(): Promise<number | null>;
 }

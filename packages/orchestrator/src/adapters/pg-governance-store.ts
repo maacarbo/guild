@@ -128,6 +128,10 @@ export class PgGovernanceStore implements GovernanceStore {
         at     text NOT NULL
       );
       ALTER TABLE dispatch_lock ADD COLUMN IF NOT EXISTS cap_cents integer;
+      CREATE TABLE IF NOT EXISTS conductor_runtime (
+        id                      integer PRIMARY KEY CHECK (id = 1),
+        enforced_hard_cap_cents integer
+      );
     `);
   }
 
@@ -348,5 +352,20 @@ export class PgGovernanceStore implements GovernanceStore {
 
   async clearDispatchLock(): Promise<void> {
     await this.pool.query("DELETE FROM dispatch_lock WHERE id = 1");
+  }
+
+  async setEnforcedHardCap(cents: number): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO conductor_runtime (id, enforced_hard_cap_cents) VALUES (1, $1)
+       ON CONFLICT (id) DO UPDATE SET enforced_hard_cap_cents = EXCLUDED.enforced_hard_cap_cents`,
+      [cents],
+    );
+  }
+
+  async getEnforcedHardCap(): Promise<number | null> {
+    const res = await this.pool.query<{ enforced_hard_cap_cents: number | null }>(
+      "SELECT enforced_hard_cap_cents FROM conductor_runtime WHERE id = 1",
+    );
+    return res.rows[0]?.enforced_hard_cap_cents ?? null;
   }
 }

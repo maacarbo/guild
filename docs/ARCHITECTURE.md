@@ -242,14 +242,15 @@ The dispatch lock (D12 watchdog + D11 kill switch) records the project hard cap 
 
 | Option | Pros | Cons |
 |---|---|---|
-| **Cap-at-lock, uniform (release iff configured cap > cap-at-lock)** ✔ | One rule covers the budget halt and the kill switch; "raise the caps and restart" (the message `guild kill` already prints) is literally the release trigger; no new CLI verb (D11 holds); more correct than spend-comparison — a terminated-key spend reading that dips below the cap can't spring the lock | The lock carries one extra integer; `guild kill` must read the hard cap from the same `.env` the conductor uses |
+| **Cap-at-lock, uniform (release iff configured cap > cap-at-lock)** ✔ | One rule covers the budget halt and the kill switch; "raise the caps and restart" (the message `guild kill` already prints) is literally the release trigger; no new CLI verb (D11 holds); more correct than spend-comparison — a terminated-key spend reading that dips below the cap can't spring the lock | The lock carries one extra integer, and the cap must be sourced from a value the RUNNING conductor and `guild kill` agree on (solved below) |
 | Reason-prefix guard: the sweep simply never releases a `kill_switch` lock | Smallest diff | Leaves the kill lock with no config-driven recovery at all — contradicts the documented "raise the caps and restart", forcing a manual DB row delete or a new CLI verb D11 forbids |
 | "Zero-cent cap" (the pre-fix documented framing) | No lock-shape change | Never actually implemented — and with the old `spent < cap` release reading the conductor's live config cap (not a per-lock cap), the kill lock still self-releases: this *is* the A1 bug |
 
 Normative consequences:
 
 - The `setDispatchLock` port carries an optional `capCents`; the pg adapter adds a nullable `cap_cents` column (idempotent `ADD COLUMN IF NOT EXISTS`).
-- `guild kill` reads `GUILD_PROJECT_HARD_CAP_CENTS` (optional, parsed leniently — the kill path must never fail to lock over a bad value) and records it on the lock. With no project budget configured, no cap is recorded and the lock is never sweep-released; recovery is then a deliberate operator act, matching the pre-existing no-budget behavior.
+- **The cap is the RUNNING conductor's, not the killer's env.** `guild kill` is a separate process whose `.env` may have drifted from the live conductor's frozen config (edited but not restarted). If the killer stamped a *lower* cap than the conductor is actually enforcing, that conductor's next sweep would see `configCap > lockCap` and self-release the kill lock with no operator raise — the A1 bug in a new guise (audit #17 verify pass). So the conductor persists its enforced hard cap at startup (`conductor_runtime.enforced_hard_cap_cents`), and `emergencyStop` stamps the lock from that persisted value (falling back to in-process config only for unit tests). Both processes then agree on the cap, which also makes the lock's UPSERT race harmless (either writer records the same value).
+- With no project budget configured, no enforced cap is persisted and the kill lock carries no cap: it is never sweep-released, and `guild kill` says so explicitly rather than printing raise-and-restart guidance that cannot work.
 
 Decision trail: issue #17 (A1). **Revisit if:** a concurrent-conductor topology needs the lock to also carry the acting identity, or a first-class `guild resume` verb is ever admitted to D11's CLI scope.
 

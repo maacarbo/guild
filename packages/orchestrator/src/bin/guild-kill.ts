@@ -26,23 +26,7 @@ const env = readEnv([
   { name: "GUILD_GATEWAY_URL", source: "LiteLLM base URL" },
   { name: "LITELLM_MASTER_KEY", source: "gateway master key" },
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
-  // Recorded on the kill lock so the budget sweep can never self-release it (A1):
-  // the operator resumes by raising this cap above its kill-time value and
-  // restarting the conductor — the SAME .env the conductor reads. Optional and
-  // parsed leniently: the kill path must never fail to lock over a bad cap.
-  { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
 ]);
-
-/** the cap that arms raise-cap-and-restart recovery; a bad/absent value ⇒ no cap recorded */
-function killLockBudget(): { projectId: string; softCapCents: number; hardCapCents: number } | undefined {
-  const raw = env.GUILD_PROJECT_HARD_CAP_CENTS;
-  if (raw === undefined) return undefined;
-  const hardCapCents = Number.parseInt(raw, 10);
-  if (!Number.isInteger(hardCapCents) || hardCapCents < 0) return undefined;
-  // softCapCents is unused on the kill path (no sweep runs here); it exists only
-  // to satisfy the ProjectBudget shape carrying the hard cap onto the lock.
-  return { projectId: env.GUILD_WORKSPACE_ID, softCapCents: hardCapCents, hardCapCents };
-}
 
 async function main(): Promise<void> {
   const me = await fetch(`${env.GUILD_MULTICA_URL}/api/me`, {
@@ -73,13 +57,25 @@ async function main(): Promise<void> {
       repoUrl: "unused://guild-kill",
       targetBranch: "main",
       defaultPlanBudgetCents: 0,
-      ...(killLockBudget() ? { projectBudget: killLockBudget()! } : {}),
+      // No projectBudget here: emergencyStop stamps the lock's cap from the
+      // store's persisted enforced cap (the RUNNING conductor's authoritative
+      // frozen value), never this process's env — that decoupling is the A1 fix.
     },
   );
   await conductor.emergencyStop();
   const lock = await store.getDispatchLock();
   console.log(`KILL: dispatch locked (${lock?.reason}). In-flight work cancelled; keys revoked.`);
-  console.log("To resume: restore/raise the project caps in deploy/compose/.env and restart the conductor.");
+  if (lock?.capCents !== undefined) {
+    console.log(
+      "To resume: raise the project hard cap in deploy/compose/.env above its current value and restart the conductor.",
+    );
+  } else {
+    // no cap was recordable (the running conductor has no project budget), so the
+    // budget sweep can never auto-release this lock — say so, don't misdirect
+    console.log(
+      "To resume: this lock carries no cap (the conductor runs with no project budget), so it will NOT auto-release — clear the dispatch_lock row deliberately, then restart the conductor.",
+    );
+  }
   await store.close();
 }
 

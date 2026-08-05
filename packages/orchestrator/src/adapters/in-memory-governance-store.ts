@@ -23,6 +23,7 @@ export class InMemoryGovernanceStore implements GovernanceStore {
   private readonly planRuns = new Map<string, PlanRunRecord>();
   private readonly stagePlans = new Map<string, StagePlan>();
   private dispatchLock: { reason: string; at: string; capCents?: number } | null = null;
+  private enforcedHardCap: number | null = null;
 
   async saveEngagement(record: EngagementRecord): Promise<void> {
     this.engagements.set(record.engagementId, { ...record });
@@ -107,5 +108,11 @@ export class InMemoryGovernanceStore implements GovernanceStore {
   }
   async clearDispatchLock(): Promise<void> {
     this.dispatchLock = null;
+  }
+  async setEnforcedHardCap(cents: number): Promise<void> {
+    this.enforcedHardCap = cents;
+  }
+  async getEnforcedHardCap(): Promise<number | null> {
+    return this.enforcedHardCap;
   }
 }

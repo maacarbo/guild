@@ -278,9 +278,9 @@ services:
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
-      # recorded on the kill lock so it never self-releases; recovery is raising
-      # this same cap above its kill-time value and restarting the conductor (D14/A1)
-      GUILD_PROJECT_HARD_CAP_CENTS: ${GUILD_PROJECT_HARD_CAP_CENTS:-}
+      # No cap env here: the kill lock's cap is read from the store's persisted
+      # enforced cap (written by the running conductor), never guild-kill's own
+      # env — the two must agree or the lock can self-release (D14/A1).
     networks: [guild-dev]
 
   # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).

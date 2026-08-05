@@ -305,17 +305,22 @@ export class Conductor {
    * engagement (substrate cancel kills the agent process, P4/P10). The lock
    * records the hard cap in force so the budget sweep can never self-release it
    * (A1) — recovery is the same deliberate raise-the-cap-and-restart as the
-   * budget lock (D12), never automatic. When `guild kill` runs with no project
-   * budget configured, no cap is recorded and the lock is never sweep-released.
+   * budget lock (D12), never automatic.
+   *
+   * The cap is read from the store's persisted enforced cap (written by the
+   * RUNNING conductor at startup), NOT this process's config: `guild kill` is a
+   * separate process whose env may have drifted from the live conductor's frozen
+   * config, and a lower cap here would let the conductor's stale-higher cap
+   * self-release the lock (A1 verify finding). Config is only the fallback for
+   * an in-process caller with no enforced cap persisted (unit tests). With no
+   * enforced cap and no budget, no cap is recorded and the lock never
+   * sweep-releases.
    */
   emergencyStop(): Promise<void> {
     return this.serialize(async () => {
       if (!(await this.deps.store.getDispatchLock())) {
-        await this.deps.store.setDispatchLock(
-          "kill_switch: operator emergency stop",
-          this.now(),
-          this.config.projectBudget?.hardCapCents,
-        );
+        const capCents = (await this.deps.store.getEnforcedHardCap()) ?? this.config.projectBudget?.hardCapCents;
+        await this.deps.store.setDispatchLock("kill_switch: operator emergency stop", this.now(), capCents ?? undefined);
       }
       for (const rec of await this.deps.store.listEngagements()) {
         if (SPENDING.has(rec.state)) await this.cancelEngagement(rec, "operator");

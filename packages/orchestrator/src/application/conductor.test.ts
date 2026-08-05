@@ -1262,6 +1262,18 @@ describe("emergency stop (guild kill — D11 scope)", () => {
     expect((await w.store.getEngagement("eng-1"))?.state).toBe("cancelled");
   });
 
+  it("anchors the kill lock to the conductor's PERSISTED enforced cap, not a divergent caller env (A1)", async () => {
+    // guild-kill runs as a separate process reading a possibly-edited .env; it
+    // must stamp the lock with the cap the running conductor actually enforces
+    // (persisted at that conductor's startup), or a lowered-then-killed sequence
+    // self-releases the lock. Here config carries a DIFFERENT (stale) value than
+    // the persisted enforced cap — the enforced cap must win.
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 999 } });
+    await w.store.setEnforcedHardCap(10000);
+    await w.conductor.emergencyStop();
+    expect((await w.store.getDispatchLock())?.capCents).toBe(10000);
+  });
+
   it("a kill lock releases only after the operator raises the hard cap and restarts (A1 recovery)", async () => {
     const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
     const { item } = await postAndApprove(w);
