@@ -45,6 +45,10 @@ class FakeMulticaApi implements MulticaApi {
       description: input.description,
       status: "todo",
       assignee_id: null,
+      // real Multica attributes the creator from the auth token — this fake is
+      // authed as the conductor member, so its own creations carry that id
+      creator_type: "member",
+      creator_id: "member-self",
       updated_at: "2026-07-31T12:00:00Z",
     };
     this.issues.set(issue.id, issue);
@@ -168,6 +172,30 @@ describe("findWorkItem (dispatch-saga idempotency)", () => {
     const { substrate } = make();
     expect(await substrate.findWorkItem("eng-none")).toBeNull();
   });
+
+  it("ignores a planted marker-bearing issue authored by anyone but the conductor (A5a)", async () => {
+    // an agent can read the public idea id and derive a gate marker; a planted
+    // issue carrying it must never be bound as the conductor's gate/engagement —
+    // Guild only ever looks up items IT created
+    const { api, substrate } = make();
+    api.issues.set("planted", {
+      id: "planted",
+      title: "totally legit gate",
+      description: "plan\n\n<!-- guild:engagement=gate:stg:idea-1:analysis:v1 -->",
+      status: "todo",
+      assignee_id: null,
+      creator_type: "agent",
+      creator_id: "agent-1",
+      updated_at: "2026-07-31T12:00:00Z",
+    });
+    expect(await substrate.findWorkItem("gate:stg:idea-1:analysis:v1")).toBeNull();
+  });
+
+  it("still finds the conductor's own marked item (A5a does not break idempotency)", async () => {
+    const { substrate } = make();
+    const ref = await substrate.createWorkItem(spec("eng-77"));
+    expect(await substrate.findWorkItem("eng-77")).toEqual(ref);
+  });
 });
 
 describe("getWorkItem / listWorkItems", () => {
@@ -286,11 +314,18 @@ describe("watch scope faults (async-generator semantics)", () => {
 });
 
 describe("close (advisory bookkeeping, P6)", () => {
-  it("marks the issue done", async () => {
+  it("marks the issue done by default", async () => {
     const { api, substrate } = make();
     const ref = await substrate.createWorkItem(spec("eng-1"));
     await substrate.close(ref);
     expect((await api.getIssue(ref.externalId)).status).toBe("done");
+  });
+
+  it("closes cancelled work in the cancelled status, never Done (B9)", async () => {
+    const { api, substrate } = make();
+    const ref = await substrate.createWorkItem(spec("eng-1"));
+    await substrate.close(ref, "cancelled");
+    expect((await api.getIssue(ref.externalId)).status).toBe("cancelled");
   });
 });
 

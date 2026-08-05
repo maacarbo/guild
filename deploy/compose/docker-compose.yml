@@ -278,6 +278,9 @@ services:
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      # No cap env here: the kill lock's cap is read from the store's persisted
+      # enforced cap (written by the running conductor), never guild-kill's own
+      # env — the two must agree or the lock can self-release (D14/A1).
     networks: [guild-dev]
 
   # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).

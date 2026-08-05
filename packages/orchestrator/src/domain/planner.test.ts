@@ -62,6 +62,20 @@ describe("budget allocation is mechanical (D12)", () => {
     expect(plan.engagements).toHaveLength(1);
     expect(plan.engagements[0].budgetCents).toBe(plan.budgetCents);
   });
+
+  it("warns when a stage budget rounds to 0¢ — `budget: 0` and sub-10¢ totals can never dispatch (C1/C2)", () => {
+    // budget: 0 -> every stage 0¢ (C1)
+    const zero = deriveStagePlan({ ...idea, body: "budget: 0" }, config, "analysis", 1);
+    expect(zero.plan.budgetCents).toBe(0);
+    expect(zero.warnings.some((w) => /0¢/.test(w))).toBe(true);
+    // budget: 0.03 -> analysis floors to 0¢ while implementation still funds (C2)
+    const tiny = deriveStagePlan({ ...idea, body: "budget: 0.03" }, config, "analysis", 1);
+    expect(tiny.plan.budgetCents).toBe(0);
+    expect(tiny.warnings.some((w) => /0¢/.test(w))).toBe(true);
+    // a funded stage stays warning-free
+    const funded = deriveStagePlan(idea, config, "implementation", 1);
+    expect(funded.warnings.some((w) => /0¢/.test(w))).toBe(false);
+  });
 });
 
 describe("identity and versioning", () => {

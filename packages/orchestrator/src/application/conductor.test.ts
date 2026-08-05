@@ -54,7 +54,10 @@ class FakeSubstrate implements ExecutionSubstrate {
   async createTicket(spec: TicketSpec): Promise<WorkItemRef> {
     this.ops.push("createTicket");
     const id = `ticket-${++this.seq}`;
-    this.items.set(id, { markerId: spec.markerId, title: spec.title, lane: "backlog" });
+    // faithful to Multica: a freshly created issue defaults to the `todo` status
+    // = the ready_to_work go-lane (P24). postGate moves it to waiting_for_feedback
+    // right after — the gap between is exactly the A5b crash window.
+    this.items.set(id, { markerId: spec.markerId, title: spec.title, lane: "ready_to_work" });
     this.ticketBodies.set(id, spec.body);
     return this.ref(id);
   }
@@ -100,8 +103,10 @@ class FakeSubstrate implements ExecutionSubstrate {
   async cancel(item: WorkItemRef): Promise<void> {
     this.cancels.push(item.externalId);
   }
-  async close(item: WorkItemRef): Promise<void> {
+  async close(item: WorkItemRef, terminalLane: Lane = "done"): Promise<void> {
     this.closes.push(item.externalId);
+    const it = this.items.get(item.externalId);
+    if (it) it.lane = terminalLane;
   }
   // eslint-disable-next-line require-yield
   async *watch(): AsyncIterable<SubstrateEvent> {
@@ -448,6 +453,16 @@ describe("acceptance and termination (D6: ff-only to exactly the validated SHA)"
     expect(w.substrate.cancels).toContain(item.externalId);
     expect(w.gateway.revokes).toContain("eng-1");
     expect(w.substrate.closes).toContain(item.externalId);
+    // cancelled work must NOT show as accepted on the board (D11; #17 B9)
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("cancelled");
+  });
+
+  it("a validated engagement accepted by the operator closes in the Done lane (B9 does not mislabel acceptance)", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("accepted");
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("done");
   });
 });
 
@@ -551,6 +566,43 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
     await w.conductor.reconcile();
     expect((await w.store.getEngagement("eng-1"))?.state).toBe("accepted");
     expect(w.source.ffs).toEqual([{ targetBranch: "main", sha: "sha-validated" }]);
+  });
+
+  it("isolates a permanently-throwing item so later engagements still reconcile (B2)", async () => {
+    const w = makeWorld();
+    // eng-1: validated, operator moved its ticket to Done while down, but the
+    // fast-forward permanently fails (a human pushed to main) — accept() throws
+    w.substrate.items.set("i1", { markerId: "eng-1", title: "one", lane: "done", createdBy: "conductor" });
+    await w.store.saveEngagement({
+      engagementId: "eng-1",
+      stageId: "s",
+      planVersion: 1,
+      state: "validated",
+      bounceCount: 0,
+      item: { substrate: "fake", externalId: "i1" },
+      validatedSha: "sha-bad",
+    });
+    w.source.fastForward = async () => {
+      throw new Error("non-fast-forward: main moved under us");
+    };
+    // eng-2: dispatched, its task started while down — must still advance
+    w.substrate.items.set("i2", { markerId: "eng-2", title: "two", lane: "ready_to_work", createdBy: "conductor" });
+    w.substrate.snapshots.set("i2", { status: "running" });
+    await w.store.saveEngagement({
+      engagementId: "eng-2",
+      stageId: "s",
+      planVersion: 1,
+      state: "dispatched",
+      bounceCount: 0,
+      item: { substrate: "fake", externalId: "i2" },
+    });
+
+    // reconcile surfaces an aggregate error (visibility preserved) but only AFTER
+    // attempting every item — swallow it here to inspect the per-item outcomes
+    await w.conductor.reconcile().catch(() => {});
+
+    expect((await w.store.getEngagement("eng-1"))?.state, "the failing accept left eng-1 untouched").toBe("validated");
+    expect((await w.store.getEngagement("eng-2"))?.state, "eng-2 reconciled despite eng-1 throwing").toBe("working");
   });
 
   it("a settled state reconciles to zero new decisions", async () => {
@@ -865,6 +917,63 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
   });
 });
 
+describe("reconcile attribution (A5: unattributed board state must not self-approve)", () => {
+  it("does not read a crash-created gate ticket's go-lane default as an operator approval (A5b)", async () => {
+    const w = makeWorld();
+    // crash the initial resting-lane set: the gate ticket is created (landing in
+    // the ready_to_work go-lane default) but never moved to waiting_for_feedback,
+    // and no gate_posted decision is recorded
+    const realSetLane = w.substrate.setLane.bind(w.substrate);
+    let crashed = false;
+    w.substrate.setLane = async (item, lane) => {
+      if (!crashed) {
+        crashed = true;
+        throw new Error("crash after createTicket, before the gate's resting-lane set");
+      }
+      return realSetLane(item, lane);
+    };
+    const idea = seedIdea(w, "idea-1", "Idea", "A CLI that counts words.");
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea", "A CLI that counts words.")).catch(() => {});
+    w.substrate.setLane = realSetLane;
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    expect((await w.substrate.getWorkItem(gate)).lane, "the crashed gate sits in the go-lane").toBe("ready_to_work");
+
+    await w.conductor.reconcile();
+
+    expect(w.gateway.mints, "a crash-created gate must never be read as an approval").toHaveLength(0);
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("gated");
+    expect((await w.substrate.getWorkItem(gate)).lane, "reconcile re-asserts the resting lane").toBe(
+      "waiting_for_feedback",
+    );
+  });
+
+  it("honors an operator reject made during the gate crash window — does not clobber it (A5b)", async () => {
+    const w = makeWorld();
+    const realSetLane = w.substrate.setLane.bind(w.substrate);
+    let crashed = false;
+    w.substrate.setLane = async (item, lane) => {
+      if (!crashed) {
+        crashed = true;
+        throw new Error("crash after createTicket, before the gate's resting-lane set");
+      }
+      return realSetLane(item, lane);
+    };
+    const idea = seedIdea(w, "idea-1", "Idea", "A CLI that counts words.");
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea", "A CLI that counts words.")).catch(() => {});
+    w.substrate.setLane = realSetLane;
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    // the operator sees the crashed gate and rejects it (off-board) during the window
+    await w.substrate.setLane(gate, "cancelled");
+
+    await w.conductor.reconcile();
+
+    // the reject is honored, not overwritten back to waiting_for_feedback
+    expect((await w.store.getPlanRun("idea-1"))?.status).toBe("rejected");
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+    expect(w.gateway.mints).toHaveLength(0);
+  });
+});
+
 describe("dispatch lockout (D12 watchdog surface)", () => {
   it("a dispatch lock refuses new spend: no mint, no item, engagement stays gated", async () => {
     const w = makeWorld();
@@ -982,7 +1091,9 @@ describe("budget watchdog (D12: warn at the soft cap, halt at the project hard c
   it("a raised hard cap releases the lock at the next sweep with a trail entry (the only exit — D12)", async () => {
     const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 6000, hardCapCents: 9000 } });
     await postAndApprove(w);
-    await w.store.setDispatchLock("budget_hard_cap: spend 900 >= cap 800", "t0");
+    // the lock was set at the moment the cap it breached was 800; the running
+    // config now carries the raised cap (9000) — that raise is what releases it
+    await w.store.setDispatchLock("budget_hard_cap: spend 900 >= cap 800", "t0", 800);
     w.gateway.spend.set("eng-1", 900);
     await w.conductor.sweep();
     expect(await w.store.getDispatchLock()).toBeNull();
@@ -990,6 +1101,17 @@ describe("budget watchdog (D12: warn at the soft cap, halt at the project hard c
       (d) => d.kind === "budget" && d.event.kind === "lock_released",
     );
     expect(released).toMatchObject({ event: { spentCents: 900, capCents: 9000 } });
+  });
+
+  it("does NOT release a budget lock while the cap is unchanged, even as spend sits below it (A1)", async () => {
+    // the budget lock records the cap it breached; a sweep at spend-below-cap
+    // must not clear it — only a genuine raise-and-restart does
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    await postAndApprove(w);
+    await w.store.setDispatchLock("budget_hard_cap: spend 810 >= cap 800", "t0", 800);
+    w.gateway.spend.set("eng-1", 100); // a revoked/terminated reading dropped it below the cap
+    await w.conductor.sweep();
+    expect(await w.store.getDispatchLock(), "lock stays until the cap is raised").toBeTruthy();
   });
 });
 
@@ -1170,6 +1292,57 @@ describe("emergency stop (guild kill — D11 scope)", () => {
     expect(await w.store.getDispatchLock()).toBeTruthy();
     await w.conductor.emergencyStop();
     expect(await w.store.getDispatchLock()).toBeTruthy();
+  });
+
+  it("the kill lock is NOT auto-released by a budget sweep when spend is below the cap (A1)", async () => {
+    // the core-promise regression: `guild kill` fires while spend is below the
+    // hard cap (the normal case), so a sweep that releases on spend<cap would
+    // clear the kill lock on its very next tick and let a later approval dispatch
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { item } = await postAndApprove(w); // eng-1 dispatched → a minted intent exists so the sweep runs
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.gateway.spend.set("eng-1", 100); // well below the 800 hard cap
+    await w.conductor.emergencyStop();
+    await w.conductor.sweep();
+    await w.conductor.sweep();
+    const lock = await w.store.getDispatchLock();
+    expect(lock, "the kill switch must stay engaged across sweeps").toBeTruthy();
+    expect(lock?.reason).toMatch(/kill/);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("cancelled");
+  });
+
+  it("anchors the kill lock to the conductor's PERSISTED enforced cap, not a divergent caller env (A1)", async () => {
+    // guild-kill runs as a separate process reading a possibly-edited .env; it
+    // must stamp the lock with the cap the running conductor actually enforces
+    // (persisted at that conductor's startup), or a lowered-then-killed sequence
+    // self-releases the lock. Here config carries a DIFFERENT (stale) value than
+    // the persisted enforced cap — the enforced cap must win.
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 999 } });
+    await w.store.setEnforcedHardCap(10000);
+    await w.conductor.emergencyStop();
+    expect((await w.store.getDispatchLock())?.capCents).toBe(10000);
+  });
+
+  it("a kill lock releases only after the operator raises the hard cap and restarts (A1 recovery)", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 800 } });
+    const { item } = await postAndApprove(w);
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.gateway.spend.set("eng-1", 100);
+    await w.conductor.emergencyStop();
+    expect(await w.store.getDispatchLock()).toBeTruthy();
+    // operator raises GUILD_PROJECT_HARD_CAP_CENTS and restarts — same store, new cap
+    const restarted = new Conductor(
+      { substrate: w.substrate, gateway: w.gateway, validator: w.validator, source: w.source, store: w.store, now: () => "2026-08-02T00:00:00Z" },
+      {
+        projectScope: "ws-1",
+        repoUrl: "git@example.com:owner/product.git",
+        targetBranch: "main",
+        defaultPlanBudgetCents: 1000,
+        projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 5000 },
+      },
+    );
+    await restarted.sweep();
+    expect(await w.store.getDispatchLock(), "a genuine cap raise clears the kill lock").toBeNull();
   });
 });
 

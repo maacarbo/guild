@@ -228,8 +228,14 @@ export class Conductor {
 
     const lock = await this.deps.store.getDispatchLock();
     if (lock) {
-      if (totalSpent < budget.hardCapCents) {
-        // raise-the-cap-and-restart (D12): the only lock exit, trail-recorded
+      // Raise-the-cap-and-restart (D12) is the ONLY sweep-driven exit, and it
+      // is gated on a genuine raise: the configured hard cap must exceed the cap
+      // in force when the lock was set. Spend alone must never release a lock —
+      // the kill switch fires while spend is below the cap (A1), so a
+      // spend-below-cap release would clear `guild kill` on the very next tick.
+      // A lock with no recorded cap (a kill with no project budget) is never
+      // released here; recovery is a deliberate operator act, never automatic.
+      if (lock.capCents !== undefined && budget.hardCapCents > lock.capCents) {
         await this.deps.store.clearDispatchLock();
         await this.deps.store.appendDecision({
           kind: "budget",
@@ -249,6 +255,7 @@ export class Conductor {
       await this.deps.store.setDispatchLock(
         `budget_hard_cap: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢`,
         this.now(),
+        budget.hardCapCents,
       );
       await this.deps.store.appendDecision({
         kind: "budget",
@@ -295,13 +302,25 @@ export class Conductor {
   /**
    * The kill-switch (D11 CLI scope, `guild kill`): lock FIRST — nothing new
    * can spend even if a later step fails — then cancel every spending
-   * engagement (substrate cancel kills the agent process, P4/P10). Recovery
-   * is raise-the-cap-and-restart (D12); never automatic.
+   * engagement (substrate cancel kills the agent process, P4/P10). The lock
+   * records the hard cap in force so the budget sweep can never self-release it
+   * (A1) — recovery is the same deliberate raise-the-cap-and-restart as the
+   * budget lock (D12), never automatic.
+   *
+   * The cap is read from the store's persisted enforced cap (written by the
+   * RUNNING conductor at startup), NOT this process's config: `guild kill` is a
+   * separate process whose env may have drifted from the live conductor's frozen
+   * config, and a lower cap here would let the conductor's stale-higher cap
+   * self-release the lock (A1 verify finding). Config is only the fallback for
+   * an in-process caller with no enforced cap persisted (unit tests). With no
+   * enforced cap and no budget, no cap is recorded and the lock never
+   * sweep-releases.
    */
   emergencyStop(): Promise<void> {
     return this.serialize(async () => {
       if (!(await this.deps.store.getDispatchLock())) {
-        await this.deps.store.setDispatchLock("kill_switch: operator emergency stop", this.now());
+        const capCents = (await this.deps.store.getEnforcedHardCap()) ?? this.config.projectBudget?.hardCapCents;
+        await this.deps.store.setDispatchLock("kill_switch: operator emergency stop", this.now(), capCents ?? undefined);
       }
       for (const rec of await this.deps.store.listEngagements()) {
         if (SPENDING.has(rec.state)) await this.cancelEngagement(rec, "operator");
@@ -433,6 +452,14 @@ export class Conductor {
     return `gate:${stageId}:v${planVersion}`;
   }
 
+  /** whether this gate was fully posted (recorded only after its resting-lane set) */
+  private async gatePosted(stageId: string, planVersion: number): Promise<boolean> {
+    const decisions = await this.deps.store.listDecisions();
+    return decisions.some(
+      (d) => d.kind === "gate_posted" && d.stageId === stageId && d.planVersion === planVersion,
+    );
+  }
+
   /**
    * Post a stage plan as a gate ticket in waiting-for-feedback (D11: the
    * operator's lane move to ready-to-work IS the approval). Idempotent across
@@ -445,6 +472,25 @@ export class Conductor {
     if (existing) {
       await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, existing);
       await this.ensureEngagementsGated(plan);
+      // Complete an interrupted post (A5b): gate_posted is only recorded AFTER
+      // the resting-lane set, so its absence means the gate was created (landing
+      // in the substrate's ready_to_work go-lane default) but never moved to
+      // waiting_for_feedback. Reconcile would otherwise read that creation
+      // artifact as an operator approval. Neutralize ONLY the go-lane default —
+      // an operator who rejected during the crash window (an off-board lane) must
+      // be honored, not clobbered — then record the post so a later genuine
+      // approval (which always follows a completed post) is read as a go-signal.
+      if (!(await this.gatePosted(plan.stageId, plan.planVersion))) {
+        if ((await this.deps.substrate.getWorkItem(existing)).lane === "ready_to_work") {
+          await this.deps.substrate.setLane(existing, "waiting_for_feedback");
+        }
+        await this.deps.store.appendDecision({
+          kind: "gate_posted",
+          stageId: plan.stageId,
+          planVersion: plan.planVersion,
+          at: this.now(),
+        });
+      }
       return existing;
     }
 
@@ -844,7 +890,8 @@ export class Conductor {
     if (record.item) await this.deps.substrate.cancel(record.item, reason);
     const spentCents = await this.finalSpend(record.engagementId);
     await this.deps.gateway.revokeKey(record.engagementId);
-    if (record.item) await this.deps.substrate.close(record.item);
+    // close in the cancelled lane, never Done — this is not accepted work (B9)
+    if (record.item) await this.deps.substrate.close(record.item, "cancelled");
     await this.deps.store.appendDecision({
       kind: "termination",
       terminated: {
@@ -942,82 +989,105 @@ export class Conductor {
   // -------------------------------------------------------- reconcile
 
   private async reconcileUnsafe(): Promise<void> {
+    const errors: string[] = [];
+    // per-item isolation (B2): a permanent fault on one item — e.g. a human
+    // pushed to main so accept() can't fast-forward — must not abort the whole
+    // pass and freeze every other engagement. Each item runs under guard; the
+    // aggregate is thrown at the end so the fault stays visible in the log.
+    const guard = async (label: string, fn: () => Promise<void>): Promise<void> => {
+      try {
+        await fn();
+      } catch (e) {
+        errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+
     // 1. ideas that appeared while down (reads are the idea truth path too)
     for (const snap of await this.deps.substrate.listWorkItems(this.config.projectScope)) {
-      await this.maybeAdoptIdea(snap);
+      await guard(`adopt ${snap.item.externalId}`, () => this.maybeAdoptIdea(snap));
     }
 
     // 2. ensure every active run's current stage is posted; honor gate moves
-    //    made while down. Attribution note: a gate ticket is never assigned,
-    //    and the conductor only ever moves it to done/cancelled, so a go- or
-    //    off-board lane found on it can only be the operator's move (D11).
+    //    made while down. Attribution (D15): a gate ticket is conductor-authored
+    //    (findWorkItem enforces that — A5a) and, once fully posted, only ever
+    //    moved by the conductor to done/cancelled; postGate re-asserts the
+    //    resting lane for a not-yet-fully-posted gate (A5b), so a go-lane found
+    //    on a posted gate is the operator's move. NOTE: reconcile still cannot
+    //    read the ACTOR of that move from a snapshot — the residual A5c/A5d
+    //    attribution gap is tracked in D15 (needs a Multica activity probe).
     for (const run of await this.deps.store.listPlanRuns()) {
       if (run.status !== "active") continue;
-      for (const [index, stageId] of run.stageIds.entries()) {
-        const plan = await this.deps.store.getLatestStagePlan(stageId);
-        if (!plan) {
-          if (run.ideaItem) await this.openStage(run, index, 1);
+      await guard(`stage-gate ${run.planId}`, async () => {
+        for (const [index, stageId] of run.stageIds.entries()) {
+          const plan = await this.deps.store.getLatestStagePlan(stageId);
+          if (!plan) {
+            if (run.ideaItem) await this.openStage(run, index, 1);
+            break;
+          }
+          if (await this.stageComplete(plan)) continue;
+          await this.postGate(plan, []);
+          const gate = await this.deps.store.getGateTicket(plan.stageId, plan.planVersion);
+          if (gate) {
+            const snap = await this.deps.substrate.getWorkItem(gate);
+            const gateKey = { stageId: plan.stageId, planVersion: plan.planVersion };
+            if (snap.lane === "ready_to_work") await this.approveStage(gateKey, this.now());
+            else if (snap.lane === "cancelled") await this.rejectStage(gateKey, this.now());
+          }
           break;
         }
-        if (await this.stageComplete(plan)) continue;
-        await this.postGate(plan, []);
-        const gate = await this.deps.store.getGateTicket(plan.stageId, plan.planVersion);
-        if (gate) {
-          const snap = await this.deps.substrate.getWorkItem(gate);
-          const gateKey = { stageId: plan.stageId, planVersion: plan.planVersion };
-          if (snap.lane === "ready_to_work") await this.approveStage(gateKey, this.now());
-          else if (snap.lane === "cancelled") await this.rejectStage(gateKey, this.now());
-        }
-        break;
-      }
+      });
     }
 
     // 3. crashed dispatch sagas: intent persisted, record still gated
     const intents = await this.deps.store.listDispatchIntents();
     for (const engagementId of intents) {
-      const rec = await this.deps.store.getEngagement(engagementId);
-      if (rec?.state !== "gated") continue;
-      const ep = await this.engagementPlanFor(rec);
-      if (ep) await this.dispatch(ep);
+      await guard(`dispatch ${engagementId}`, async () => {
+        const rec = await this.deps.store.getEngagement(engagementId);
+        if (rec?.state !== "gated") return;
+        const ep = await this.engagementPlanFor(rec);
+        if (ep) await this.dispatch(ep);
+      });
     }
 
     // 4. engagement drift against substrate reads
     for (const rec of await this.deps.store.listEngagements()) {
       if (!rec.item) continue;
-      const snap = await this.deps.substrate.getWorkItem(rec.item);
-      if (snap.status === "running" && (rec.state === "dispatched" || rec.state === "bounced")) {
-        const updated = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task running");
-        if (updated) await this.setEngagementLane(updated);
-      } else if (
-        snap.status === "done" &&
-        (rec.state === "dispatched" || rec.state === "working" || rec.state === "blocked")
-      ) {
-        let current = rec;
-        if (rec.state === "dispatched") {
-          current =
-            (await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task ran while down")) ?? rec;
+      await guard(`drift ${rec.engagementId}`, async () => {
+        const snap = await this.deps.substrate.getWorkItem(rec.item!);
+        if (snap.status === "running" && (rec.state === "dispatched" || rec.state === "bounced")) {
+          const updated = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task running");
+          if (updated) await this.setEngagementLane(updated);
+        } else if (
+          snap.status === "done" &&
+          (rec.state === "dispatched" || rec.state === "working" || rec.state === "blocked")
+        ) {
+          let current = rec;
+          if (rec.state === "dispatched") {
+            current =
+              (await this.applyTransition(rec, { kind: "work_started" }, "reconciled: task ran while down")) ?? rec;
+          }
+          await this.onReported(current);
+        } else if (snap.status === "done" && rec.state === "reported") {
+          // stranded by a validator_error (or a crash mid-judgment): re-judge —
+          // the input is the same SHA-pinned report, so retry is idempotent
+          await this.judgeReported(rec);
+        } else if (snap.status === "done" && rec.state === "bounced") {
+          // a bounced engagement's snapshot stays "done" from the judged run
+          // until the rework task starts. Rework signals (#11): a NEW commit at
+          // the head, OR a NEW attempt whose head has not moved — the hollow
+          // rework — which must be judged (and bounced again), never stranded.
+          const resolved = await this.resolveReport(rec, snap);
+          const newCommit = resolved && resolved.sha !== rec.lastJudgedSha;
+          const newAttempt =
+            snap.report?.attemptId !== undefined && snap.report.attemptId !== rec.lastJudgedAttempt;
+          if (newCommit || newAttempt) {
+            const started = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: rework delivered");
+            if (started) await this.onReported(started);
+          }
+        } else if (rec.state === "validated" && snap.lane === "done") {
+          await this.accept(rec);
         }
-        await this.onReported(current);
-      } else if (snap.status === "done" && rec.state === "reported") {
-        // stranded by a validator_error (or a crash mid-judgment): re-judge —
-        // the input is the same SHA-pinned report, so retry is idempotent
-        await this.judgeReported(rec);
-      } else if (snap.status === "done" && rec.state === "bounced") {
-        // a bounced engagement's snapshot stays "done" from the judged run
-        // until the rework task starts. Rework signals (#11): a NEW commit at
-        // the head, OR a NEW attempt whose head has not moved — the hollow
-        // rework — which must be judged (and bounced again), never stranded.
-        const resolved = await this.resolveReport(rec, snap);
-        const newCommit = resolved && resolved.sha !== rec.lastJudgedSha;
-        const newAttempt =
-          snap.report?.attemptId !== undefined && snap.report.attemptId !== rec.lastJudgedAttempt;
-        if (newCommit || newAttempt) {
-          const started = await this.applyTransition(rec, { kind: "work_started" }, "reconciled: rework delivered");
-          if (started) await this.onReported(started);
-        }
-      } else if (rec.state === "validated" && snap.lane === "done") {
-        await this.accept(rec);
-      }
+      });
     }
 
     // 5. terminal-effect re-drive (#11): a crash between the terminal
@@ -1026,37 +1096,48 @@ export class Conductor {
     const decisions = await this.deps.store.listDecisions();
     for (const rec of await this.deps.store.listEngagements()) {
       if (!TERMINAL_STATES.has(rec.state)) continue;
-      const settled = decisions.some(
-        (d) =>
-          d.kind === "termination" &&
-          d.terminated.engagementId === rec.engagementId &&
-          d.terminated.finalState === rec.state,
-      );
-      if (settled) continue;
-      const spentCents = await this.finalSpend(rec.engagementId);
-      await this.deps.gateway.revokeKey(rec.engagementId);
-      const reason =
-        rec.state === "cancelled"
-          ? this.recoverCancelReason(decisions, rec.engagementId)
-          : rec.state === "escalated"
-            ? "bounce_limit"
-            : undefined;
-      if (rec.state === "cancelled" && rec.item) await this.deps.substrate.cancel(rec.item, reason as CancellationReason);
-      if (rec.state !== "escalated" && rec.item) await this.deps.substrate.close(rec.item);
-      await this.deps.store.appendDecision({
-        kind: "termination",
-        terminated: {
-          engagementId: rec.engagementId,
-          finalState: rec.state as "accepted" | "cancelled" | "escalated",
-          ...(reason ? { reason: reason as CancellationReason } : {}),
-          ...(spentCents !== undefined ? { spentCents } : {}),
-          at: this.now(),
-        },
+      await guard(`terminal ${rec.engagementId}`, async () => {
+        const settled = decisions.some(
+          (d) =>
+            d.kind === "termination" &&
+            d.terminated.engagementId === rec.engagementId &&
+            d.terminated.finalState === rec.state,
+        );
+        if (settled) return;
+        const spentCents = await this.finalSpend(rec.engagementId);
+        await this.deps.gateway.revokeKey(rec.engagementId);
+        const reason =
+          rec.state === "cancelled"
+            ? this.recoverCancelReason(decisions, rec.engagementId)
+            : rec.state === "escalated"
+              ? "bounce_limit"
+              : undefined;
+        if (rec.state === "cancelled" && rec.item)
+          await this.deps.substrate.cancel(rec.item, reason as CancellationReason);
+        // accepted → done, cancelled → cancelled: laneFor projects the terminal
+        // state onto the right board lane so a re-driven cancel isn't mislabelled (B9)
+        if (rec.state !== "escalated" && rec.item) await this.deps.substrate.close(rec.item, laneFor(rec.state));
+        await this.deps.store.appendDecision({
+          kind: "termination",
+          terminated: {
+            engagementId: rec.engagementId,
+            finalState: rec.state as "accepted" | "cancelled" | "escalated",
+            ...(reason ? { reason: reason as CancellationReason } : {}),
+            ...(spentCents !== undefined ? { spentCents } : {}),
+            at: this.now(),
+          },
+        });
       });
     }
 
     // 6. stage sequencing: acceptances that landed above may complete stages
-    await this.advancePlanRuns();
+    await guard("advancePlanRuns", () => this.advancePlanRuns());
+
+    // per-item faults were isolated above; surface them as one aggregate so the
+    // pass still signals trouble (guild-conductor logs + redacts it) (B2)
+    if (errors.length > 0) {
+      throw new Error(`reconcile completed with ${errors.length} item error(s): ${errors.join("; ")}`);
+    }
   }
 
   /** the cancellation reason lives in the transition cause when the entry is missing */

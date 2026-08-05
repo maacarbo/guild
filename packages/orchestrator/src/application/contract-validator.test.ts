@@ -100,6 +100,36 @@ describe("ContractValidator", () => {
     expect(v.results[1]!.detail).toContain("no match found");
   });
 
+  it("redacts credential-bearing URLs in command evidence — never persists a PAT (A3)", async () => {
+    const { reader, runner, validator } = make();
+    reader.files.set("PROBE.md", "M1a P3 probe");
+    runner.results.set("grep -q 'P6 seen' PROBE.md", {
+      exitCode: 1,
+      stdout: "fatal: could not read from https://x-access-token:ghp_SECRET123@github.com/o/r.git",
+      stderr: "remote: https://user:supersecret@example.com/repo denied",
+      timedOut: false,
+    });
+    const v = await validator.validate(input);
+    const detail = v.results[1]!.detail!;
+    expect(detail, "the PAT must never land in the append-only trail").not.toContain("ghp_SECRET123");
+    expect(detail).not.toContain("supersecret");
+    expect(detail).toContain("***@github.com");
+  });
+
+  it("redacts credentials in timeout evidence too (A3)", async () => {
+    const { reader, runner, validator } = make();
+    reader.files.set("PROBE.md", "M1a P3 probe");
+    runner.results.set("grep -q 'P6 seen' PROBE.md", {
+      exitCode: null,
+      stdout: "cloning https://x-access-token:ghp_TIMEOUT@github.com/o/r.git",
+      stderr: "",
+      timedOut: true,
+    });
+    const v = await validator.validate(input);
+    expect(v.results[1]!.detail).not.toContain("ghp_TIMEOUT");
+    expect(v.results[1]!.detail).toContain("***@github.com");
+  });
+
   it("treats a timeout as an acceptance failure, not a validator error (D6)", async () => {
     const { reader, runner, validator } = make();
     reader.files.set("PROBE.md", "M1a P3 probe");

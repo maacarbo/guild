@@ -61,6 +61,10 @@ async function main(): Promise<void> {
     },
   );
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);
+  // publish the hard cap this process actually enforces so a separate `guild
+  // kill` stamps the kill lock with THIS cap, not its own (possibly drifted)
+  // env read — the two must agree or the lock can self-release (A1/D14).
+  if (hard !== undefined) await store.setEnforcedHardCap(hard);
   mkdirSync(env.GUILD_VALIDATOR_WORK, { recursive: true });
   const conductor = new Conductor(
     {

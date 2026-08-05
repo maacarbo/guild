@@ -22,7 +22,8 @@ export class InMemoryGovernanceStore implements GovernanceStore {
   private readonly gateDecisions = new Map<string, GateDecision>();
   private readonly planRuns = new Map<string, PlanRunRecord>();
   private readonly stagePlans = new Map<string, StagePlan>();
-  private dispatchLock: { reason: string; at: string } | null = null;
+  private dispatchLock: { reason: string; at: string; capCents?: number } | null = null;
+  private enforcedHardCap: number | null = null;
 
   async saveEngagement(record: EngagementRecord): Promise<void> {
     this.engagements.set(record.engagementId, { ...record });
@@ -99,13 +100,19 @@ export class InMemoryGovernanceStore implements GovernanceStore {
     }
     return latest ? structuredClone(latest) : null;
   }
-  async setDispatchLock(reason: string, at: string): Promise<void> {
-    this.dispatchLock = { reason, at };
+  async setDispatchLock(reason: string, at: string, capCents?: number): Promise<void> {
+    this.dispatchLock = { reason, at, ...(capCents !== undefined ? { capCents } : {}) };
   }
-  async getDispatchLock(): Promise<{ reason: string; at: string } | null> {
+  async getDispatchLock(): Promise<{ reason: string; at: string; capCents?: number } | null> {
     return this.dispatchLock ? { ...this.dispatchLock } : null;
   }
   async clearDispatchLock(): Promise<void> {
     this.dispatchLock = null;
+  }
+  async setEnforcedHardCap(cents: number): Promise<void> {
+    this.enforcedHardCap = cents;
+  }
+  async getEnforcedHardCap(): Promise<number | null> {
+    return this.enforcedHardCap;
   }
 }

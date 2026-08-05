@@ -237,6 +237,16 @@ export function deriveStagePlan(
   const stageId = `stg:${idea.ideaId}:${kind}`;
   const engagementId = `eng:${stageId}:v${planVersion}`;
 
+  // A 0¢ stage mints a $0-cap virtual key and can never dispatch — `budget: 0`
+  // zeroes every stage, and a sub-~10¢ plan total floors small stages to 0¢.
+  // Silent 0¢ stages read as a stuck pipeline; surface it in the gate body so
+  // the operator raises the `budget:` directive (C1/C2).
+  if (budgetCents === 0) {
+    warnings.push(
+      "This stage's budget is 0¢ — its engagement key would mint with a $0 cap and can never dispatch. Raise the idea's `budget:` directive.",
+    );
+  }
+
   let authoredBy = kind === "analysis" ? "operator" : "guild-floor";
   let checks = floorChecks(kind);
   let gherkin = floorGherkin(kind, idea);

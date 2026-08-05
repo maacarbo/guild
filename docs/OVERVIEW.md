@@ -246,7 +246,7 @@ sequenceDiagram
     end
 ```
 
-The lock releases only when a raised hard cap is observed at conductor start (raise-and-restart, D12) — never automatically. `guild kill` is the same mechanism under a zero-cent cap.
+The lock records the hard cap in force when set and releases only when the configured cap is raised **above** that value at conductor start (raise-and-restart, D12/**D14**) — never automatically, and never on spend dipping below the cap. `guild kill` uses the same lock and records the current hard cap, so the kill switch stays engaged until the operator raises the cap and restarts — it does not self-release on the next watchdog tick (audit #17 A1).
 
 Multica records cost; only the gateway's numbers can *enforce* it — that is LiteLLM's reason for existing in this architecture.
 

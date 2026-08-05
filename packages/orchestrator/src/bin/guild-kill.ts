@@ -57,12 +57,25 @@ async function main(): Promise<void> {
       repoUrl: "unused://guild-kill",
       targetBranch: "main",
       defaultPlanBudgetCents: 0,
+      // No projectBudget here: emergencyStop stamps the lock's cap from the
+      // store's persisted enforced cap (the RUNNING conductor's authoritative
+      // frozen value), never this process's env — that decoupling is the A1 fix.
     },
   );
   await conductor.emergencyStop();
   const lock = await store.getDispatchLock();
   console.log(`KILL: dispatch locked (${lock?.reason}). In-flight work cancelled; keys revoked.`);
-  console.log("To resume: restore/raise the project caps in deploy/compose/.env and restart the conductor.");
+  if (lock?.capCents !== undefined) {
+    console.log(
+      "To resume: raise the project hard cap in deploy/compose/.env above its current value and restart the conductor.",
+    );
+  } else {
+    // no cap was recordable (the running conductor has no project budget), so the
+    // budget sweep can never auto-release this lock — say so, don't misdirect
+    console.log(
+      "To resume: this lock carries no cap (the conductor runs with no project budget), so it will NOT auto-release — clear the dispatch_lock row deliberately, then restart the conductor.",
+    );
+  }
   await store.close();
 }
 
