@@ -581,3 +581,262 @@ in code or harness.
   prior acceptance, with the upstream handoff read from the validated
   SHA; and the watchdog hard-cap halt cancels in-flight work, locks
   dispatch, and explains itself on the idea ticket.
+
+## Addendum 2026-08-05 — P26–P29: the D15 attribution probe (REST activity trail, ordering, and lane authority)
+
+Run against the live guild-dev v0.4.15 stack (backend commit
+`a9a4a3d638e5`), mutating only the throwaway issue
+`ffd77018-a19d-44c2-99bb-cd331923091b` (GUI-12), cancelled during
+cleanup. Four analysis lenses plus three adversarial refutation
+passes; where a lens and a refuter disagreed the refuter's evidence
+governs, except at the two points below where counter-evidence is
+quoted inline.
+
+### P26 — REST activity trail: PASS (`/timeline` exists; supersedes one P25 inference)
+
+`GET /api/issues/{id}/timeline` returns `HTTP 200`,
+`content-type: application/json`, a bare JSON array ordered ascending.
+Entries are a TAGGED UNION and only one arm has the shape P22
+catalogued:
+
+- `type: "activity"` — `{type, id, actor_type, actor_id, created_at,
+  action, details}`; actions observed `created`, `status_changed`,
+  `description_updated`, `assignee_changed`, `task_completed`,
+  `task_failed`. `status_changed` always carries both keys
+  (`{"to": "done", "from": "in_progress"}`) — 0 missing `from`, 0
+  missing `to` across every row inspected, on this issue and workspace-
+  wide.
+- `type: "comment"` — `{type, id, actor_type, actor_id, created_at,
+  content, updated_at, comment_type}` (+`source_task_id`, `parent_id`
+  when present). It carries **no `action` and no `details`**. A consumer
+  reading `e.action` on a comment gets `undefined`; filter on `type`
+  first.
+
+Shape is not stable under query params. A **non-empty** `limit`,
+`before`, or `after` switches the body to
+`{entries, next_cursor, prev_cursor, has_more_before, has_more_after}`
+**and reverses the order to descending**; `?limit=` (empty),
+`?direction=…`, `?type=…`, `?cursor=…`, `?page=…`, `?offset=…` all
+leave the bare ascending array. An adapter must call the bare path and
+never pass pagination params.
+
+Authz is clean for the reconcile identity: the conductor PAT gets
+`HTTP 200` on every issue in its workspace, including issues it did not
+create and issues assigned to agents. No `x-workspace-id` → `HTTP 400`
+`{"error":"workspace_id or workspace_slug is required"}`; foreign
+workspace → `404`; no auth → `401`. It is a genuine backend route, not a
+frontend-proxy artifact — byte-identical responses from
+`localhost:3000`, from `localhost:8080`, and from inside
+`guild-dev-multica-backend-1` against `127.0.0.1:8080`.
+
+**This supersedes the last bullet of P25, and only that bullet.** P25's
+observation stands and still reproduces exactly: `GET
+/api/issues/{id}/activities` is `404` (re-tested this session against
+both the proxy and the backend, along with `/activity`, `/history`,
+`/events`, `/audit`, `/log`, `/changes` — all `404` on both). What is
+superseded is the inference drawn from it — *"no REST read for the
+activity trail; activities are WS-only, reads-as-truth stays on the
+issue/list surfaces"*. A REST read does exist; that path was never
+tried. P25's other four bullets were re-checked and are unaffected.
+
+### P27 — timeline ordering and completeness: FAIL (cannot answer "who moved this lane last")
+
+The array is not scrambled — it is deterministically sorted by
+`(created_at ASC, id ASC)`, verified directly (returned order ==
+`sorted(entries, key=(created_at, id))` → `True`; reverse → `False`).
+The failure is that neither key discriminates:
+
+- `created_at` is **second-resolution** in JSON
+  (`"2026-08-05T21:29:07Z"`) while Postgres holds microseconds
+  (`21:29:07.693956+00`).
+- Entry `id` is **UUIDv4** — version nibble `4` on 205/205 ids
+  inspected — not the UUIDv7 Multica uses for daemon ids. There is no
+  time-sortable tiebreak anywhere in the response.
+
+So intra-second order is a uniform random permutation of the true
+order. Measured across passes: 23 controlled six-move bursts put the
+operator's entry in its true position 4/23 (~1/6) and last 5/23
+(chi-square 2.83 on 5 df — indistinguishable from uniform); six further
+independent bursts returned it at positions 1,1,5,5,3,2 against a true
+position of 3,2,2,2,2,2. This is not a synthetic artifact: the organic
+board already holds six seconds containing an operator move and a
+conductor move (the plan-approval gesture pair), of which two are
+returned inverted.
+
+The loss happens **above** the query layer, which matters for the fix
+direction: the server's own SQL keeps full precision —
+
+```
+-- name: ListActivitiesForIssue :many
+SELECT id, workspace_id, issue_id, actor_type, actor_id, action,
+       details, created_at FROM activity_log
+WHERE issue_id = $1
+ORDER BY created_at ASC, id ASC
+LIMIT $2
+```
+
+— and the serializer emits second-resolution RFC3339. Record this as
+"Multica discards an order it already has" (a cheap upstream fix), not
+as a data-model limit.
+
+That same SQL is also the completeness defect: `ORDER BY … ASC LIMIT
+$2` keeps the **oldest** rows and silently drops the **newest**, which
+is the opposite of what a truncation is normally assumed to do. The
+bound is server-fixed, not caller-supplied — every `limit` value
+returns the identical row set, with `has_more_after: false` and
+`next_cursor: null` asserting completeness. Migration
+`068_timeline_keyset_index.up.sql` and the symbol
+`handler.timelinePaginatedResponse` show keyset paging is half-wired
+but externally non-functional in v0.4.15. An earlier pass measured the
+cap at 2000 and demonstrated three fresh status changes invisible while
+the endpoint reported a five-minute-stale entry; **that number could not
+be re-verified here** — the flood rows have since been deleted and the
+issue now holds 205 entries, below any truncation. Treat the cap as
+mechanism-confirmed, value-unconfirmed.
+
+Net capability: a `getLaneAttribution(issueId)` built on this endpoint
+can return the SET of actors who made a `to === <target>` move at or
+after an inclusive second-resolution watermark, a truncation flag
+(activity-typed entries === the cap), and an ambiguity flag (newest
+shared second holds more than one distinct actor). It can **never**
+return "the most recent mover". Any rule of the form "last mover wins"
+is a lottery an adversary can buy tickets in.
+
+### P28 — write-side actor attribution: PASS-WITH-CAVEAT (no escalation; a validated agent override does exist)
+
+Header and body actor spoofing is ignored, in **both** directions —
+this is the security-relevant half and it holds. `X-Actor-Source`,
+`X-User-ID`, `X-Actor-Type`, `X-Actor-Id`, `X-On-Behalf-Of` and body
+`actor_id`/`actor_type` never move attribution: the daemon PAT cannot
+forge the conductor, and the conductor PAT cannot forge the operator.
+
+But attribution is **not** purely bearer-derived, and the earlier
+formulation of that claim was too strong. `X-Agent-ID` **and**
+`X-Task-ID` together do move attribution, into the agent id space.
+Verified live: a conductor-PAT `PUT /api/issues/{id}` carrying a matched
+pair produced `agent | f88cbbf9-… | {"to": "in_review", "from":
+"done"}`, while the identical PUT without the headers produced `member |
+3b2efd78-…`. Both headers are required and both are validated — the
+backend binary carries `resolveActor: X-Agent-ID present but X-Task-ID
+missing, refusing to trust agent identity`, `resolveActor: X-Agent-ID
+rejected, agent not found or workspace mismatch`, and `resolveActor:
+X-Task-ID rejected, task not found or agent mismatch`. The shipped CLI
+at `/usr/local/bin/multica` contains both header names; this is the
+mechanism behind P22's agent-attributed rows.
+
+Re-verified independently after synthesis, on a second agent/task pair
+(`5b95511c-…` / `6a42928e-…`, matched from `agent_task_queue`): the
+matched pair yielded `agent | 5b95511c-… | {"to": "in_review", "from":
+"done"}`, and `X-Agent-ID` **alone** — no `X-Task-ID` — fell back to
+`member | 3b2efd78-…`, confirming both headers are required.
+
+The override reaches only `actor_type: "agent"` with an `actor_id` from
+the **agent table** — a different id space from members (P25's warning,
+in a new guise). There is no path to another member, so the escalating
+direction stays closed and the D15 concern is unaffected. The
+exploitable direction is a downgrade: a member-PAT holder laundering
+their own write into agent attribution, which under Guild's semantics
+makes the move *ignored*, not *trusted*.
+
+Consequence to carry forward: `actor_type` is **not** proof of who
+acted. It proves only that the actor is not a member other than the
+token's owner. Written unqualified ("attribution is server-derived from
+the bearer token") it is the same species of over-generalization as
+P25's superseded clause.
+
+### P29 — issue-status authority by actor type: FAIL (there is no ceiling)
+
+D15's reachability caveat asked whether Multica lets an agent change
+issue status. Before this probe the whole `activity_log` held exactly
+five agent-attributed `status_changed` rows, all `to: in_review`, across
+five distinct issues — read by two lenses as evidence that agents stop
+at `in_review` (Guild lane `ready_for_testing`), and therefore that
+A5c/A5d might be unreachable.
+
+That reading is wrong. `in_review` is where Multica's own agent brief
+*asks* agents to stop ("run `multica issue status %s in_review` to mark
+the parent ready for review"), not where the server stops them. Using
+the P28 override, an agent-attributed move to `done` was accepted:
+`HTTP 200`, the issue's `status` became `done`, and the row is `agent |
+f88cbbf9-… | {"to": "done", "from": "in_progress"}` — reproduced
+independently on the second pair as `agent | 5b95511c-… | {"to":
+"done", "from": "in_review"}`. No authorization
+check on target status by actor type exists — searches of `/app/server`
+for per-actor-type status restrictions return nothing, and the only
+status-authority restriction present concerns squad guests.
+
+Scope this precisely. Authorization for the write came from a member
+PAT; the override supplied only attribution. Whether a task-scoped
+`mat_` token is itself authorized to call `PUT /api/issues/{id}` remains
+**UNVERIFIED** — no pass obtained one. What is proven is narrower and
+sufficient for D15: the issue-status write path applies no
+actor-type-conditioned restriction on the target status, so an
+`agent`-attributed `done` is producible and accepted. The counted
+"five agent moves, all `in_review`" is a convention artifact, not a
+ceiling; it now reads six, plus one `done`, and both additions are this
+probe's.
+
+Direct D15 consequence: reconcile's forward transitions read
+`snap.lane` only (`conductor.ts:1033` gate approval, `:1087` accept), so
+A5c does not require the operator-identity forgery at all. Any writer
+who can set the lane reaches it, whatever the attribution says.
+
+### Deployment fact — `MULTICA_DAEMON_TOKEN` resolves to the operator
+
+Three distinct 44-char `mul_` PATs, two identities. `GUILD_OPERATOR_TOKEN`
+and `MULTICA_DAEMON_TOKEN` are different strings (compared by digest, not
+disclosed) that both resolve via `GET /api/me` to `3ed88a91-…` /
+`operator@guild.local`; `GUILD_MULTICA_TOKEN` resolves to `3b2efd78-…` /
+`conductor@guild.local`. This is the shipped arrangement, not a dev
+artifact: the base `deploy/compose/docker-compose.yml` injects
+`MULTICA_DAEMON_TOKEN` into `guild-daemon`, there are no Kubernetes
+manifests in the repo, and the quickstart (`deploy/compose/README.md`
+step 3) instructs the human to mint the PAT from their own account —
+the only human account being the operator. `actorFrom`
+(`translation.ts:71`) maps every non-conductor member to `operator`, so
+a board move authored with that credential is read by Guild as an
+operator move and satisfies `conductor.ts:517`.
+
+The credential is agent-reachable by design, in three places: the
+daemon's environment; `/proc/7/environ` (readable by uid 1001 — the
+same uid agent subprocesses run as — and the daemon holds zero
+capabilities, so it cannot fork a child under any other uid); and
+`/home/agent/.multica/config.json` (mode 0600, owner `agent`), written
+by `docker/daemon/entrypoint.sh:26`. Multica's one guard is cwd-scoped:
+inside the task workdir the CLI refuses the ambient PAT (`agent
+execution context requires MULTICA_TOKEN to be a task-scoped mat_
+token`), but one `cd` restores it, and it gates the CLI, not the
+credential.
+
+**Scope this honestly — most of it is already conceded.**
+`deploy/README.md` states Tier 1 does not provide "egress control (a
+prompt-injected agent can send anything it can read — including its git
+token and Multica daemon token — to any host on the internet, and can
+push to any repo its git token reaches)". Verified here: the daemon
+container's `GITHUB_TOKEN` and the PAT embedded in the conductor's
+`GUILD_REPO_URL` are the **same** 40-char credential (compared by digest,
+not disclosed), and `GUILD_TARGET_BRANCH` defaults to `main`. Agent code
+therefore already holds direct push to the acceptance target, and a
+forged acceptance — which only fast-forwards a *conductor-chosen*
+`validatedSha` — adds no code-integrity capability. What the forgery
+does add is two things the git token does not: (i) false operator
+attribution in Guild's governance trail, and (ii) via the forged gate
+approval at `conductor.ts:519-521` → `approveStage` → `dispatch`, spend
+the agent cannot otherwise cause — defeating a stated blast-radius
+bound, "plans require explicit approval before any spend"
+(`deploy/README.md`).
+
+### Hardening drift (adjacent; changes no verdict above)
+
+`docs/ARCHITECTURE.md` and `deploy/README.md` both state the compose-era
+floor includes "`cap_drop: ALL` + `no-new-privileges`, and memory/pids
+limits on daemon and validator containers". Live, the daemon has none of
+them: `docker inspect guild-dev-guild-daemon-1` → `User=agent
+CapDrop=[] SecOpt=[] Pids=<nil> Mem=0`, while the conductor block
+carries `security_opt: [no-new-privileges:true]` and `cap_drop: [ALL]`.
+The `guild-daemon` service block in
+`deploy/compose/docker-compose.yml` simply omits the stanza; non-root
+does hold. This changes nothing above — `CapEff` is already `0` for a
+non-root process and `cap_drop` would not close a same-uid read — but a
+normative security claim is materially unmet on the one container that
+runs LLM-generated code.
