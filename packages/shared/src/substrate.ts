@@ -152,10 +152,13 @@ export interface TicketSpec {
  * Who changed the board (D11 zero-discretion rule needs to know). Adapters
  * attribute from native actor identity (evidence: matrix P22 — every Multica
  * activity entry carries actor_id + actor_type): "conductor" when the actor is
- * the adapter's own identity, "operator" for any other human, "agent" for
- * agent-driven changes — which the conductor IGNORES as forward signals
- * (validation verdicts are the only forward path) — and "unknown" for
- * unmapped actor types (closed-union policy, D8).
+ * the adapter's own identity, "operator" only for a member on the explicit
+ * operator allowlist (D15), "agent" for agent-driven changes — which the
+ * conductor IGNORES as forward signals (validation verdicts are the only
+ * forward path) — and "unknown" for every other member and unmapped actor type
+ * (closed-union policy, D8). Note (D15, audit #17 A5d): "operator" is an
+ * allowlist, NOT "any other human" — mapping every non-conductor member to the
+ * most-privileged actor is the defect this union's closed policy forbids.
  */
 export type BoardActor = "operator" | "conductor" | "agent" | "unknown";
 

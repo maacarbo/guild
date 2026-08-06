@@ -31,7 +31,14 @@ describeExecutionSubstrateConformance(async () => {
   const apiConfig = { baseUrl: live.baseUrl, token: live.token, workspaceId: live.workspaceId };
   const roleAgents = { worker: { agentId: live.agentId, agentName: live.agentName } };
   return {
-    substrate: createMulticaSubstrate(apiConfig, { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId }),
+    substrate: createMulticaSubstrate(apiConfig, {
+      projectScope: live.workspaceId,
+      roleAgents,
+      selfMemberId: live.memberId,
+      // conformance exercises the port surface, not operator-gated advances; the single
+      // live identity is the conductor (self), so no member reads as operator here
+      operatorMemberIds: [],
+    }),
     projectScope: live.workspaceId,
     role: "worker",
     unknownRole: "astrologer",
@@ -48,7 +55,7 @@ describeExecutionSubstrateConformance(async () => {
     unauthenticatedSubstrate: () =>
       createMulticaSubstrate(
         { ...apiConfig, token: "mul_invalid_conformance_token" },
-        { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId },
+        { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId, operatorMemberIds: [] },
       ),
     listComments: async (ref: WorkItemRef) => {
       const res = await fetch(`${live.baseUrl}/api/issues/${ref.externalId}/comments`, {

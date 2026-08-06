@@ -106,6 +106,7 @@ const make = () => {
     projectScope: "ws-1",
     roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
     selfMemberId: "member-self",
+    operatorMemberIds: [],
   });
   return { api, substrate };
 };

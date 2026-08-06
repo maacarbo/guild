@@ -20,6 +20,7 @@ const env = readEnv([
   { name: "GUILD_MULTICA_TOKEN", source: "the CONDUCTOR member's PAT — guild-init prints it" },
   { name: "GUILD_WORKSPACE_ID", source: "the project workspace — guild-init prints it" },
   { name: "GUILD_ROLE_AGENTS", source: "role→agent JSON — guild-init prints it" },
+  { name: "GUILD_OPERATOR_MEMBER_IDS", source: "comma-separated operator member id(s) — guild-init prints them (D15 allowlist)" },
   { name: "GUILD_GATEWAY_URL", source: "LiteLLM base URL, e.g. http://litellm:4000" },
   { name: "LITELLM_MASTER_KEY", source: "gateway master key (normative secret, deploy/compose/.env)" },
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
@@ -42,6 +43,22 @@ if ((soft === undefined) !== (hard === undefined)) {
   process.exit(1);
 }
 
+// D15 operator allowlist: the only member ids attributed as "operator". An empty
+// list fail-closes — no board move ever reads as operator, which silently deadlocks
+// plan approval, acceptance, AND the board cancel/reject halt path (all behind the
+// same `ev.actor === "operator"` guard). Assert it is non-empty here; the
+// exclusion of selfMemberId (and, from part a, the daemon id) is asserted in main()
+// once /api/me resolves this process's own identity.
+const operatorMemberIds = env.GUILD_OPERATOR_MEMBER_IDS.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (operatorMemberIds.length === 0) {
+  console.error(
+    "GUILD_OPERATOR_MEMBER_IDS is empty — set at least one operator member id (guild-init prints it). An empty operator allowlist fail-closes and deadlocks board approvals, acceptance, cancel, and reject (D15).",
+  );
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
   const me = await fetch(`${env.GUILD_MULTICA_URL}/api/me`, {
     headers: { authorization: `Bearer ${env.GUILD_MULTICA_TOKEN}` },
@@ -52,12 +69,23 @@ async function main(): Promise<void> {
   }
   const selfMemberId = ((await me.json()) as { id: string }).id;
 
+  // the conductor's own member id is "conductor", never "operator": a self-move is
+  // not a forward signal (D11). If it were on the operator allowlist, a conductor
+  // lane move would forge an approval — refuse to start (D15 startup assertion).
+  if (operatorMemberIds.includes(selfMemberId)) {
+    console.error(
+      `GUILD_OPERATOR_MEMBER_IDS must not contain the conductor's own member id (${selfMemberId}). A self-move is never an operator forward signal (D11/D15).`,
+    );
+    process.exit(1);
+  }
+
   const substrate = createMulticaSubstrate(
     { baseUrl: env.GUILD_MULTICA_URL, token: env.GUILD_MULTICA_TOKEN, workspaceId: env.GUILD_WORKSPACE_ID },
     {
       projectScope: env.GUILD_WORKSPACE_ID,
       roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,
       selfMemberId,
+      operatorMemberIds,
     },
   );
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);

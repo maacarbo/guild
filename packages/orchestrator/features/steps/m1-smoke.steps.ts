@@ -92,6 +92,9 @@ When("the conductor dispatches the engagement through the substrate port", async
       projectScope: live.workspaceId,
       roleAgents: { implementer: { agentId: live.agentId, agentName: live.agentName } },
       selfMemberId: live.memberId,
+      // M1 smoke runs a single live identity (the daemon claim→push flow, pre-D11
+      // governance gates), so there is no distinct operator member to allowlist
+      operatorMemberIds: [],
     },
   );
 

@@ -30,6 +30,8 @@ export function deriveSnapshot(
   agentName: string,
   /** the adapter's own member id — creator attribution (P25, same space as lane actors) */
   selfMemberId = "",
+  /** explicit operator allowlist (D15) — creator reads as "operator" only on membership; empty = fail-closed */
+  operatorMemberIds: readonly string[] = [],
 ): WorkItemSnapshot {
   const latest = latestOf(runs);
   const latestCompleted = latestOf(runs.filter((r) => r.status === "completed" && r.result));
@@ -51,7 +53,7 @@ export function deriveSnapshot(
     nativeStatus: `issue:${issue.status};task:${latest?.status ?? "none"}`,
     title: issue.title,
     body: issue.description,
-    createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId),
+    createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId, operatorMemberIds),
     ...(markerId !== null ? { markerId } : {}),
     lane: laneFromNativeStatus(issue.status),
     ...(latest?.status === "failed"
