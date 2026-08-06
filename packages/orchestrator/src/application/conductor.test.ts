@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   BoardActor,
   ContractVerdict,
@@ -516,15 +516,19 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
     expect(w.ops.filter((o) => o === "createWorkItem")).toHaveLength(1);
   });
 
-  it("recovers an operator approval made while the conductor was down", async () => {
+  it("re-asserts a gate go-lane found on reconcile — never approves on lane alone (D15 A5c)", async () => {
     const w = makeWorld();
     const gate = await post(w);
-    await w.substrate.setLane(gate, "ready_to_work"); // operator move, no event delivered
+    // a go-lane observed on reconcile carries no actor (the snapshot has none), so
+    // it could be the operator OR an agent/forged move — reconcile cannot tell.
+    // Approval spends, so it must come only from the live operator-attributed event.
+    await w.substrate.setLane(gate, "ready_to_work");
     await w.conductor.reconcile();
-    expect((await w.store.getEngagement("eng-1"))?.state).toBe("dispatched");
-    expect((await w.substrate.getWorkItem(gate)).lane).toBe("done");
-    const gates = (await w.store.listDecisions()).filter((d) => d.kind === "gate");
-    expect(gates).toHaveLength(1);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("gated"); // NOT dispatched — no spend
+    expect(w.gateway.mints).toHaveLength(0);
+    expect((await w.store.listDecisions()).filter((d) => d.kind === "gate")).toHaveLength(0);
+    // the pending gate is re-surfaced in its resting lane so the operator re-moves it
+    expect((await w.substrate.getWorkItem(gate)).lane).toBe("waiting_for_feedback");
   });
 
   it("recovers an operator rejection made while the conductor was down", async () => {
@@ -559,19 +563,23 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
     expect(rec?.validatedSha).toBe("sha-rec");
   });
 
-  it("recovers an operator acceptance made while down", async () => {
+  it("re-asserts a validated engagement's done lane — never accepts on lane alone (D15 A5c)", async () => {
     const w = makeWorld();
     const { item } = await driveToReported(w);
-    await w.substrate.setLane(item, "done"); // operator accepted, no event delivered
+    // acceptance fast-forwards the validated SHA; like approval it must come only
+    // from the live operator move, never from an unattributed done lane on reconcile
+    await w.substrate.setLane(item, "done");
     await w.conductor.reconcile();
-    expect((await w.store.getEngagement("eng-1"))?.state).toBe("accepted");
-    expect(w.source.ffs).toEqual([{ targetBranch: "main", sha: "sha-validated" }]);
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("validated"); // NOT accepted
+    expect(w.source.ffs).toEqual([]); // no fast-forward
+    // re-surfaced in its resting lane — one operator gesture to accept
+    expect((await w.substrate.getWorkItem(item)).lane).toBe("waiting_for_feedback");
   });
 
   it("isolates a permanently-throwing item so later engagements still reconcile (B2)", async () => {
     const w = makeWorld();
-    // eng-1: validated, operator moved its ticket to Done while down, but the
-    // fast-forward permanently fails (a human pushed to main) — accept() throws
+    // eng-1: validated, its ticket sits in Done; re-asserting its resting lane
+    // (D15 conservative reconcile) hits a substrate fault — reconcile must isolate it
     w.substrate.items.set("i1", { markerId: "eng-1", title: "one", lane: "done", createdBy: "conductor" });
     await w.store.saveEngagement({
       engagementId: "eng-1",
@@ -582,8 +590,10 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
       item: { substrate: "fake", externalId: "i1" },
       validatedSha: "sha-bad",
     });
-    w.source.fastForward = async () => {
-      throw new Error("non-fast-forward: main moved under us");
+    const realSetLane = w.substrate.setLane.bind(w.substrate);
+    w.substrate.setLane = async (ref: WorkItemRef, lane: Lane) => {
+      if (ref.externalId === "i1") throw new Error("substrate rejected the lane re-assert");
+      return realSetLane(ref, lane);
     };
     // eng-2: dispatched, its task started while down — must still advance
     w.substrate.items.set("i2", { markerId: "eng-2", title: "two", lane: "ready_to_work", createdBy: "conductor" });
@@ -603,6 +613,18 @@ describe("reconciliation (reads are the truth path — restart recovery)", () =>
 
     expect((await w.store.getEngagement("eng-1"))?.state, "the failing accept left eng-1 untouched").toBe("validated");
     expect((await w.store.getEngagement("eng-2"))?.state, "eng-2 reconciled despite eng-1 throwing").toBe("working");
+  });
+
+  it("warns when a non-attributed member move on a governance ticket is dropped (D15 deadlock visibility)", async () => {
+    const w = makeWorld();
+    const gate = await post(w);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // a member not on the operator allowlist maps to "unknown" — the signature of a
+    // stale/empty GUILD_OPERATOR_MEMBER_IDS silently dropping a real operator move
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "unknown"));
+    expect((await w.store.getEngagement("eng-1"))?.state).toBe("gated"); // dropped, not approved
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("a settled state reconciles to zero new decisions", async () => {
