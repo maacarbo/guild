@@ -135,7 +135,7 @@ services:
     profiles: [daemon]
     # Published at release tags (quickstart pulls); the build section remains
     # for development and pre-release replays (docker compose ... --build).
-    image: ghcr.io/maacarbo/guild-daemon:${GUILD_IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/maacarbo/guild-daemon:${GUILD_IMAGE_TAG:-v0.1.1}
     build:
       context: ../../docker/daemon
       args:
@@ -192,7 +192,7 @@ services:
   # ---- Guild conductor (M2b): the governance loop as a service ------------
   guild-conductor:
     profiles: [conductor]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.1}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -244,7 +244,7 @@ services:
   #   docker compose run --rm guild-kill
   guild-init:
     profiles: [init]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.1}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -259,7 +259,7 @@ services:
 
   guild-demo:
     profiles: [demo]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.1}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
@@ -273,7 +273,7 @@ services:
 
   guild-kill:
     profiles: [kill]
-    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.0}
+    image: ghcr.io/maacarbo/guild-conductor:${GUILD_IMAGE_TAG:-v0.1.1}
     build:
       context: ../..
       dockerfile: docker/conductor/Dockerfile
