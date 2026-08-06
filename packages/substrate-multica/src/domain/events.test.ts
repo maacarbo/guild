@@ -71,13 +71,15 @@ describe("substrateEventFromFrame", () => {
   });
 
   it("translates comment:created with the comment's own timestamp and author", () => {
-    const e = substrateEventFromFrame("multica", commentCreated, at);
+    const e = substrateEventFromFrame("multica", commentCreated, at, "conductor-self", [
+      "7e3fa62b-f769-4c66-8204-83d821c2be48",
+    ]);
     expect(e).toEqual({
       kind: "comment",
       commentId: "6f42dda9-4713-4b66-99c3-7663d388e5e7",
       item: { substrate: "multica", externalId: "c4db0005-9286-4e71-8f29-d0f7396295ec" },
       author: "7e3fa62b-f769-4c66-8204-83d821c2be48",
-      // no selfMemberId passed here, so a member author reads as operator;
+      // the comment author is on the operator allowlist → operator (D15);
       // conductor-vs-operator on comments is pinned in the lane_moved suite
       actor: "operator",
       body: "ws frame probe comment",
@@ -134,9 +136,14 @@ describe("activity:created status_changed → lane_moved (D11 trigger surface, P
     });
   });
 
-  it("attributes another member's move as the operator — the gate trigger", () => {
-    const e = substrateEventFromFrame("multica", statusChanged({ actor_id: "other-member" }), at, SELF);
+  it("attributes an allowlisted member's move as the operator — the gate trigger", () => {
+    const e = substrateEventFromFrame("multica", statusChanged({ actor_id: "other-member" }), at, SELF, ["other-member"]);
     expect(e).toMatchObject({ kind: "lane_moved", actor: "operator" });
+  });
+
+  it("attributes a non-allowlisted member's move as unknown, never operator (D15 A5d)", () => {
+    const e = substrateEventFromFrame("multica", statusChanged({ actor_id: "stranger" }), at, SELF, ["other-member"]);
+    expect(e).toMatchObject({ kind: "lane_moved", actor: "unknown" });
   });
 
   it("attributes an agent's move as agent — the conductor ignores it as a forward signal", () => {
@@ -186,7 +193,7 @@ describe("issue:created → item_created (M2b idea detection, P24)", () => {
   });
 
   it("translates a member-created issue to item_created attributed to the operator", () => {
-    const e = substrateEventFromFrame("multica", issueCreated(), at, SELF);
+    const e = substrateEventFromFrame("multica", issueCreated(), at, SELF, ["7e3fa62b-f769-4c66-8204-83d821c2be48"]);
     expect(e).toEqual({
       kind: "item_created",
       item: { substrate: "multica", externalId: "94440df3-59bf-4033-8db8-8532d19a1575" },

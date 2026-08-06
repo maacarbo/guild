@@ -59,16 +59,29 @@ export function laneFromNativeStatus(native: string): Lane | "unknown" {
 /**
  * Board actor attribution (P22, live 2026-08-02): every activity entry carries
  * actor_id + actor_type. The adapter's own member identity is the conductor;
- * any other member is the operator; agents are agents; anything else is
- * unknown (D8 closed union).
+ * a member on the explicit operator allowlist is the operator; every other
+ * member — and any non-member actor type — is unknown (D8 closed union).
+ *
+ * D15 (audit #17 A5d): the operator is an *allowlist*, not "any non-conductor
+ * member". Mapping every other member to the most-privileged actor inverted
+ * this module's own closed-union policy and, because the agent-reachable daemon
+ * credential resolves to the operator's own member id, let a forged board move
+ * pass the conductor's operator-only forward guard. Membership is now required;
+ * an empty allowlist admits no operator (fail-closed). The composition root
+ * asserts the allowlist is non-empty and excludes selfMemberId and the daemon.
  */
 export function actorFrom(
   actorType: string | undefined,
   actorId: string | undefined,
   selfMemberId: string,
+  operatorMemberIds: readonly string[],
 ): BoardActor {
   if (actorType === "agent") return "agent";
-  if (actorType === "member") return actorId === selfMemberId ? "conductor" : "operator";
+  if (actorType === "member") {
+    if (actorId === selfMemberId) return "conductor";
+    if (actorId !== undefined && operatorMemberIds.includes(actorId)) return "operator";
+    return "unknown";
+  }
   return "unknown";
 }
 

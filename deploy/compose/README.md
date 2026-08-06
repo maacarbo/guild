@@ -27,34 +27,58 @@ secret is **any long random string** — use your password manager's generator
 docker compose up -d
 ```
 
-**3. Mint the daemon's credentials** (they can only exist *after* boot —
-that's the ordering trap, now a documented step, not a surprise):
+**3. Create the workspace and mint the gateway key** (both need the control
+plane up):
 
 - Multica UI at http://localhost:3000 — log in (dev stack: the fixed
-  verification code from `.env`). **First login shows Multica's own onboarding
-  — tutorials, a questionnaire, "connect local agents" prompts. Skip it all:
+  verification code from `.env`) and create a workspace; put its id in `.env`
+  as `GUILD_WORKSPACE_ID`. **First login shows Multica's own onboarding —
+  tutorials, a questionnaire, "connect local agents" prompts. Skip it all:
   none of it applies under Guild** (the daemon container *is* the agent
-  connection, and `guild init` creates the team — issue #16). Then Settings →
-  API Tokens → create a personal access token (`mul_…`) → paste into `.env` as
-  `MULTICA_DAEMON_TOKEN`.
+  connection, and `guild init` creates the team — issue #16).
 - LiteLLM admin UI at http://localhost:4000/ui — log in with
   `LITELLM_MASTER_KEY`, create a virtual key **with a `max_budget`** → paste
   into `.env` as `GUILD_DAEMON_VIRTUAL_KEY`.
 
-**4. Start the daemon.**
+You no longer hand-mint the daemon's Multica PAT here — `guild init` mints it in
+the next step, as a dedicated **non-governance** identity (D15 / #17 A5d): the
+daemon runs LLM-generated code, so its credential must never resolve to the
+operator.
+
+**4. Initialize Guild** (M2b — the governance layer itself):
+
+```
+docker compose run --rm guild-init
+```
+
+It provisions **three distinct Multica member identities** — the operator, the
+conductor (its own PAT, so a Guild move is never mistaken for a human one), and
+`daemon@guild.local` (what the LLM-running daemon authenticates as, deliberately
+NOT the operator — D15/#17 A5d) — plus the fixed four-role starter team, and
+prints every generated value. Paste them into `.env`:
+
+- conductor: `GUILD_MULTICA_TOKEN`, `GUILD_WORKSPACE_ID`, `GUILD_ROLE_AGENTS`,
+  `GUILD_OPERATOR_MEMBER_IDS` (the allowlist), `GUILD_DAEMON_MEMBER_ID`
+- daemon: `MULTICA_DAEMON_TOKEN`
+
+Then set `GUILD_REPO_URL` (HTTPS with the scoped PAT embedded).
+
+**5. Start the daemon and the conductor.**
 
 ```
 docker compose --profile daemon up -d --build
+docker compose --profile conductor up -d --build
 ```
 
-**5. Verify.**
+**6. Verify.**
 
 ```
 docker compose run --rm doctor
 ```
 
 Doctor checks the whole chain (env → control plane → gateway → model route →
-daemon credentials → registered runtime) and, on any failure, prints the
+daemon credentials → registered runtime) — including that the daemon identity is
+**distinct from the operator** (D15 A5d) — and, on any failure, prints the
 broken prerequisite, the fix, and which `.env` secret owns it. One boundary:
 if a *core* secret is missing entirely, Compose itself refuses to start
 anything — including doctor — with a `required variable <NAME> is missing`
@@ -64,27 +88,8 @@ replay the quickstart (the `--profile "*"` matters: profile-gated services
 like the daemon and conductor survive a plain `down` and would keep running
 against the wiped databases — found live during the v0.1.0 replay).
 
-**6. Initialize Guild** (M2b — the governance layer itself). Create a
-workspace in the Multica UI (or reuse one), put its id in `.env` as
-`GUILD_WORKSPACE_ID`, then:
-
-```
-docker compose run --rm guild-init
-```
-
-It provisions the conductor's own member identity (D11: real operator-vs-
-conductor attribution) and the fixed four-role starter team, and prints the
-three conductor values — paste them into `.env`
-(`GUILD_MULTICA_TOKEN`, `GUILD_WORKSPACE_ID`, `GUILD_ROLE_AGENTS`), set
-`GUILD_REPO_URL` (HTTPS with the scoped PAT embedded), and start the
-conductor:
-
-```
-docker compose --profile conductor up -d --build
-```
-
 **7. Run the known-good demo.** Mint an operator PAT for yourself (Settings →
-API Tokens, like step 3) into `.env` as `GUILD_OPERATOR_TOKEN`, then:
+API Tokens) into `.env` as `GUILD_OPERATOR_TOKEN`, then:
 
 ```
 docker compose run --rm guild-demo
@@ -105,6 +110,30 @@ OpenCode — the sole runtime, D9 as amended 2026-08-04), labeled by
 provider key — so every call is metered and hard-capped (`max_budget`).
 OpenCode agents use `provider/model`-qualified models against the baked
 `litellm` provider (e.g. `litellm/or-claude-haiku-4-5`).
+
+### Upgrading a `v0.1.0` install to `v0.1.1` (D15 daemon identity)
+
+`v0.1.0` had the operator hand-mint `MULTICA_DAEMON_TOKEN` from their own
+account, so the daemon authenticated **as the operator** — an agent that reached
+that token could forge operator board moves (#17 A5c/A5d/A5e, advisory
+`GHSA-7pg8-mmpv-r6pc`). To upgrade:
+
+1. Pull the `v0.1.1` images (or rebuild) and re-run `docker compose run --rm guild-init`.
+   It now also mints `daemon@guild.local` and prints `MULTICA_DAEMON_TOKEN`,
+   `GUILD_OPERATOR_MEMBER_IDS`, and `GUILD_DAEMON_MEMBER_ID`.
+2. Replace the old hand-minted `MULTICA_DAEMON_TOKEN` in `.env` with the printed
+   one, and add the two new conductor vars. Recreate the daemon and conductor:
+   `docker compose --profile daemon --profile conductor up -d --force-recreate`.
+3. Run `docker compose run --rm doctor` — check `[5/7]` must report the daemon
+   identity as distinct from the operator.
+
+The conductor **refuses to start** if `GUILD_OPERATOR_MEMBER_IDS` is empty,
+contains its own id, or contains `GUILD_DAEMON_MEMBER_ID` — so a half-applied
+upgrade fails loudly, never silently. Role agents survive the daemon token
+re-mint only if the daemon's `daemon_id` is stable (a persistent
+`~/.multica/daemon.id`); on the default volume-less dev daemon the id churns, so
+re-running `guild init` re-registers the team (research addendum P30). You may
+also revoke the operator's old hand-minted daemon PAT after the cutover.
 
 ## Version pins
 

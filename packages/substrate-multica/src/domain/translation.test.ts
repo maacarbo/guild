@@ -117,24 +117,41 @@ describe("lane ↔ native board status (D11 projection over the P20 fixed enum)"
   });
 });
 
-describe("board actor attribution (P22: every activity entry carries actor_id + actor_type)", () => {
+describe("board actor attribution (P22 actor_id/actor_type + D15 operator allowlist)", () => {
   const self = "member-self-id";
+  const operator = "operator-member-id";
+  const operators = [operator];
 
   it("attributes the adapter's own member identity as the conductor", () => {
-    expect(actorFrom("member", self, self)).toBe("conductor");
+    expect(actorFrom("member", self, self, operators)).toBe("conductor");
   });
 
-  it("attributes any other member as the operator", () => {
-    expect(actorFrom("member", "someone-else", self)).toBe("operator");
+  it("attributes an allowlisted member as the operator", () => {
+    expect(actorFrom("member", operator, self, operators)).toBe("operator");
+  });
+
+  it("attributes a non-allowlisted member as unknown, never operator (D15: closed union restored)", () => {
+    // the A5d defect was mapping every non-conductor member to the most-privileged
+    // actor; membership in the explicit operator allowlist is now required
+    expect(actorFrom("member", "someone-else", self, operators)).toBe("unknown");
+  });
+
+  it("admits no operator when the allowlist is empty (fail-closed)", () => {
+    expect(actorFrom("member", operator, self, [])).toBe("unknown");
+  });
+
+  it("prefers conductor over operator when self is (mistakenly) in the allowlist", () => {
+    // the startup assertion forbids this, but the pure function must still be safe
+    expect(actorFrom("member", self, self, [self, operator])).toBe("conductor");
   });
 
   it("attributes agent-driven changes as agent — never a forward signal", () => {
-    expect(actorFrom("agent", "agent-id", self)).toBe("agent");
+    expect(actorFrom("agent", "agent-id", self, operators)).toBe("agent");
   });
 
   it("surfaces unmapped actor types as unknown (D8 closed union)", () => {
-    expect(actorFrom("system", "x", self)).toBe("unknown");
-    expect(actorFrom(undefined, undefined, self)).toBe("unknown");
+    expect(actorFrom("system", "x", self, operators)).toBe("unknown");
+    expect(actorFrom(undefined, undefined, self, operators)).toBe("unknown");
   });
 });
 

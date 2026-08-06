@@ -96,6 +96,20 @@ else
   me=$(curl -fsS --max-time 5 "$MULTICA/api/me" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" 2>/dev/null)
   if echo "$me" | jq -e '.id' >/dev/null 2>&1; then
     ok "PAT valid (user: $(echo "$me" | jq -r '.email // .name'))"
+    # D15 A5d: the daemon runs LLM-generated code, so its credential is
+    # agent-reachable — its member identity must NOT be attributed as the
+    # operator, or a forged board move would pass the operator guard.
+    daemon_id=$(echo "$me" | jq -r '.id')
+    if [ -z "${GUILD_OPERATOR_MEMBER_IDS:-}" ]; then
+      : # allowlist not visible here; the conductor asserts this at its own startup
+    elif case ",${GUILD_OPERATOR_MEMBER_IDS}," in *",${daemon_id},"*) true ;; *) false ;; esac; then
+      fail "daemon identity is on the operator allowlist (A5d)" \
+        "MULTICA_DAEMON_TOKEN resolving to a member ABSENT from GUILD_OPERATOR_MEMBER_IDS" \
+        "re-mint the daemon under daemon@guild.local via 'guild init'; update MULTICA_DAEMON_TOKEN + GUILD_OPERATOR_MEMBER_IDS in .env; docker compose --profile conductor up -d --force-recreate" \
+        "guild-daemon / guild-conductor"
+    else
+      ok "daemon identity is distinct from the operator (D15 A5d)"
+    fi
   else
     fail "PAT rejected by Multica" "a live, unexpired mul_ token" \
       "re-mint at http://localhost:3000 Settings -> API Tokens; update .env; docker compose --profile daemon up -d --force-recreate" \

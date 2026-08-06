@@ -142,7 +142,9 @@ Given("the live stack, the four role agents, and a clean governance database", a
 
   world.substrate = createMulticaSubstrate(
     { baseUrl: operator.baseUrl, token: conductor.token, workspaceId: operator.workspaceId },
-    { projectScope: operator.workspaceId, roleAgents, selfMemberId: conductor.memberId },
+    // the workspace-owner member is the operator; approvals/acceptances/amendments come
+    // from it, so it is the allowlisted operator identity (D15)
+    { projectScope: operator.workspaceId, roleAgents, selfMemberId: conductor.memberId, operatorMemberIds: [operator.memberId] },
   );
   world.gateway = new LiteLlmModelGateway({ baseUrl: GATEWAY_URL, masterKey: envValue("LITELLM_MASTER_KEY") });
 

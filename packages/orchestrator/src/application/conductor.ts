@@ -514,7 +514,13 @@ export class Conductor {
   private async onLaneMoved(ev: Extract<SubstrateEvent, { kind: "lane_moved" }>): Promise<void> {
     // conductor echoes are idempotent noise; agent moves are never forward
     // signals (D11: validation verdicts are the only forward path)
-    if (ev.actor !== "operator") return;
+    if (ev.actor !== "operator") {
+      // an "unknown"-actor move to a go/halt lane on a governance ticket is the
+      // signature of a stale/empty operator allowlist silently dropping a real
+      // operator move (D15) — surface it so the deadlock is never silent
+      if (ev.actor === "unknown") await this.warnIfDroppedGovernanceMove(ev);
+      return;
+    }
 
     const gateKey = await this.deps.store.findGateTicketByItem(ev.item);
     if (gateKey) {
@@ -527,6 +533,27 @@ export class Conductor {
     if (!record) return;
     if (ev.lane === "done" && record.state === "validated") return this.accept(record);
     if (ev.lane === "cancelled") return this.cancelEngagement(record, "operator");
+  }
+
+  /**
+   * D15 deadlock visibility: a fail-closed operator allowlist that is stale or
+   * empty maps the operator's own board moves to "unknown", which the guard
+   * above drops — silently freezing approvals, acceptance, cancel and reject.
+   * Warn (never throw) when a dropped move targets a governance ticket in a
+   * go/halt lane, so a misconfigured GUILD_OPERATOR_MEMBER_IDS is observable
+   * rather than an invisible strand. Agent/conductor moves are expected and stay
+   * quiet; only "unknown" reaches here.
+   */
+  private async warnIfDroppedGovernanceMove(ev: Extract<SubstrateEvent, { kind: "lane_moved" }>): Promise<void> {
+    if (ev.lane !== "ready_to_work" && ev.lane !== "done" && ev.lane !== "cancelled") return;
+    const gate = await this.deps.store.findGateTicketByItem(ev.item);
+    const record = gate ? null : await this.findByItem(ev.item);
+    if (gate || record) {
+      console.warn(
+        `[D15] ignored a non-attributed member move to "${ev.lane}" on governance item ${ev.item.externalId}: ` +
+          "if this was the operator, GUILD_OPERATOR_MEMBER_IDS is stale/empty and board approvals are deadlocked",
+      );
+    }
   }
 
   /**
@@ -1007,14 +1034,15 @@ export class Conductor {
       await guard(`adopt ${snap.item.externalId}`, () => this.maybeAdoptIdea(snap));
     }
 
-    // 2. ensure every active run's current stage is posted; honor gate moves
-    //    made while down. Attribution (D15): a gate ticket is conductor-authored
-    //    (findWorkItem enforces that — A5a) and, once fully posted, only ever
-    //    moved by the conductor to done/cancelled; postGate re-asserts the
-    //    resting lane for a not-yet-fully-posted gate (A5b), so a go-lane found
-    //    on a posted gate is the operator's move. NOTE: reconcile still cannot
-    //    read the ACTOR of that move from a snapshot — the residual A5c/A5d
-    //    attribution gap is tracked in D15 (needs a Multica activity probe).
+    // 2. ensure every active run's current stage is posted; re-surface gate moves
+    //    made while down. A gate ticket is conductor-authored (A5a) and postGate
+    //    re-asserts the resting lane for a not-yet-fully-posted gate (A5b). A
+    //    go-lane found on a posted gate carries NO actor in the snapshot, so it
+    //    could be the operator OR an agent/forged move (A5c) — reconcile must not
+    //    APPROVE on it (approval mints keys and dispatches: it spends). D15 (c):
+    //    re-assert the resting lane so the move is visible and inert; the operator
+    //    re-moves to trigger the live, operator-attributed approval. Rejection is
+    //    a HALT, not an advance, so it is still honored here.
     for (const run of await this.deps.store.listPlanRuns()) {
       if (run.status !== "active") continue;
       await guard(`stage-gate ${run.planId}`, async () => {
@@ -1030,7 +1058,7 @@ export class Conductor {
           if (gate) {
             const snap = await this.deps.substrate.getWorkItem(gate);
             const gateKey = { stageId: plan.stageId, planVersion: plan.planVersion };
-            if (snap.lane === "ready_to_work") await this.approveStage(gateKey, this.now());
+            if (snap.lane === "ready_to_work") await this.deps.substrate.setLane(gate, "waiting_for_feedback");
             else if (snap.lane === "cancelled") await this.rejectStage(gateKey, this.now());
           }
           break;
@@ -1085,7 +1113,12 @@ export class Conductor {
             if (started) await this.onReported(started);
           }
         } else if (rec.state === "validated" && snap.lane === "done") {
-          await this.accept(rec);
+          // D15 (c): a done lane on reconcile carries no actor — it may be an
+          // agent/forged move, not the operator (A5c). Acceptance fast-forwards
+          // the validated SHA, so it happens only on the live operator move.
+          // Re-assert the resting lane (validated → waiting_for_feedback) so the
+          // pending acceptance is visible; the operator re-moves to Done to accept.
+          await this.setEngagementLane(rec);
         }
       });
     }

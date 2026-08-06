@@ -142,9 +142,18 @@ describe("content and creator surfaces (M2b idea detection + rework attempts, P2
     expect(s.body).toBe("budget: 2.00");
   });
 
-  it("attributes a member-created issue to the operator", () => {
-    const s = deriveSnapshot(ref, issue({ creator_type: "member", creator_id: "someone-else" }), [], "worker", SELF);
+  it("attributes an allowlisted member-created issue to the operator", () => {
+    const s = deriveSnapshot(ref, issue({ creator_type: "member", creator_id: "someone-else" }), [], "worker", SELF, [
+      "someone-else",
+    ]);
     expect(s.createdBy).toBe("operator");
+  });
+
+  it("attributes a non-allowlisted member-created issue as unknown, never operator (D15 A5e)", () => {
+    const s = deriveSnapshot(ref, issue({ creator_type: "member", creator_id: "stranger" }), [], "worker", SELF, [
+      "someone-else",
+    ]);
+    expect(s.createdBy).toBe("unknown");
   });
 
   it("attributes the conductor's own issues as conductor", () => {

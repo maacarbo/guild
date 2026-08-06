@@ -42,6 +42,9 @@ async function main(): Promise<void> {
           projectScope: env.GUILD_WORKSPACE_ID,
           roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,
           selfMemberId,
+          // the kill path only locks + cancels; it never reads board-actor attribution,
+          // so it needs no operator allowlist (kept explicit — the field is required)
+          operatorMemberIds: [],
         },
       ),
       gateway: new LiteLlmModelGateway({ baseUrl: env.GUILD_GATEWAY_URL, masterKey: env.LITELLM_MASTER_KEY }),

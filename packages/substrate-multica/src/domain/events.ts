@@ -64,6 +64,8 @@ export function substrateEventFromFrame(
   receivedAt: string,
   /** the adapter's own member id — conductor-vs-operator attribution (P22); the composition root requires it */
   selfMemberId = "",
+  /** explicit operator allowlist (D15) — a member reads as "operator" only on membership; empty = fail-closed */
+  operatorMemberIds: readonly string[] = [],
 ): RawSubstrateEvent | null {
   if (frame.type === "activity:created") {
     // lane_moved sources from the activity entry, not issue:updated — the
@@ -76,7 +78,7 @@ export function substrateEventFromFrame(
       item: { substrate: substrateName, externalId: p.issue_id },
       lane: laneFromNativeStatus(to),
       nativeStatus: to,
-      actor: actorFrom(p.entry.actor_type, p.entry.actor_id, selfMemberId),
+      actor: actorFrom(p.entry.actor_type, p.entry.actor_id, selfMemberId, operatorMemberIds),
       at: p.entry.created_at ?? receivedAt,
     };
   }
@@ -104,7 +106,7 @@ export function substrateEventFromFrame(
       item: { substrate: substrateName, externalId: issue.id },
       title: issue.title ?? "",
       body: issue.description ?? "",
-      createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId),
+      createdBy: actorFrom(issue.creator_type, issue.creator_id, selfMemberId, operatorMemberIds),
       lane: laneFromNativeStatus(issue.status ?? ""),
       at: issue.created_at ?? receivedAt,
     };
@@ -117,7 +119,7 @@ export function substrateEventFromFrame(
       commentId: c.id,
       item: { substrate: substrateName, externalId: c.issue_id },
       author: c.author_id ?? c.author_type ?? "",
-      actor: actorFrom(c.author_type, c.author_id, selfMemberId),
+      actor: actorFrom(c.author_type, c.author_id, selfMemberId, operatorMemberIds),
       body: c.content ?? "",
       at: c.created_at ?? receivedAt,
     };

@@ -149,6 +149,9 @@ services:
       MULTICA_APP_URL: http://multica-frontend:3000
       # Required at daemon start (entrypoint enforces); cannot be :?-required
       # here because compose interpolates even profile-gated services.
+      # D15: this is now a NON-governance identity (daemon@guild.local), minted by
+      # `guild init` — NOT the operator's own token. The conductor attributes its
+      # board moves as "unknown", never "operator" (A5d fix).
       MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
       # Runtime rows are named "<provider> (<device_name>)"; daemon identity
       # itself is a per-container UUID in ~/.multica/daemon.id (no volume =
@@ -207,10 +210,15 @@ services:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_GATEWAY_URL: http://litellm:4000
       GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
-      # guild-init prints the three values below - see deploy/README.md
+      # guild-init prints the five values below - see deploy/README.md
       GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
+      # D15 operator allowlist: the only member ids the conductor attributes as
+      # "operator". The conductor refuses to start if this is empty, includes its
+      # own id, or includes GUILD_DAEMON_MEMBER_ID (the A5d guard).
+      GUILD_OPERATOR_MEMBER_IDS: ${GUILD_OPERATOR_MEMBER_IDS:-}
+      GUILD_DAEMON_MEMBER_ID: ${GUILD_DAEMON_MEMBER_ID:-}
       # HTTPS with the scoped git PAT embedded, e.g.
       # https://x-access-token:<PAT>@github.com/you/your-product.git
       GUILD_REPO_URL: ${GUILD_REPO_URL:-}
@@ -300,6 +308,8 @@ services:
       MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
       GUILD_DAEMON_VIRTUAL_KEY: ${GUILD_DAEMON_VIRTUAL_KEY:-}
       GUILD_DAEMON_GITHUB_TOKEN: ${GUILD_DAEMON_GITHUB_TOKEN:-}
+      # so doctor [5/7] can assert the daemon identity is NOT on the allowlist (A5d)
+      GUILD_OPERATOR_MEMBER_IDS: ${GUILD_OPERATOR_MEMBER_IDS:-}
     networks: [guild-dev]
 
 networks:

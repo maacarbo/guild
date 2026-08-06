@@ -46,9 +46,17 @@ export interface MulticaSubstrateConfig {
   /**
    * the conductor's own Multica member id (D11: the conductor runs under its
    * own member identity) — lane_moved attribution hinges on it (P22): this id
-   * is "conductor", any other member is "operator"
+   * is "conductor"
    */
   selfMemberId: string;
+  /**
+   * explicit operator member allowlist (D15, audit #17 A5d): a member move/creation
+   * reads as "operator" only if its actor id is on this list — every other member is
+   * "unknown". Required (not optional) so no composition root silently omits it; the
+   * conductor's composition root asserts it is non-empty and excludes selfMemberId and
+   * the daemon identity (an empty list would fail-closed and deadlock board approvals).
+   */
+  operatorMemberIds: readonly string[];
 }
 
 export class MulticaSubstrate implements ExecutionSubstrate {
@@ -188,7 +196,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       const issue = await this.api.getIssue(item.externalId);
       const runs = await this.api.listTaskRuns(item.externalId);
       const agentName = issue.assignee_id ? await this.agentNameFor(issue.assignee_id) : "";
-      return deriveSnapshot(item, issue, runs, agentName, this.config.selfMemberId);
+      return deriveSnapshot(item, issue, runs, agentName, this.config.selfMemberId, this.config.operatorMemberIds);
     } catch (e) {
       return this.fail(e);
     }
@@ -284,7 +292,13 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     const nonce = `${projectScope.slice(0, 8)}-${process.hrtime.bigint().toString(36)}`;
     let seq = 0;
     for await (const frame of this.api.watchWorkspace(opts?.signal)) {
-      const raw = substrateEventFromFrame(this.name, frame, new Date().toISOString(), this.config.selfMemberId);
+      const raw = substrateEventFromFrame(
+        this.name,
+        frame,
+        new Date().toISOString(),
+        this.config.selfMemberId,
+        this.config.operatorMemberIds,
+      );
       if (raw) yield { ...raw, eventId: `${nonce}:${++seq}` };
     }
   }

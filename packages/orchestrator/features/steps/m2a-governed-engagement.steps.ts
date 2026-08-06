@@ -154,6 +154,9 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
       projectScope: operator.workspaceId,
       roleAgents: { implementer: { agentId: worker.agentId, agentName: worker.agentName } },
       selfMemberId: conductor.memberId,
+      // the workspace-owner member is the operator; its board moves are the genuine
+      // operator-attributed gate triggers (D15 allowlist)
+      operatorMemberIds: [operator.memberId],
     },
   );
   world.gateway = new LiteLlmModelGateway({ baseUrl: GATEWAY_URL, masterKey: envValue("LITELLM_MASTER_KEY") });
