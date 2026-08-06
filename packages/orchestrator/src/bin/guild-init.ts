@@ -31,6 +31,20 @@ async function main(): Promise<void> {
     role: "admin",
   });
 
+  // D15 (audit #17 A5d): the daemon runs LLM-generated code and its Multica
+  // credential is agent-reachable. Give it its OWN member identity so no
+  // agent-reachable credential resolves to an identity Guild attributes as
+  // `operator`. Before this fix MULTICA_DAEMON_TOKEN was minted by hand from the
+  // operator's account and resolved to the operator; now init mints it, distinct
+  // from operator and conductor. It joins the workspace so its runtime registers
+  // there (P30: runtimes are workspace-scoped, owner_id orthogonal).
+  const daemon = await acquireMemberToken(env.GUILD_MULTICA_URL, "daemon@guild.local", "guild-daemon-token.json");
+  await ensureWorkspaceMember(env.GUILD_MULTICA_URL, operator.token, env.GUILD_WORKSPACE_ID, {
+    token: daemon.token,
+    email: "daemon@guild.local",
+    role: "admin",
+  });
+
   const roleAgents: Record<string, { agentId: string; agentName: string }> = {};
   for (const role of ROLES) {
     roleAgents[role] = await ensureAgent(env.GUILD_MULTICA_URL, conductor.token, env.GUILD_WORKSPACE_ID, {
@@ -40,10 +54,26 @@ async function main(): Promise<void> {
     console.error(`  ✓ agent guild-${role} (${env.GUILD_AGENT_MODEL})`);
   }
 
-  console.error("\nAdd these to deploy/compose/.env (conductor section):\n");
+  // Fail-closed invariant (D15): the three identities MUST be distinct, and the
+  // operator allowlist must contain ONLY the operator. If minting ever collapsed
+  // two of them, the fix would silently regress — refuse rather than print it.
+  const ids = { operator: operator.memberId, conductor: conductor.memberId, daemon: daemon.memberId };
+  if (new Set(Object.values(ids)).size !== 3) {
+    console.error(`\n✗ identities are not distinct (operator/conductor/daemon): ${JSON.stringify(ids)} — aborting`);
+    process.exit(1);
+  }
+
+  console.error("\nAdd these to deploy/compose/.env:\n");
+  console.error("  # conductor section");
   console.log(`GUILD_MULTICA_TOKEN=${conductor.token}`);
   console.log(`GUILD_WORKSPACE_ID=${env.GUILD_WORKSPACE_ID}`);
   console.log(`GUILD_ROLE_AGENTS=${JSON.stringify(roleAgents)}`);
+  // the conductor attributes ONLY these member ids as the operator (D15 allowlist)
+  console.log(`GUILD_OPERATOR_MEMBER_IDS=${operator.memberId}`);
+  // asserted at conductor startup to be absent from the allowlist (A5d guard)
+  console.log(`GUILD_DAEMON_MEMBER_ID=${daemon.memberId}`);
+  console.error("\n  # daemon section (was hand-minted from the operator account — now init-minted, a NON-governance identity)");
+  console.log(`MULTICA_DAEMON_TOKEN=${daemon.token}`);
 }
 
 main().catch((e) => {

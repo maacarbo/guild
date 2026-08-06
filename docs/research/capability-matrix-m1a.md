@@ -840,3 +840,51 @@ does hold. This changes nothing above — `CapEff` is already `0` for a
 non-root process and `cap_drop` would not close a same-uid read — but a
 normative security claim is materially unmet on the one container that
 runs LLM-generated code.
+
+## Addendum 2026-08-06 — P30: daemon-identity partitioning viability (D15 Option 4 part a)
+
+Before implementing D15 Option 4 part (a) — giving the daemon its own
+`daemon@guild.local` Multica member identity so no agent-reachable credential
+resolves to `operator` — the record listed two handler-level behaviours as
+"answered in Option 4's favour from server SQL, untested at the handler; verify
+during implementation": whether a plain-member daemon's runtime rows project
+into the operator's workspace, and whether an admin can create agents on that
+runtime. Verified against the live `guild-dev` v0.4.15 Multica Postgres
+(read-only inspection; no mutations).
+
+### P30 — runtime/agent ownership is workspace-scoped, not owner-pinned: PASS (part a is viable)
+
+Schema: both `agent_runtime` and `agent` carry `workspace_id`, `owner_id`, and
+`visibility` as independent columns; `agent.runtime_id` binds an agent to a
+specific runtime row; `agent_task_queue` rows also pin `runtime_id`.
+
+Live wiring in the operator's project workspace (identities referenced by role;
+the id↔role map is the deployment's own, not reproduced here):
+
+- **Claim 2 — CONFIRMED.** The four role agents (`guild-analyst/architect/
+  implementer/tester`) are owned by the **conductor** member and bound to a
+  runtime owned by the **operator** member (a *different* member), and
+  `agent_task_queue` shows tasks that **completed** on that cross-owned runtime.
+  An admin creating agents on, and dispatching to, a runtime owned by another
+  member is therefore the live reality — so a separate `daemon@guild.local`
+  identity's runtime can host conductor-created agents exactly as the
+  operator-owned one does today.
+- **Claim 1 — SUPPORTED.** Runtimes are `workspace_id`-scoped with `owner_id`
+  orthogonal (schema + the cross-owner binding above). A daemon configured for
+  the operator's workspace registers its runtime there independent of which
+  member it authenticates as; changing that member changes only `owner_id`, a
+  column nothing in the agent→runtime→task binding path keys on.
+
+**Residual (not a blocker; pre-existing, unrelated to identity separation).**
+The dev daemon's `daemon_id` is a per-container UUID with no volume, so each
+container start inserts a *new* `agent_runtime` row and the role agents remain
+pinned to the prior runtime (observed live: agents bound to an `offline`
+runtime while a newer runtime is `online`). This daemon-id churn — not identity
+separation — is what orphans agents across a restart. Consequence for the part
+(a) migration: existing installs re-minting the daemon token under the new
+identity keep their agent bindings **only if `daemon_id` is stable** (a
+persistent `~/.multica/daemon.id`); otherwise re-run `guild init` to re-bind.
+Fresh installs are unaffected. End-to-end confirmation (a daemon actually
+running as `daemon@guild.local` and dispatching a task) is a deployment-time
+step, performed when the stack is rebuilt to mirror `main` after the fix
+merges — not exercised here to avoid mutating the running dev daemon.

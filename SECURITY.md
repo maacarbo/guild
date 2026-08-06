@@ -1,6 +1,6 @@
 # Security Policy
 
-Guild is pre-`v0.1.0`; there is no supported release line yet — report against `main`.
+The supported release line is `v0.1.x` (first shipped as `v0.1.0`, GHCR images + git tag). Report against the latest release or `main`.
 
 ## Reporting a vulnerability
 

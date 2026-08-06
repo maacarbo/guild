@@ -21,6 +21,7 @@ const env = readEnv([
   { name: "GUILD_WORKSPACE_ID", source: "the project workspace — guild-init prints it" },
   { name: "GUILD_ROLE_AGENTS", source: "role→agent JSON — guild-init prints it" },
   { name: "GUILD_OPERATOR_MEMBER_IDS", source: "comma-separated operator member id(s) — guild-init prints them (D15 allowlist)" },
+  { name: "GUILD_DAEMON_MEMBER_ID", source: "the daemon's own member id — guild-init prints it (D15: must be a non-operator identity)" },
   { name: "GUILD_GATEWAY_URL", source: "LiteLLM base URL, e.g. http://litellm:4000" },
   { name: "LITELLM_MASTER_KEY", source: "gateway master key (normative secret, deploy/compose/.env)" },
   { name: "GUILD_POSTGRES_URL", source: "governance DB connection string" },
@@ -55,6 +56,16 @@ const operatorMemberIds = env.GUILD_OPERATOR_MEMBER_IDS.split(",")
 if (operatorMemberIds.length === 0) {
   console.error(
     "GUILD_OPERATOR_MEMBER_IDS is empty — set at least one operator member id (guild-init prints it). An empty operator allowlist fail-closes and deadlocks board approvals, acceptance, cancel, and reject (D15).",
+  );
+  process.exit(1);
+}
+// A5d invariant: the daemon runs LLM-generated code, so its credential is
+// agent-reachable — it must never be attributed as the operator. If its member
+// id is on the allowlist (e.g. a legacy install where the daemon still shares the
+// operator's identity), a forged board move would pass the operator guard. Refuse.
+if (operatorMemberIds.includes(env.GUILD_DAEMON_MEMBER_ID)) {
+  console.error(
+    `GUILD_DAEMON_MEMBER_ID (${env.GUILD_DAEMON_MEMBER_ID}) is on GUILD_OPERATOR_MEMBER_IDS — the agent-reachable daemon credential would be attributed as the operator (A5d). Re-mint the daemon under its own identity via 'guild init'.`,
   );
   process.exit(1);
 }
