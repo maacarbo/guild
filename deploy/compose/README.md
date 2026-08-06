@@ -118,7 +118,9 @@ account, so the daemon authenticated **as the operator** — an agent that reach
 that token could forge operator board moves (#17 A5c/A5d/A5e, advisory
 `GHSA-7pg8-mmpv-r6pc`). To upgrade:
 
-1. Pull the `v0.1.1` images (or rebuild) and re-run `docker compose run --rm guild-init`.
+1. Update your checkout to `v0.1.1` (`git pull` / `git checkout v0.1.1`) so the
+   compose files default `GUILD_IMAGE_TAG` to `v0.1.1` (or export
+   `GUILD_IMAGE_TAG=v0.1.1`), then re-run `docker compose run --rm guild-init`.
    It now also mints `daemon@guild.local` and prints `MULTICA_DAEMON_TOKEN`,
    `GUILD_OPERATOR_MEMBER_IDS`, and `GUILD_DAEMON_MEMBER_ID`.
 2. Replace the old hand-minted `MULTICA_DAEMON_TOKEN` in `.env` with the printed
