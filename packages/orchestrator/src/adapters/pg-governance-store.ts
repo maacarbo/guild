@@ -105,6 +105,10 @@ export class PgGovernanceStore implements GovernanceStore {
         engagement_id text PRIMARY KEY,
         at            text NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS role_memory (
+        role text PRIMARY KEY,
+        content text NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS gate_tickets (
         gate_key text PRIMARY KEY,
         item     jsonb NOT NULL
@@ -230,6 +234,19 @@ export class PgGovernanceStore implements GovernanceStore {
       "SELECT engagement_id FROM dispatch_intents ORDER BY engagement_id",
     );
     return res.rows.map((r) => r.engagement_id);
+  }
+
+  async getRoleMemory(role: string): Promise<string | null> {
+    const res = await this.pool.query<{ content: string }>("SELECT content FROM role_memory WHERE role = $1", [role]);
+    return res.rows[0]?.content ?? null;
+  }
+
+  async saveRoleMemory(role: string, content: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO role_memory (role, content) VALUES ($1, $2)
+       ON CONFLICT (role) DO UPDATE SET content = EXCLUDED.content`,
+      [role, content],
+    );
   }
 
   async saveGateTicket(stageId: string, planVersion: number, item: WorkItemRef): Promise<void> {

@@ -35,6 +35,16 @@ export function governanceStoreContract(name: string, getStore: () => Governance
       expect((await store.getEngagement(base.engagementId))?.state).toBe("dispatched");
     });
 
+    it("role memory round-trips per role: whole-artifact replace, null before first write (M3)", async () => {
+      const store = getStore();
+      const role = key("role-mem");
+      expect(await store.getRoleMemory(role)).toBeNull();
+      await store.saveRoleMemory(role, "implementation stg:a:implementation v1 accepted at sha-1");
+      expect(await store.getRoleMemory(role)).toBe("implementation stg:a:implementation v1 accepted at sha-1");
+      await store.saveRoleMemory(role, "line1\nline2");
+      expect(await store.getRoleMemory(role), "replace, not append — the caller owns composition").toBe("line1\nline2");
+    });
+
     it("gate decisions are first-writer-wins per (stageId, planVersion); losers read what stuck", async () => {
       const store = getStore();
       const stageId = key("s-gd");

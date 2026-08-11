@@ -87,6 +87,8 @@ const TERMINAL_WORK: ReadonlySet<string> = new Set(["done", "failed", "cancelled
 /** states holding a live key whose work the hard cap cancels — validated work survives (D12) */
 const SPENDING: ReadonlySet<EngagementState> = new Set(["dispatched", "working", "blocked", "reported", "bounced"]);
 const TERMINAL_STATES: ReadonlySet<EngagementState> = new Set(["accepted", "cancelled", "escalated"]);
+/** role-memory artifacts stay bounded — briefs must not grow without limit (M3) */
+const ROLE_MEMORY_MAX_LINES = 20;
 
 /** stage ids are conductor-minted as `stg:<ideaId>:<kind>` (planner identity rule) */
 function stageKindOf(stageId: string): StageKind {
@@ -424,7 +426,10 @@ export class Conductor {
     const amendments = await this.amendmentNotes(stageId);
 
     let upstream: { handoff: UpstreamHandoff | null; authoredBy: string } | undefined;
-    const priorDecisions: string[] = [];
+    // the role's durable memory leads (M3: briefs stop carrying priorDecisions
+    // by hand); run-local acceptances follow; dedup at the end
+    const memory = await this.deps.store.getRoleMemory(roleFor(kind));
+    const priorDecisions: string[] = memory ? memory.split("\n") : [];
     if (index > 0) {
       const prevStageId = run.stageIds[index - 1]!;
       const prevKind = stageKindOf(prevStageId);
@@ -444,7 +449,7 @@ export class Conductor {
       { projectId: this.config.projectScope, defaultPlanBudgetCents: this.config.defaultPlanBudgetCents },
       kind,
       planVersion,
-      { amendments, ...(upstream ? { upstream } : {}), priorDecisions },
+      { amendments, ...(upstream ? { upstream } : {}), priorDecisions: [...new Set(priorDecisions)] },
     );
     await this.deps.store.saveStagePlan(plan);
     return this.postGate(plan, warnings);
@@ -979,6 +984,23 @@ export class Conductor {
     return spentCents;
   }
 
+  /**
+   * Deterministic role-memory maintenance (M3): on acceptance, the accepting
+   * role's artifact gains one machine-derived line (D12 traceability — never
+   * agent free text), bounded to the newest ROLE_MEMORY_MAX_LINES. Idempotent:
+   * re-driven accepts add nothing.
+   */
+  private async recordRoleMemory(rec: EngagementRecord): Promise<void> {
+    if (!rec.validatedSha) return;
+    const kind = stageKindOf(rec.stageId);
+    const role = roleFor(kind);
+    const line = `${kind} ${rec.stageId} v${rec.planVersion} accepted at ${rec.validatedSha}`;
+    const lines = (await this.deps.store.getRoleMemory(role))?.split("\n") ?? [];
+    if (lines.includes(line)) return;
+    lines.push(line);
+    await this.deps.store.saveRoleMemory(role, lines.slice(-ROLE_MEMORY_MAX_LINES).join("\n"));
+  }
+
   private async accept(record: EngagementRecord): Promise<void> {
     if (!record.item || !record.validatedSha) return;
     // merge first: a fast-forward failure leaves the engagement validated and
@@ -986,6 +1008,7 @@ export class Conductor {
     await this.deps.source.fastForward(this.config.repoUrl, this.config.targetBranch, record.validatedSha);
     const accepted = await this.applyTransition(record, { kind: "accepted" }, "operator accepted");
     if (!accepted) return;
+    await this.recordRoleMemory(accepted);
     const spentCents = await this.captureSpend(accepted);
     await this.deps.gateway.revokeKey(accepted.engagementId);
     await this.deps.substrate.close(record.item);
@@ -1299,6 +1322,7 @@ export class Conductor {
             d.terminated.finalState === rec.state,
         );
         if (settled) return;
+        if (rec.state === "accepted") await this.recordRoleMemory(rec); // idempotent (M3)
         // live reading wins (crash happened before revocation); the persisted
         // terminalSpendCents recovers the crash-after-revocation window (#12)
         const spentCents = (await this.captureSpend(rec)) ?? rec.terminalSpendCents;
@@ -1445,6 +1469,11 @@ export class Conductor {
         "  ```gherkin",
         ...e.brief.contract.gherkin.split("\n").map((line) => `  ${line}`),
         "  ```",
+        // approval covers what shaped the brief (M3 operator decision):
+        // role memory + prior acceptances render verbatim
+        ...(e.brief.priorDecisions.length
+          ? ["", "  Prior decisions & role memory (folded into the brief):", ...e.brief.priorDecisions.map((d) => `  - ${d}`)]
+          : []),
       ]),
       ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
       "",

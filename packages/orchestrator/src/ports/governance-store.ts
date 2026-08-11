@@ -73,6 +73,14 @@ export interface GovernanceStore {
   /** persisted BEFORE any dispatch effect; idempotent — a crash mid-saga resumes, never re-dispatches blind */
   recordDispatchIntent(engagementId: string, at: string): Promise<void>;
   listDispatchIntents(): Promise<string[]>;
+  /**
+   * Role-memory artifact (M3): one durable text artifact per role, folded into
+   * that role's briefs and rendered in gate bodies so operator approval covers
+   * it. Whole-artifact replace — the caller owns composition; content is
+   * machine-derived facts (D12 traceability), never agent free text.
+   */
+  getRoleMemory(role: string): Promise<string | null>;
+  saveRoleMemory(role: string, content: string): Promise<void>;
   saveGateTicket(stageId: string, planVersion: number, item: WorkItemRef): Promise<void>;
   getGateTicket(stageId: string, planVersion: number): Promise<WorkItemRef | null>;
   /** reverse lookup: which gate does this board item front? (multi-stage event routing) */

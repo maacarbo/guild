@@ -575,6 +575,22 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("role memory rides across engagements (M3)", () => {
+  it("a second engagement of the same role receives the artifact the first one updated — approval sees it", async () => {
+    const w = makeWorld();
+    await adoptIdea(w, "Fix A.\ntemplate: quick-fix", "idea-a");
+    await driveStageToAccepted(w, "stg:idea-a:implementation", "agent/implementer/i1", "sha-a1");
+    expect(await w.store.getRoleMemory("implementer")).toContain("stg:idea-a:implementation v1 accepted at sha-a1");
+
+    await adoptIdea(w, "Fix B.\ntemplate: quick-fix", "idea-b");
+    const gate = await w.substrate.findWorkItem("gate:stg:idea-b:implementation:v1");
+    const body = w.substrate.ticketBodies.get(gate!.externalId) ?? "";
+    expect(body, "operator approval covers the memory that shaped the brief").toContain("sha-a1");
+    const plan = await w.store.getLatestStagePlan("stg:idea-b:implementation");
+    expect(plan?.engagements[0]?.brief.priorDecisions.some((d) => d.includes("sha-a1"))).toBe(true);
+  });
+});
+
 describe("team evolution: hire on demand, retire on completion (M3)", () => {
   it("a role the plan demands but nobody holds is hired at dispatch, trail-recorded", async () => {
     const w = makeWorld();
@@ -1257,6 +1273,8 @@ describe("the whole pipeline (the M2 demo skeleton)", () => {
     // priorDecisions accumulate down the pipeline
     const delivery = (await w.store.getLatestStagePlan("stg:idea-1:delivery"))!;
     expect(delivery.engagements[0]!.brief.priorDecisions).toEqual([
+      // the delivery role (implementer) leads with its own durable memory (M3)
+      "implementation stg:idea-1:implementation v1 accepted at sha-2",
       "analysis accepted at sha-0",
       "architecture accepted at sha-1",
       "implementation accepted at sha-2",
