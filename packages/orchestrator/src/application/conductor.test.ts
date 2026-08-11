@@ -1374,7 +1374,10 @@ describe("the gate body renders the WHOLE contract (D12: approval covers content
     await adoptIdea(w);
     w.source.files.set(
       "sha-a:guild/handoff/architecture.checks.json",
-      JSON.stringify({ gherkin: "Feature: sneaky upstream criteria", checks: [] }),
+      JSON.stringify({
+        gherkin: "Feature: sneaky upstream criteria",
+        checks: [{ kind: "artifact", path: "docs/UPSTREAM.md" }],
+      }),
     );
     await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-a");
     const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
@@ -1383,5 +1386,20 @@ describe("the gate body renders the WHOLE contract (D12: approval covers content
     // the fake keeps only title; assert via the createTicket capture instead
     const body = w.substrate.ticketBodies.get(gate2.externalId) ?? "";
     expect(body).toContain("sneaky upstream criteria");
+  });
+
+  it("a zero-check handoff degrades visibly — the gate body warns and stays floor-authored (C5)", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    w.source.files.set(
+      "sha-a:guild/handoff/architecture.checks.json",
+      JSON.stringify({ gherkin: "Feature: sneaky upstream criteria", checks: [] }),
+    );
+    await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-a");
+    const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
+    const body = w.substrate.ticketBodies.get(gate2.externalId) ?? "";
+    expect(body).toContain("No valid upstream handoff");
+    expect(body).toContain("authored by guild-floor");
+    expect(body).not.toContain("sneaky upstream criteria");
   });
 });

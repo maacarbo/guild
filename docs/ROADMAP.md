@@ -60,7 +60,7 @@ Nothing in Guild matters if the substrate assumptions don't hold; prove them fir
 ### M2b — The planner and the team
 
 - Stage planner: idea → staged plan (analysis → architecture → implementation → test → delivery) with roles and budget allocation; plan versioning + re-gate on amendment
-- Plan-approval gate on the board (D11: the plan is a ticket; the operator's lane move is the explicit approval — resolves open question 2) — explicit by default, auto-approve timer as per-project opt-in; the CLI ships as bootstrap + kill-switch only (`guild init`, `guild doctor`, emergency stop)
+- Plan-approval gate on the board (D11: the plan is a ticket; the operator's lane move is the explicit approval — resolves open question 2) — explicit by default; the auto-approve timer opt-in remains **unimplemented** (the `auto_approved` decision type + read paths shipped without a producer — #23 E2); the CLI ships as bootstrap + kill-switch only (`guild init`, `guild doctor`, emergency stop)
 - Fixed starter team of four roles; multi-stage, multi-engagement orchestration (role-memory artifacts deferred wholesale to M3 — briefs carry `priorDecisions` explicitly until then)
 - Budget watchdog (application code — needs no cluster): per-engagement soft cap (warn) and per-project hard cap (cancel via substrate + lock dispatch), metered from the LiteLLM gateway; an induced overspend halts the pipeline cleanly with a visible explanation
 

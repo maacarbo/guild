@@ -79,11 +79,14 @@ export function handoffPathFor(kind: StageKind): string {
 
 /**
  * `budget: $2.50`-style directive, dollars → integer cents with integer math
- * (published-language money rules: never floating-point currency). Matches
- * mid-line too: amendment notes arrive as "amend: budget: 5.00".
+ * (published-language money rules: never floating-point currency). The
+ * directive must be its own line — optionally after the "amend:" marker
+ * ("amend: budget: 5.00") — so prose that merely ends in a budget-looking
+ * phrase ("… running budget: 3") never reprices a stage (C4): amendment
+ * notes replay on every re-derivation, so an accidental match would stick.
  */
 export function parseBudgetDirective(text: string): number | null {
-  const m = /(?:^|\s)budget:\s*\$?(\d+)(?:\.(\d{1,2}))?\s*$/m.exec(text);
+  const m = /^(?:amend:\s+)?budget:\s*\$?(\d+)(?:\.(\d{1,2}))?\s*$/m.exec(text);
   if (!m) return null;
   const dollars = Number.parseInt(m[1], 10);
   const cents = m[2] ? Number.parseInt(m[2].padEnd(2, "0"), 10) : 0;
@@ -103,8 +106,11 @@ function stageBudgetCents(total: number, kind: StageKind): number {
 
 /**
  * Shape-validate an upstream handoff artifact (hostile input — D12 bounds:
- * ≤ 8 checks, command timeouts ≤ 600 s). Anything off-shape rejects the WHOLE
+ * 1–8 checks, command timeouts ≤ 600 s). Anything off-shape rejects the WHOLE
  * artifact: a partially-honored contract would misstate what was approved.
+ * Zero checks rejects too (C5): an "authored" contract with nothing the
+ * tester can run would read like a real one while enforcing only the floor —
+ * degrading with the missing-handoff warning states what actually happened.
  */
 export function parseHandoffChecks(raw: string): UpstreamHandoff | null {
   let parsed: unknown;
@@ -116,7 +122,7 @@ export function parseHandoffChecks(raw: string): UpstreamHandoff | null {
   if (typeof parsed !== "object" || parsed === null) return null;
   const { gherkin, checks } = parsed as { gherkin?: unknown; checks?: unknown };
   if (gherkin !== undefined && typeof gherkin !== "string") return null;
-  if (!Array.isArray(checks) || checks.length > MAX_UPSTREAM_CHECKS) return null;
+  if (!Array.isArray(checks) || checks.length === 0 || checks.length > MAX_UPSTREAM_CHECKS) return null;
   const valid: ContractCheck[] = [];
   for (const c of checks) {
     if (typeof c !== "object" || c === null) return null;
