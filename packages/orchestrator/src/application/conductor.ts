@@ -442,7 +442,7 @@ export class Conductor {
       let handoffRaw: string | null = null;
       for (let i = 0; i < index; i++) {
         const sha = await this.stageValidatedSha(run.stageIds[i]!);
-        if (sha) priorDecisions.push(`${stageKindOf(run.stageIds[i]!)} accepted at ${sha}`);
+        if (sha) priorDecisions.push(`${stageKindOf(run.stageIds[i]!)} ${run.stageIds[i]!} accepted at ${sha}`);
         if (i === index - 1 && sha) {
           handoffRaw = await this.deps.source.readFile(this.config.repoUrl, sha, handoffPathFor(kind));
         }
@@ -450,7 +450,10 @@ export class Conductor {
       upstream = { handoff: handoffRaw ? parseHandoffChecks(handoffRaw) : null, authoredBy: roleFor(prevKind) };
     }
 
-    // the run-pinned project rules (M3, D13): absence is silence, not a warning
+    // the run-pinned project rules (M3, D13): absence is silence, not a warning.
+    // Caveat (verify finding): the source adapter collapses transport faults
+    // to null too, so a transient git failure drops the rules for THIS stage
+    // only — narrow, and the gate body's missing Notes line is the tell.
     let projectRules: { path: string; sha: string; content: string } | undefined;
     if (run.rulesSha) {
       const content = await this.deps.source.readFile(this.config.repoUrl, run.rulesSha, RULES_PATH);
@@ -1015,7 +1018,11 @@ export class Conductor {
     if (!rec.validatedSha) return;
     const kind = stageKindOf(rec.stageId);
     const role = roleFor(kind);
-    const line = `${kind} ${rec.stageId} v${rec.planVersion} accepted at ${rec.validatedSha}`;
+    // ONE canonical phrasing shared with openStage's run-local lines — the
+    // Set-dedup in openStage only works on exact strings (verify finding).
+    // The 20-line cap silently drops the oldest facts; acceptable: every
+    // acceptance stays queryable in the decisions table forever.
+    const line = `${kind} ${rec.stageId} accepted at ${rec.validatedSha}`;
     const lines = (await this.deps.store.getRoleMemory(role))?.split("\n") ?? [];
     if (lines.includes(line)) return;
     lines.push(line);

@@ -615,7 +615,7 @@ describe("role memory rides across engagements (M3)", () => {
     const w = makeWorld();
     await adoptIdea(w, "Fix A.\ntemplate: quick-fix", "idea-a");
     await driveStageToAccepted(w, "stg:idea-a:implementation", "agent/implementer/i1", "sha-a1");
-    expect(await w.store.getRoleMemory("implementer")).toContain("stg:idea-a:implementation v1 accepted at sha-a1");
+    expect(await w.store.getRoleMemory("implementer")).toContain("implementation stg:idea-a:implementation accepted at sha-a1");
 
     await adoptIdea(w, "Fix B.\ntemplate: quick-fix", "idea-b");
     const gate = await w.substrate.findWorkItem("gate:stg:idea-b:implementation:v1");
@@ -1176,7 +1176,7 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
 
     const arch = await w.store.getLatestStagePlan("stg:idea-1:architecture");
     expect(arch, "architecture plan opened").toBeTruthy();
-    expect(arch!.engagements[0]!.brief.priorDecisions).toEqual(["analysis accepted at sha-analysis"]);
+    expect(arch!.engagements[0]!.brief.priorDecisions).toEqual(["analysis stg:idea-1:analysis accepted at sha-analysis"]);
     const contract = arch!.engagements[0]!.brief.contract;
     expect(contract.authoredBy).toBe("analyst");
     expect(contract.checks).toContainEqual({ kind: "artifact", path: "docs/ADR-1.md" });
@@ -1308,12 +1308,12 @@ describe("the whole pipeline (the M2 demo skeleton)", () => {
     // priorDecisions accumulate down the pipeline
     const delivery = (await w.store.getLatestStagePlan("stg:idea-1:delivery"))!;
     expect(delivery.engagements[0]!.brief.priorDecisions).toEqual([
-      // the delivery role (implementer) leads with its own durable memory (M3)
-      "implementation stg:idea-1:implementation v1 accepted at sha-2",
-      "analysis accepted at sha-0",
-      "architecture accepted at sha-1",
-      "implementation accepted at sha-2",
-      "test accepted at sha-3",
+      // ONE canonical phrasing per fact: the implementer's memory line and the
+      // run-local implementation line are the same string, deduped (M3)
+      "implementation stg:idea-1:implementation accepted at sha-2",
+      "analysis stg:idea-1:analysis accepted at sha-0",
+      "architecture stg:idea-1:architecture accepted at sha-1",
+      "test stg:idea-1:test accepted at sha-3",
     ]);
   });
 });
