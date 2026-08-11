@@ -8,6 +8,7 @@
  */
 
 import type { ContractCheck, HandoffContract, StageKind, StagePlan } from "@guild/shared";
+import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageTemplate } from "./templates.js";
 
 export interface Idea {
   /** substrate external id of the idea ticket — the plan's identity anchor */
@@ -47,7 +48,8 @@ export interface DerivedStage {
   warnings: string[];
 }
 
-export const STAGE_ORDER: readonly StageKind[] = ["analysis", "architecture", "implementation", "test", "delivery"];
+/** the standard template's pipeline — the catalog is the single source (M3) */
+export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stages;
 
 const ROLE_BY_KIND: Record<StageKind, string> = {
   analysis: "analyst",
@@ -55,15 +57,6 @@ const ROLE_BY_KIND: Record<StageKind, string> = {
   implementation: "implementer",
   test: "tester",
   delivery: "implementer",
-};
-
-/** fixed integer-percent split; the remainder cents land on implementation */
-const BUDGET_PCT: Record<StageKind, number> = {
-  analysis: 15,
-  architecture: 15,
-  implementation: 40,
-  test: 20,
-  delivery: 10,
 };
 
 const MAX_UPSTREAM_CHECKS = 8;
@@ -115,10 +108,13 @@ export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
   return directive !== null ? Math.min(directive, MAX_PLAN_BUDGET_CENTS) : config.defaultPlanBudgetCents;
 }
 
-function stageBudgetCents(total: number, kind: StageKind): number {
-  const floor = (k: StageKind) => Math.floor((total * BUDGET_PCT[k]) / 100);
-  if (kind !== "implementation") return floor(kind);
-  const others = STAGE_ORDER.filter((k) => k !== "implementation").reduce((sum, k) => sum + floor(k), 0);
+function stageBudgetCents(total: number, kind: StageKind, template: StageTemplate): number {
+  const floor = (k: StageKind) => Math.floor((total * (template.budgetPct[k] ?? 0)) / 100);
+  // remainder cents land on implementation where the template has one,
+  // else on its first stage — every template keeps the whole total
+  const remainderKind = template.stages.includes("implementation") ? "implementation" : template.stages[0];
+  if (kind !== remainderKind) return floor(kind);
+  const others = template.stages.filter((k) => k !== remainderKind).reduce((sum, k) => sum + floor(k), 0);
   return total - others;
 }
 
@@ -255,10 +251,12 @@ export function deriveStagePlan(
   opts: DeriveOptions = {},
 ): DerivedStage {
   const warnings: string[] = [];
+  const { template, warning: templateWarning } = templateFor(idea.body);
+  if (templateWarning) warnings.push(templateWarning);
   const amendments = opts.amendments ?? [];
   const amendedBudgetRaw = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
   const amendedBudget = amendedBudgetRaw !== undefined ? Math.min(amendedBudgetRaw, MAX_PLAN_BUDGET_CENTS) : undefined;
-  const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), kind);
+  const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), kind, template);
   const ideaDirective = parseBudgetDirective(idea.body);
   const clampedRaw = amendedBudgetRaw !== undefined ? amendedBudgetRaw : ideaDirective;
   if (clampedRaw !== null && clampedRaw !== undefined && clampedRaw > MAX_PLAN_BUDGET_CENTS) {
@@ -322,7 +320,7 @@ export function deriveStagePlan(
           title: `${kind}: ${idea.title}`,
           budgetCents,
           brief: {
-            roleContext: `You are the ${roleFor(kind)} on a governed delivery team. Your work is validated against a machine-checkable contract — self-reports are never trusted.`,
+            roleContext: roleTemplateFor(roleFor(kind)).roleContext,
             instructions: instructionsFor(kind, idea),
             contract,
             priorDecisions: opts.priorDecisions ?? [],
