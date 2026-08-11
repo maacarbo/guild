@@ -356,7 +356,25 @@ Then("the decision trail records five gated stages with zero un-contracted advan
   const dispatches = ds.flatMap((d, i) =>
     d.kind === "dispatch" && d.outcome.kind === "dispatched" ? [{ id: d.outcome.engagementId, i }] : [],
   );
-  assert.ok(dispatches.length >= 5, `five stages dispatched (got ${dispatches.length})`);
+  // Run-scoped EXACT counts (#12): `>= 5` over the whole store could never
+  // catch a duplicate dispatch. Every stage dispatches exactly once at its
+  // expected version (analysis is v2 — the scenario amends it pre-approval),
+  // and no OTHER engagement of this idea dispatched at all.
+  const counts = new Map<string, number>();
+  for (const { id } of dispatches) {
+    if (!id.startsWith(`eng:stg:${world.ideaId}:`)) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  for (const stageId of stageIds) {
+    const version = stageId.endsWith(":analysis") ? 2 : 1;
+    const engagementId = `eng:${stageId}:v${version}`;
+    assert.equal(counts.get(engagementId), 1, `exactly one dispatch of ${engagementId} (got ${counts.get(engagementId) ?? 0})`);
+  }
+  assert.equal(
+    counts.size,
+    stageIds.length,
+    `no unexpected dispatches for ${world.ideaId} (saw: ${[...counts.keys()].sort().join(", ")})`,
+  );
   for (const { id, i } of dispatches) {
     if (!id.startsWith(`eng:stg:${world.ideaId}:`)) continue;
     // engagement ids are `eng:<stageId>:v<n>` — strip the prefix to get the approval key
