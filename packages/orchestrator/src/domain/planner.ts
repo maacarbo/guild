@@ -93,8 +93,18 @@ export function parseBudgetDirective(text: string): number | null {
   return dollars * 100 + cents;
 }
 
+/**
+ * Sanity ceiling on any budget: directive (#12): a fat-fingered
+ * `budget: 999999` would mint a $999,999 chain of virtual-key caps. $100
+ * (operator decision 2026-08-11) is ~33x the default $3 plan — roomy for
+ * deliberate runs, two orders of magnitude under the typo class. Applies to
+ * the idea-level plan total AND the per-stage amend override (each clamps
+ * independently; the split path inherits the clamped total).
+ */
+export const MAX_PLAN_BUDGET_CENTS = 10_000;
+
 export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
-  return parseBudgetDirective(idea.body) ?? config.defaultPlanBudgetCents;
+  return Math.min(parseBudgetDirective(idea.body) ?? config.defaultPlanBudgetCents, MAX_PLAN_BUDGET_CENTS);
 }
 
 function stageBudgetCents(total: number, kind: StageKind): number {
@@ -238,8 +248,16 @@ export function deriveStagePlan(
 ): DerivedStage {
   const warnings: string[] = [];
   const amendments = opts.amendments ?? [];
-  const amendedBudget = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
+  const amendedBudgetRaw = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
+  const amendedBudget = amendedBudgetRaw !== undefined ? Math.min(amendedBudgetRaw, MAX_PLAN_BUDGET_CENTS) : undefined;
   const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), kind);
+  const ideaDirective = parseBudgetDirective(idea.body);
+  const clampedRaw = amendedBudgetRaw !== undefined ? amendedBudgetRaw : ideaDirective;
+  if (clampedRaw !== null && clampedRaw !== undefined && clampedRaw > MAX_PLAN_BUDGET_CENTS) {
+    warnings.push(
+      `The budget: directive (${clampedRaw}¢) exceeds the ${MAX_PLAN_BUDGET_CENTS}¢ sanity ceiling and was clamped — raise MAX_PLAN_BUDGET_CENTS deliberately if this was intended (#12).`,
+    );
+  }
   const stageId = `stg:${idea.ideaId}:${kind}`;
   const engagementId = `eng:${stageId}:v${planVersion}`;
 
