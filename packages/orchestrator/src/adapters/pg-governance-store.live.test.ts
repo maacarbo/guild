@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StagePlan } from "@guild/shared";
 import type { DecisionEntry } from "../domain/decisions.js";
+import { governanceStoreContract } from "../testkit/governance-store-conformance.js";
 import { PgGovernanceStore } from "./pg-governance-store.js";
 
 const live = process.env.GUILD_LIVE_STACK === "1";
@@ -88,24 +89,9 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     expect((await store.listEngagements()).map((r) => r.engagementId)).toContain("eng-pg-1");
   });
 
-  it("saveEngagementIf is a state CAS: the stale writer loses (#11)", async () => {
-    const base = { engagementId: "eng-cas", stageId: "s", planVersion: 1, bounceCount: 0 } as const;
-    expect(await store.saveEngagementIf({ ...base, state: "dispatched" }, "gated"), "missing record").toBe(false);
-    await store.saveEngagement({ ...base, state: "gated" });
-    expect(await store.saveEngagementIf({ ...base, state: "dispatched" }, "gated")).toBe(true);
-    expect(await store.saveEngagementIf({ ...base, state: "working" }, "gated"), "stale expectation").toBe(false);
-    expect((await store.getEngagement("eng-cas"))?.state).toBe("dispatched");
-  });
-
-  it("gate decisions are first-writer-wins per (stageId, planVersion); losers read what stuck (#11)", async () => {
-    const approved = { kind: "approved", stageId: "s-gd", planVersion: 1, by: "operator", at: "t1" } as const;
-    const rejected = { kind: "rejected", stageId: "s-gd", planVersion: 1, note: "late", at: "t2" } as const;
-    expect(await store.recordGateDecision(approved)).toBe(true);
-    expect(await store.recordGateDecision(rejected), "second decision loses").toBe(false);
-    expect(await store.recordGateDecision({ ...approved, planVersion: 2 }), "a new version regates").toBe(true);
-    expect((await store.getGateDecision("s-gd", 1))?.kind, "the loser sees the winner").toBe("approved");
-    expect(await store.getGateDecision("s-gd", 9)).toBeNull();
-  });
+  // CAS/uniqueness semantics are pinned by the shared contract suite below
+  // (#12 item 5) — the same assertions the in-memory adapter runs in CI.
+  governanceStoreContract("pg", () => store);
 
   it("gate tickets reverse-resolve from the board item", async () => {
     await store.saveGateTicket("stg:idea:analysis", 3, { substrate: "multica", externalId: "gate-77" });
