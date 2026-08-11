@@ -169,6 +169,14 @@ services:
       GIT_USER_EMAIL: ${GUILD_DAEMON_GIT_EMAIL:-guild-daemon@localhost}
     # Session dirs are ephemeral by design (no volume): bounce continuity
     # after a container restart is best-effort — docker/daemon/README.md.
+    # Compose-era hardening floor (#21): the image runs as USER agent with no
+    # setuid escalation, so no-new-privileges is safe. Limits are wider than
+    # the validator sandbox's 512m/256 because this container runs OpenCode
+    # plus git/build tooling for a whole engagement.
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    pids_limit: 512
     networks: [guild-dev]
     restart: unless-stopped
 
