@@ -41,6 +41,7 @@ import {
   STAGE_ORDER,
   deriveStagePlan,
   handoffPathFor,
+  isAmendNote,
   parseHandoffChecks,
   roleFor,
   type Idea,
@@ -170,9 +171,11 @@ export class Conductor {
     const spends = new Map<string, KeySpend>();
     for (const id of minted) {
       try {
-        spends.set(id, await this.deps.gateway.getSpend(id));
+        const spend = await this.deps.gateway.getSpend(id);
+        // null = revoked — its final reading rides in the termination entry
+        if (spend) spends.set(id, spend);
       } catch {
-        // revoked key — its final reading rides in the termination entry
+        // transient read failure — skip this key this pass; the next sweep retries
       }
     }
     const decisions = await this.deps.store.listDecisions();
@@ -225,6 +228,13 @@ export class Conductor {
     }
     let totalSpent = [...spends.values()].reduce((sum, s) => sum + s.spentCents, 0);
     for (const [id, cents] of terminatedSpend) if (!spends.has(id)) totalSpent += cents;
+    // #12: the revoke→termination-entry window — a terminal record whose final
+    // reading was persisted but whose entry hasn't landed yet still counts
+    for (const rec of records) {
+      if (!TERMINAL_STATES.has(rec.state) || rec.terminalSpendCents === undefined) continue;
+      if (spends.has(rec.engagementId) || terminatedSpend.has(rec.engagementId)) continue;
+      totalSpent += rec.terminalSpendCents;
+    }
 
     const lock = await this.deps.store.getDispatchLock();
     if (lock) {
@@ -648,9 +658,8 @@ export class Conductor {
     gateKey: GateTicketKey,
     ev: Extract<SubstrateEvent, { kind: "comment" }>,
   ): Promise<void> {
-    const note = ev.body.trim();
-    if (!/^amend\b/i.test(note)) return;
-    await this.applyGateAmend(gateKey, note, ev.at);
+    if (!isAmendNote(ev.body)) return;
+    await this.applyGateAmend(gateKey, ev.body.trim(), ev.at);
   }
 
   /**
@@ -674,6 +683,21 @@ export class Conductor {
     };
     if (!(await this.deps.store.recordGateDecision(decision))) return false; // already decided
     await this.deps.store.appendDecision({ kind: "gate", decision });
+    await this.driveAmendTail(gateKey, at);
+    return true;
+  }
+
+  /**
+   * Everything an amendment does AFTER its decision is durably recorded —
+   * split out because a crash inside this tail leaves the first-writer-wins
+   * decision blocking every replay (#12 review): reconcile detects "amended
+   * at the latest version, no successor plan" and re-drives this, idempotent
+   * throughout (transition CAS, idempotent lane set, deterministic re-derive).
+   */
+  private async driveAmendTail(gateKey: GateTicketKey, at: string): Promise<void> {
+    const plan = await this.deps.store.getStagePlan(gateKey.stageId, gateKey.planVersion);
+    const run = await this.runContaining(gateKey.stageId);
+    if (!plan || !run || run.status !== "active") return;
 
     // supersede the un-dispatched engagements of the amended version
     for (const ep of plan.engagements) {
@@ -702,7 +726,6 @@ export class Conductor {
 
     const index = run.stageIds.indexOf(gateKey.stageId);
     await this.openStage(run, index, gateKey.planVersion + 1);
-    return true;
   }
 
   // ------------------------------------------------------------ dispatch
@@ -900,11 +923,11 @@ export class Conductor {
    * accounting sums live keys plus these termination-entry recordings.
    */
   private async finalSpend(engagementId: string): Promise<number | undefined> {
-    try {
-      return (await this.deps.gateway.getSpend(engagementId)).spentCents;
-    } catch {
-      return undefined; // key already gone — nothing left to read
-    }
+    // null = the key definitively does not exist. A TRANSIENT failure throws
+    // through (#12 review): the caller's termination effects abort before
+    // revocation, so the re-drive retries against the still-live key instead
+    // of appending a spendless entry that loses the reading forever.
+    return (await this.deps.gateway.getSpend(engagementId))?.spentCents;
   }
 
   /**
@@ -1088,6 +1111,15 @@ export class Conductor {
             break;
           }
           if (await this.stageComplete(plan)) continue;
+          // #12 review: a crash inside the amend tail leaves the amended
+          // decision recorded at the (still-)latest version with no successor
+          // plan — first-writer-wins then blocks every comment replay. Detect
+          // and re-drive the tail before anything else touches this gate.
+          const recorded = await this.deps.store.getGateDecision(stageId, plan.planVersion);
+          if (recorded?.kind === "amended") {
+            await this.driveAmendTail({ stageId, planVersion: plan.planVersion }, recorded.at);
+            break;
+          }
           await this.postGate(plan, []);
           const gate = await this.deps.store.getGateTicket(plan.stageId, plan.planVersion);
           if (gate) {
@@ -1108,19 +1140,25 @@ export class Conductor {
             // superseded ticket. (A crash mid-loop leaves later notes on the
             // superseded ticket — visible in its body, reapplied by nobody;
             // accepted residual, the gate body shows what was folded.)
-            const pending = (await this.deps.substrate.listComments(gate))
-              .filter((c) => c.actor === "operator" && /^amend\b/i.test(c.body.trim()))
-              .sort((a, b) => a.at.localeCompare(b.at));
             let amended = false;
-            for (const c of pending) {
-              const current = await this.deps.store.getLatestStagePlan(stageId);
-              if (!current) break;
-              const applied = await this.applyGateAmend(
-                { stageId, planVersion: current.planVersion },
-                c.body.trim(),
-                c.at,
-              );
-              amended = amended || applied;
+            try {
+              const pending = (await this.deps.substrate.listComments(gate))
+                .filter((c) => c.actor === "operator" && isAmendNote(c.body))
+                .sort((a, b) => a.at.localeCompare(b.at));
+              for (const c of pending) {
+                const current = await this.deps.store.getLatestStagePlan(stageId);
+                if (!current) break;
+                const applied = await this.applyGateAmend(
+                  { stageId, planVersion: current.planVersion },
+                  c.body.trim(),
+                  c.at,
+                );
+                amended = amended || applied;
+              }
+            } catch (e) {
+              // a broken comments read must not skip the D15c go-lane
+              // neutralization below (#12 review) — the scan retries next pass
+              errors.push(`amend-scan ${stageId}: ${e instanceof Error ? e.message : String(e)}`);
             }
             if (!amended && snap.lane === "ready_to_work") {
               await this.deps.substrate.setLane(gate, "waiting_for_feedback");

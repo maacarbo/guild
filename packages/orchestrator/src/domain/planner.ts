@@ -94,17 +94,25 @@ export function parseBudgetDirective(text: string): number | null {
 }
 
 /**
- * Sanity ceiling on any budget: directive (#12): a fat-fingered
- * `budget: 999999` would mint a $999,999 chain of virtual-key caps. $100
- * (operator decision 2026-08-11) is ~33x the default $3 plan — roomy for
- * deliberate runs, two orders of magnitude under the typo class. Applies to
- * the idea-level plan total AND the per-stage amend override (each clamps
- * independently; the split path inherits the clamped total).
+ * Per-DIRECTIVE sanity ceiling (#12, operator decision 2026-08-11): a
+ * fat-fingered `budget: 999999` would mint a $999,999 virtual-key cap. The
+ * clamp targets typos, not the operator's authority: it bounds ONE parsed
+ * directive — the plan total when it sits in the idea body, a single stage's
+ * override when it arrives in an amend note (five deliberate per-stage
+ * amendments can still authorize 5x, each behind its own explicit gate
+ * approval) — and the CONFIGURED default (GUILD_PLAN_BUDGET_CENTS) passes
+ * through untouched: the composition root owns that trade-off.
  */
 export const MAX_PLAN_BUDGET_CENTS = 10_000;
 
+/** the amendment-note grammar — ONE definition shared by the live comment path and the reconcile recovery scan (#12) */
+export function isAmendNote(text: string): boolean {
+  return /^amend\b/i.test(text.trim());
+}
+
 export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
-  return Math.min(parseBudgetDirective(idea.body) ?? config.defaultPlanBudgetCents, MAX_PLAN_BUDGET_CENTS);
+  const directive = parseBudgetDirective(idea.body);
+  return directive !== null ? Math.min(directive, MAX_PLAN_BUDGET_CENTS) : config.defaultPlanBudgetCents;
 }
 
 function stageBudgetCents(total: number, kind: StageKind): number {

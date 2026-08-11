@@ -92,10 +92,14 @@ export class LiteLlmModelGateway implements ModelGateway {
     return minted;
   }
 
-  async getSpend(engagementId: string): Promise<KeySpend> {
+  async getSpend(engagementId: string): Promise<KeySpend | null> {
     const minted = this.minted.get(engagementId);
     if (minted) {
       const res = await this.request("GET", `/key/info?key=${encodeURIComponent(minted.key)}`);
+      // 404 "Key not found in database" (probed live 2026-08-11) is the ONE
+      // definitive-absence signal; any other failure is transient and throws —
+      // the port contract callers lean on to not lose terminal spend (#12)
+      if (res.status === 404) return null;
       if (!res.ok) throw new Error(`gateway spend read for ${engagementId} → ${res.status}`);
       const data = (await res.json()) as { info: { spend: number; max_budget: number | null } };
       return {
@@ -109,7 +113,7 @@ export class LiteLlmModelGateway implements ModelGateway {
     // and cap without needing the secret — reconciliation must survive restarts
     const rows = await this.listByAlias(aliasFor(engagementId));
     const row = rows[0];
-    if (!row) throw new Error(`no gateway key exists for engagement ${engagementId}`);
+    if (!row) return null; // definitive: the alias listing succeeded and found nothing
     return {
       engagementId,
       spentCents: centsUp(row.spend),

@@ -250,6 +250,7 @@ Then("the conductor dispatches the engagement with a budget-capped key", async (
   assert.ok(rec?.item, "engagement has a work item");
   world.item = rec!.item!;
   const spend = await world.gateway!.getSpend(engagementId);
+  assert.ok(spend, "engagement key exists");
   assert.equal(spend.budgetCents, 50, "engagement key minted with the plan's cap");
 });
 

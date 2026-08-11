@@ -54,6 +54,13 @@ describe("budget allocation is mechanical (D12)", () => {
     expect(warnings.some((w) => w.includes("ceiling"))).toBe(true);
   });
 
+  it("the ceiling clamps directives only — the CONFIGURED default passes through untouched (#12)", () => {
+    const generous = { ...config, defaultPlanBudgetCents: 25000 };
+    expect(planBudgetCents(idea, generous)).toBe(25000);
+    const { warnings } = deriveStagePlan(idea, generous, "test", 1);
+    expect(warnings.some((w) => w.includes("ceiling"))).toBe(false);
+  });
+
   it("an amendment budget: override is clamped to the same ceiling with a warning (#12)", () => {
     const { plan, warnings } = deriveStagePlan(idea, config, "test", 2, {
       amendments: ["amend: budget: 500.00"],

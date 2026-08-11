@@ -37,6 +37,8 @@ class FakeSubstrate implements ExecutionSubstrate {
   comments: Array<{ id: string; body: string }> = [];
   /** board-authored comments visible to the reconcile read path (#12) */
   seededComments: Array<{ id: string; commentId: string; author: string; actor: BoardActor; body: string; at: string }> = [];
+  /** when true, listComments throws — a broken comments endpoint (#12 review) */
+  failListComments = false;
   reworks: Array<{ id: string; verdict: ContractVerdict }> = [];
   boundKeys: Array<{ role: string; key: string }> = [];
   cancels: string[] = [];
@@ -105,6 +107,7 @@ class FakeSubstrate implements ExecutionSubstrate {
     this.seededComments.push({ id: item.externalId, commentId, author: actor, actor, body, at });
   }
   async listComments(item: WorkItemRef): Promise<WorkItemComment[]> {
+    if (this.failListComments) throw new Error("comments endpoint 404");
     // board-authored first, then the conductor's own outbound comments —
     // reconcile filters by actor, so the conductor never reacts to itself
     return [
@@ -147,6 +150,8 @@ class FakeGateway implements ModelGateway {
   spend = new Map<string, number>();
   /** keys the gateway no longer knows (revocation deletes them — live behavior) */
   deadKeys = new Set<string>();
+  /** engagement ids whose spend read fails TRANSIENTLY (gateway 5xx) — distinct from absence (#12) */
+  failSpendReads = new Set<string>();
   constructor(private readonly ops: OpLog) {}
   async mintKey(engagementId: string, budgetCents: number): Promise<EngagementKey> {
     this.ops.push("mintKey");
@@ -156,8 +161,9 @@ class FakeGateway implements ModelGateway {
   async revokeKey(engagementId: string): Promise<void> {
     this.revokes.push(engagementId);
   }
-  async getSpend(engagementId: string): Promise<KeySpend> {
-    if (this.deadKeys.has(engagementId)) throw new Error(`no gateway key exists for engagement ${engagementId}`);
+  async getSpend(engagementId: string): Promise<KeySpend | null> {
+    if (this.failSpendReads.has(engagementId)) throw new Error(`gateway 503 for ${engagementId}`);
+    if (this.deadKeys.has(engagementId)) return null; // definitive absence (port contract, #12)
     const budgetCents = this.mints.find((m) => m.engagementId === engagementId)?.budgetCents ?? 0;
     const spentCents = this.spend.get(engagementId) ?? 0;
     return { engagementId, spentCents, budgetCents, exhausted: budgetCents > 0 && spentCents >= budgetCents };
@@ -552,6 +558,37 @@ describe("amend-while-down recovery (#12: reconcile consults gate comments)", ()
     expect(await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v2"), "amended, not dispatched").toBeTruthy();
     expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
     expect(w.gateway.mints, "no key minted from the stale move").toHaveLength(0);
+  });
+
+  it("a crash after the amended decision but before the re-gate is repaired on reconcile", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    // crash simulation: the amended decision committed, the tail never ran —
+    // first-writer-wins would block every comment replay forever
+    await w.store.recordGateDecision({
+      kind: "amended",
+      stageId: "stg:idea-1:analysis",
+      planVersion: 1,
+      note: "amend: crashed midway",
+      at: "t-crash",
+    });
+
+    await w.conductor.reconcile();
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v2"), "tail re-driven").toBeTruthy();
+    expect((await w.store.getLatestStagePlan("stg:idea-1:analysis"))?.planVersion).toBe(2);
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+  });
+
+  it("a broken comments endpoint still neutralizes a downtime go-lane (D15c holds)", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.items.get(gate.externalId)!.lane = "ready_to_work";
+    w.substrate.failListComments = true;
+
+    // the scan failure surfaces in reconcile's error aggregate — but must not
+    // have skipped the neutralization
+    await w.conductor.reconcile().catch(() => {});
+    expect((await w.substrate.getWorkItem(gate)).lane).toBe("waiting_for_feedback");
   });
 
   it("a non-operator amend comment recovers nothing — attribution fails closed", async () => {
@@ -1339,6 +1376,48 @@ describe("project accounting survives key revocation (termination captures the f
       (d) => d.kind === "termination" && d.terminated.engagementId === "eng-1",
     );
     expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 30 } });
+  });
+
+  it("a TRANSIENT spend-read failure aborts termination before revocation — the key survives for the re-drive (#12)", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    w.gateway.spend.set("eng-1", 42);
+    w.gateway.failSpendReads.add("eng-1");
+
+    await expect(w.conductor.handleEvent(laneMove(item, "done", "operator"))).rejects.toThrow();
+    expect(w.gateway.revokes, "no revocation on a failed read").toHaveLength(0);
+    expect(
+      (await w.store.listDecisions()).some((d) => d.kind === "termination"),
+      "no spendless termination entry",
+    ).toBe(false);
+
+    // gateway recovers; the re-drive reads the still-live key
+    w.gateway.failSpendReads.clear();
+    await w.conductor.reconcile();
+    const term = (await w.store.listDecisions()).find(
+      (d) => d.kind === "termination" && d.terminated.engagementId === "eng-1",
+    );
+    expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 42 } });
+    expect(w.gateway.revokes).toContain("eng-1");
+  });
+
+  it("the sweep counts a persisted terminal spend whose termination entry has not landed yet (#12)", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 1, hardCapCents: 40 } });
+    const { item } = await driveToReported(w);
+    w.gateway.spend.set("eng-1", 30);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    // simulate the revoke→entry window: spend persisted on the record, key
+    // dead, but strip the termination entry the accept appended
+    w.gateway.deadKeys.add("eng-1");
+    const withoutTermination = (await w.store.listDecisions()).filter((d) => d.kind !== "termination");
+    (w.store as unknown as { decisions: unknown[] }).decisions = withoutTermination;
+
+    const { gate } = await adoptIdea(w, "A second concurrent idea.", "idea-2");
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    w.gateway.spend.set("eng:stg:idea-2:analysis:v1", 15);
+
+    await w.conductor.sweep(); // 30 (persisted terminal) + 15 (live) = 45 >= 40
+    expect(await w.store.getDispatchLock(), "hard cap tripped from the persisted reading").toBeTruthy();
   });
 
   it("the sweep totals live keys PLUS terminated recordings — a revoked key never crashes it", async () => {
