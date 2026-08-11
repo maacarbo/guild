@@ -39,6 +39,13 @@ export interface MulticaTaskResult {
   work_dir: string;
 }
 
+/** a registered daemon runtime — agents bind to one at creation (probe 2026-08-11: runtime_id is required) */
+export interface MulticaRuntime {
+  id: string;
+  status: string;
+  name?: string;
+}
+
 export interface MulticaComment {
   id: string;
   issue_id: string;

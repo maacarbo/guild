@@ -86,6 +86,23 @@ class FakeMulticaApi implements MulticaApi {
   async listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
     return opts?.includeArchived ? [...this.agents, ...this.archivedAgents] : [...this.agents];
   }
+  runtimes: Array<{ id: string; status: string }> = [{ id: "rt-1", status: "online" }];
+  async listRuntimes() {
+    return this.runtimes;
+  }
+  async createAgent(spec: { name: string; runtime_id: string; model: string }): Promise<MulticaAgent> {
+    if ([...this.agents, ...this.archivedAgents].some((a) => a.name === spec.name)) {
+      throw new MulticaHttpError(409, `an agent named "${spec.name}" already exists in this workspace`);
+    }
+    const agent: MulticaAgent = { id: `agent-${this.agents.length + this.archivedAgents.length + 100}`, name: spec.name, model: spec.model, runtime_id: spec.runtime_id };
+    this.agents.push(agent);
+    return agent;
+  }
+  async archiveAgent(id: string): Promise<void> {
+    const idx = this.agents.findIndex((a) => a.id === id);
+    if (idx < 0) throw new MulticaHttpError(404, `no agent ${id}`);
+    this.archivedAgents.push(...this.agents.splice(idx, 1));
+  }
   async listComments(issueId: string): Promise<MulticaComment[]> {
     return this.comments.filter((c) => c.issue_id === issueId);
   }

@@ -5,7 +5,7 @@
  * is bound to one (base URL, token, workspace).
  */
 
-import type { MulticaAgent, MulticaComment, MulticaIssue, MulticaTaskRun } from "../domain/multica-types.js";
+import type { MulticaAgent, MulticaComment, MulticaIssue, MulticaTaskRun , MulticaRuntime } from "../domain/multica-types.js";
 
 /** raw WS frame: `{"type":"task:running","payload":{…}}` (M1a P14) */
 export interface MulticaWsFrame {
@@ -37,6 +37,11 @@ export interface MulticaApi {
   getAgent(id: string): Promise<MulticaAgent>;
   /** M3: archived agents (retired hires) leave the default listing but their items remain readable */
   listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]>;
+  /** M3 hiring: agents bind to an existing runtime at creation (backend rejects runtime_id-less creates) */
+  listRuntimes(): Promise<MulticaRuntime[]>;
+  createAgent(spec: { name: string; runtime_id: string; model: string; description?: string }): Promise<MulticaAgent>;
+  /** the ONLY retire the API exposes (DELETE is 405); archive is one-way by Guild decision — never /restore */
+  archiveAgent(id: string): Promise<void>;
   /** wholesale custom_env replacement — v0.4.15 dedicated endpoint, member-token auth (M1b live) */
   updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void>;
   /** long-lived frame stream; ends on disconnect — the caller owns reconnect/reconcile */
