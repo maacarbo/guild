@@ -31,10 +31,11 @@ export function readEnv(specs: EnvSpec[]): Record<string, string> {
   return values;
 }
 
-export function intEnv(values: Record<string, string>, name: string): number {
+export function intEnv(values: Record<string, string>, name: string, opts?: { min?: number }): number {
+  const min = opts?.min ?? 0;
   const n = Number.parseInt(values[name]!, 10);
-  if (!Number.isInteger(n) || n < 0) {
-    console.error(`${name} must be a non-negative integer, got "${values[name]}"`);
+  if (!Number.isInteger(n) || n < min) {
+    console.error(`${name} must be an integer >= ${min}, got "${values[name]}"`);
     process.exit(1);
   }
   return n;

@@ -141,10 +141,10 @@ async function main(): Promise<void> {
 
   const sweeper = setInterval(() => {
     conductor.sweep().catch((e) => console.error(redactUrlCredentials(`sweep failed (retried next tick): ${e?.message ?? e}`)));
-  }, intEnv(env, "GUILD_SWEEP_SECONDS") * 1000);
+  }, intEnv(env, "GUILD_SWEEP_SECONDS", { min: 1 }) * 1000);
   const reconciler = setInterval(() => {
     conductor.reconcile().catch((e) => console.error(redactUrlCredentials(`reconcile failed (retried next tick): ${e?.message ?? e}`)));
-  }, intEnv(env, "GUILD_RECONCILE_SECONDS") * 1000);
+  }, intEnv(env, "GUILD_RECONCILE_SECONDS", { min: 1 }) * 1000);
 
   console.log(`guild-conductor: workspace ${env.GUILD_WORKSPACE_ID}, member ${selfMemberId}`);
   try {
