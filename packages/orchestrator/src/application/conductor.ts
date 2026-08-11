@@ -37,6 +37,7 @@ import type {
 import { MAX_BOUNCES } from "@guild/shared";
 import { applyGateDecision } from "../domain/gate.js";
 import { laneFor } from "../domain/lane.js";
+import { templateFor } from "../domain/templates.js";
 import {
   STAGE_ORDER,
   deriveStagePlan,
@@ -380,10 +381,14 @@ export class Conductor {
     if (await this.deps.store.getPlanRun(snap.item.externalId)) return;
 
     const idea: Idea = { ideaId: snap.item.externalId, title: snap.title, body: snap.body };
+    // the idea's template: directive picks the pipeline shape (M3); unknown
+    // names degrade to standard inside the planner, which also renders the
+    // warning into the first gate body
+    const { template } = templateFor(idea.body);
     const run: PlanRunRecord = {
       planId: idea.ideaId,
       ideaItem: snap.item,
-      stageIds: STAGE_ORDER.map((kind) => `stg:${idea.ideaId}:${kind}`),
+      stageIds: template.stages.map((kind) => `stg:${idea.ideaId}:${kind}`),
       status: "active",
     };
     await this.deps.store.savePlanRun(run);

@@ -530,6 +530,17 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("template: directive shapes the plan run (M3, D12 amendment)", () => {
+  it("a quick-fix idea adopts as a two-stage run: implementation → test", async () => {
+    const w = makeWorld();
+    const idea = seedIdea(w, "idea-qf", "Idea: tiny fix", "Fix the typo.\ntemplate: quick-fix");
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: tiny fix", "Fix the typo.\ntemplate: quick-fix"));
+    const run = await w.store.getPlanRun("idea-qf");
+    expect(run?.stageIds).toEqual(["stg:idea-qf:implementation", "stg:idea-qf:test"]);
+    expect(await w.substrate.findWorkItem("gate:stg:idea-qf:implementation:v1"), "first gate is implementation").toBeTruthy();
+  });
+});
+
 describe("amend-while-down recovery (#12: reconcile consults gate comments)", () => {
   it("an operator amend comment posted while the conductor was down is applied on reconcile", async () => {
     const w = makeWorld();

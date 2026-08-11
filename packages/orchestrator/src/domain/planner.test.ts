@@ -78,6 +78,14 @@ describe("budget allocation is mechanical (D12)", () => {
     expect(plan.budgetCents).toBe(200);
   });
 
+  it("a quick-fix idea splits 70/30 across its two stages with the remainder on implementation (M3 templates)", () => {
+    const quick = { ...idea, body: "A tiny fix.\ntemplate: quick-fix\nbudget: 1.01" };
+    const impl = deriveStagePlan(quick, config, "implementation", 1).plan.budgetCents;
+    const test = deriveStagePlan(quick, config, "test", 1).plan.budgetCents;
+    expect(test).toBe(30); // floor(101 * 30%)
+    expect(impl).toBe(71); // 70% + remainder cent
+  });
+
   it("splits 15/15/40/20/10 in integer cents with the remainder on implementation", () => {
     const stages = STAGE_ORDER.map((kind) => deriveStagePlan(idea, config, kind, 1).plan);
     expect(stages.map((s) => s.budgetCents)).toEqual([150, 150, 400, 200, 100]);
