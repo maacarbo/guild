@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEMPLATE_CATALOG, parseTemplateDirective, templateFor } from "./templates.js";
+import { TEMPLATE_CATALOG, parseTemplateDirective, roleTemplateFor, templateFor } from "./templates.js";
 import { STAGE_ORDER } from "./planner.js";
 
 describe("the template catalog is fixed data (D12 amendment)", () => {
@@ -23,6 +23,23 @@ describe("the template catalog is fixed data (D12 amendment)", () => {
       expect(Object.keys(t.budgetPct).sort()).toEqual([...t.stages].sort());
       expect(Object.values(t.budgetPct).reduce((a, b) => a + b, 0)).toBe(100);
     }
+  });
+});
+
+describe("role templates are catalog data (D13 global layer, M3)", () => {
+  it("covers the four starter roles with a governed-team context each", () => {
+    for (const role of ["analyst", "architect", "implementer", "tester"]) {
+      const t = roleTemplateFor(role);
+      expect(t.role).toBe(role);
+      expect(t.roleContext).toContain(role);
+      expect(t.roleContext).toContain("governed");
+    }
+  });
+
+  it("an unknown role still yields a usable governed context — hiring never briefs blind", () => {
+    const t = roleTemplateFor("security-reviewer");
+    expect(t.role).toBe("security-reviewer");
+    expect(t.roleContext).toContain("security-reviewer");
   });
 });
 

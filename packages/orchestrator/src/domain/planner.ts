@@ -8,7 +8,7 @@
  */
 
 import type { ContractCheck, HandoffContract, StageKind, StagePlan } from "@guild/shared";
-import { TEMPLATE_CATALOG, templateFor, type StageTemplate } from "./templates.js";
+import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageTemplate } from "./templates.js";
 
 export interface Idea {
   /** substrate external id of the idea ticket — the plan's identity anchor */
@@ -320,7 +320,7 @@ export function deriveStagePlan(
           title: `${kind}: ${idea.title}`,
           budgetCents,
           brief: {
-            roleContext: `You are the ${roleFor(kind)} on a governed delivery team. Your work is validated against a machine-checkable contract — self-reports are never trusted.`,
+            roleContext: roleTemplateFor(roleFor(kind)).roleContext,
             instructions: instructionsFor(kind, idea),
             contract,
             priorDecisions: opts.priorDecisions ?? [],

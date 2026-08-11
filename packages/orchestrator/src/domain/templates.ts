@@ -28,6 +28,28 @@ export const TEMPLATE_CATALOG: Record<string, StageTemplate> = {
   },
 };
 
+export interface RoleTemplate {
+  role: string;
+  /** the brief's roleContext — D13's GLOBAL rules layer, carried as catalog data */
+  roleContext: string;
+}
+
+const governedContext = (role: string) =>
+  `You are the ${role} on a governed delivery team. Your work is validated against a machine-checkable contract — self-reports are never trusted.`;
+
+/**
+ * Per-role template data (M3). The four starter roles are explicit entries so
+ * their context can diverge as the catalog grows; an unknown role gets the
+ * same governed context by construction — hiring must never brief blind.
+ */
+export const ROLE_TEMPLATES: Record<string, RoleTemplate> = Object.fromEntries(
+  ["analyst", "architect", "implementer", "tester"].map((role) => [role, { role, roleContext: governedContext(role) }]),
+);
+
+export function roleTemplateFor(role: string): RoleTemplate {
+  return ROLE_TEMPLATES[role] ?? { role, roleContext: governedContext(role) };
+}
+
 /** own-line directive, like parseBudgetDirective — prose never selects a template */
 export function parseTemplateDirective(text: string): string | null {
   const m = /^template:\s*([a-z0-9-]+)\s*$/m.exec(text);
