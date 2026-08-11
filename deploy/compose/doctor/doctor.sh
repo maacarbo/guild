@@ -148,6 +148,26 @@ if [ -n "${MULTICA_DAEMON_TOKEN:-}" ]; then
         "docker compose --profile daemon up -d --build; docker compose logs guild-daemon" \
         "guild-daemon (bad MULTICA_DAEMON_TOKEN also lands here)"
     fi
+    # M3 (operator decision 2026-08-11): every bound role agent must sit on an
+    # ONLINE runtime — hiring binds new agents to the online one, but statically
+    # configured starter agents can drift onto dead runtimes. Surfaced only:
+    # rebinding is operator-actioned (guild init), never automatic.
+    if [ -n "${GUILD_ROLE_AGENTS:-}" ]; then
+      agents_json=$(curl -fsS --max-time 5 "$MULTICA/api/agents" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" -H "X-Workspace-ID: $ws" 2>/dev/null)
+      online_ids=$(curl -fsS --max-time 5 "$MULTICA/api/runtimes" -H "Authorization: Bearer $MULTICA_DAEMON_TOKEN" -H "X-Workspace-ID: $ws" 2>/dev/null | jq -c '[.[] | select(.status == "online") | .id]' 2>/dev/null)
+      offline_roles=$(jq -rn --argjson roles "$GUILD_ROLE_AGENTS" --argjson agents "${agents_json:-[]}" --argjson online "${online_ids:-[]}" '
+        [$roles | to_entries[] | .key as $role | .value.agentId as $aid |
+         ([$agents[] | select(.id == $aid) | .runtime_id] | first) as $rt |
+         select($rt == null or (($online | index($rt)) | not)) | $role] | join(", ")' 2>/dev/null)
+      if [ -z "$offline_roles" ]; then
+        ok "all role agents sit on online runtimes (M3)"
+      else
+        fail "role agent(s) on offline or missing runtimes: $offline_roles" \
+          "every GUILD_ROLE_AGENTS binding on an online runtime" \
+          "start the daemon owning that runtime, or re-run guild init to rebind (operator-actioned, never automatic)" \
+          "guild-daemon"
+      fi
+    fi
   else
     fail "no workspace visible to the PAT" "a workspace created in the Multica UI" \
       "http://localhost:3000 -> create a workspace, then re-run doctor" \
