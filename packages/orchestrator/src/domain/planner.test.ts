@@ -46,6 +46,15 @@ describe("budget allocation is mechanical (D12)", () => {
     expect(planBudgetCents({ ...idea, body: "budget: much" }, config)).toBe(1000);
   });
 
+  it("prose ending in a budget-looking phrase is not a directive — only a line-anchored budget: reprices (C4)", () => {
+    expect(parseBudgetDirective("amend: reduced scope; running budget: 3")).toBeNull();
+    expect(parseBudgetDirective("we cut the running budget: 3")).toBeNull();
+    const { plan } = deriveStagePlan(idea, config, "test", 2, {
+      amendments: ["amend: reduced scope; running budget: 3"],
+    });
+    expect(plan.budgetCents).toBe(200);
+  });
+
   it("splits 15/15/40/20/10 in integer cents with the remainder on implementation", () => {
     const stages = STAGE_ORDER.map((kind) => deriveStagePlan(idea, config, kind, 1).plan);
     expect(stages.map((s) => s.budgetCents)).toEqual([150, 150, 400, 200, 100]);
@@ -177,6 +186,11 @@ describe("upstream-authored augmentation (D6 applied — parseHandoffChecks boun
         JSON.stringify({ checks: [{ kind: "command", run: "sleep 1", expectExitCode: 0, timeoutSeconds: 601 }] }),
       ),
     ).toBeNull();
+  });
+
+  it("a handoff with zero checks is rejected wholesale — nothing enforceable was authored (C5)", () => {
+    expect(parseHandoffChecks(JSON.stringify({ checks: [] }))).toBeNull();
+    expect(parseHandoffChecks(JSON.stringify({ gherkin: "Feature: counting", checks: [] }))).toBeNull();
   });
 
   it("a missing upstream handoff derives floor-only with a rendered warning", () => {

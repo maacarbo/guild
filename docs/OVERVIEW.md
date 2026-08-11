@@ -7,12 +7,12 @@ One page that shows every component and every data/event flow between them. Deci
 | # | Component | Runs as | Owns / stores | Trust notes |
 |---|---|---|---|---|
 | 1 | **Operator** | human | final say: plan approvals, answers, stage acceptance | the only non-automated authority |
-| 2 | **Guild CLI** | local binary | — (driving adapter) | talks only to the conductor |
+| 2 | **Guild CLI** | local binary | — (driving adapter; D11 scope: bootstrap + emergency verbs only — `guild init`, `guild doctor`, kill-switch) | talks only to the conductor; carries no idea/approval verbs |
 | 3 | **Guild conductor** (`packages/orchestrator`) | compose service (M1–M3); K8s Deployment after the optional M4 lift | stage planner, approval gate, contract validator, budget watchdog | never trusts agent self-reports (D6) |
 | 4 | **Guild Postgres** | compose service (dev) or external — dual-mode | stage plans, engagement states, append-only `decisions` (gates, verdicts, budget events) | governance provenance |
 | 5 | **`substrate-multica` adapter** | library inside the conductor | translation only — no state | anti-corruption layer (D8): Multica vocabulary stops here |
 | 6 | **Multica backend** | compose service (M1–M3); K8s Deployment on the optional M4 lift | REST + WebSocket API; task queue, deterministic comment routing | driven only via the `ExecutionSubstrate` port |
-| 7 | **Multica frontend (board)** | compose service (M1–M3); K8s Deployment on the optional M4 lift | kanban UI over the backend | operator's *observation* channel; approvals do **not** flow here |
+| 7 | **Multica frontend (board)** | compose service (M1–M3); K8s Deployment on the optional M4 lift | kanban UI over the backend | the operator's **control surface** (D11): ideas, amendments, and plan approvals are tickets, comments, and lane moves here |
 | 8 | **Multica Postgres** (pgvector) | compose service (dev) or external — dual-mode | issues, task queue, comments, timeline (execution audit), agent sessions, `task_usage` (cost *recording*) | Multica's system of record |
 | 9 | **Multica daemon** | custom container (Guild-built) — compose service on Tier 1, K8s Deployment on Tier 2; runtime sandboxing where supported (gVisor/Kata) | agent workspaces (ephemeral volume / PVC); all chosen runtime CLIs baked in; forks the matching CLI per task | executes LLM-generated code — the least-trusted workload; holds only Multica token + git credentials |
 | 10 | **Agent CLIs** (opencode is the one Guild bakes — D9 as amended; Multica itself drives 14+) | short-lived subprocesses, one per task — selected by the agent's configured runtime | per-engagement session state (fresh per issue) | model traffic forced through the gateway via the baked provider config |
@@ -47,8 +47,8 @@ flowchart LR
     PROV[12 Anthropic / OpenRouter]
     REPO[(13 Product repo)]
 
-    OP -->|ideas, approvals, answers| CLI --> COND
-    OP -.->|observes board| FE --> BE
+    OP -->|init / doctor / kill-switch| CLI --> COND
+    OP -->|ideas, approvals, answers| FE --> BE
     COND --> GPG
     COND -->|5 adapter: REST create/assign/comment/cancel| BE
     BE -->|WebSocket events| COND
@@ -99,7 +99,7 @@ flowchart TB
 stateDiagram-v2
     [*] --> Planned
     Planned --> Gated: plan posted to operator
-    Gated --> Dispatched: approved (timer only if opted in)
+    Gated --> Dispatched: approved (operator lane move)
     Dispatched --> Working: daemon claims task
     Working --> Blocked: agent raises question
     Blocked --> Working: answer routed back
