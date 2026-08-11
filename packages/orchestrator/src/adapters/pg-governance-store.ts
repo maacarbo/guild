@@ -124,6 +124,7 @@ export class PgGovernanceStore implements GovernanceStore {
         status    text NOT NULL
       );
       ALTER TABLE plan_runs ALTER COLUMN idea_item DROP NOT NULL;
+      ALTER TABLE plan_runs ADD COLUMN IF NOT EXISTS rules_sha text;
       CREATE TABLE IF NOT EXISTS stage_plans (
         stage_id     text NOT NULL,
         plan_version integer NOT NULL,
@@ -294,9 +295,9 @@ export class PgGovernanceStore implements GovernanceStore {
 
   async savePlanRun(run: PlanRunRecord): Promise<void> {
     await this.pool.query(
-      `INSERT INTO plan_runs (plan_id, idea_item, stage_ids, status) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (plan_id) DO UPDATE SET stage_ids = EXCLUDED.stage_ids, status = EXCLUDED.status`,
-      [run.planId, run.ideaItem ? JSON.stringify(run.ideaItem) : null, JSON.stringify(run.stageIds), run.status],
+      `INSERT INTO plan_runs (plan_id, idea_item, stage_ids, status, rules_sha) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (plan_id) DO UPDATE SET stage_ids = EXCLUDED.stage_ids, status = EXCLUDED.status, rules_sha = EXCLUDED.rules_sha`,
+      [run.planId, run.ideaItem ? JSON.stringify(run.ideaItem) : null, JSON.stringify(run.stageIds), run.status, run.rulesSha ?? null],
     );
   }
 
@@ -305,12 +306,14 @@ export class PgGovernanceStore implements GovernanceStore {
     idea_item: WorkItemRef | null;
     stage_ids: string[];
     status: PlanRunRecord["status"];
+    rules_sha: string | null;
   }): PlanRunRecord {
     return {
       planId: row.plan_id,
       ...(row.idea_item ? { ideaItem: row.idea_item } : {}),
       stageIds: row.stage_ids,
       status: row.status,
+      ...(row.rules_sha ? { rulesSha: row.rules_sha } : {}),
     };
   }
 
@@ -320,6 +323,7 @@ export class PgGovernanceStore implements GovernanceStore {
       idea_item: WorkItemRef | null;
       stage_ids: string[];
       status: PlanRunRecord["status"];
+      rules_sha: string | null;
     }>("SELECT * FROM plan_runs WHERE plan_id = $1", [planId]);
     return res.rows[0] ? PgGovernanceStore.toPlanRun(res.rows[0]) : null;
   }
@@ -330,6 +334,7 @@ export class PgGovernanceStore implements GovernanceStore {
       idea_item: WorkItemRef | null;
       stage_ids: string[];
       status: PlanRunRecord["status"];
+      rules_sha: string | null;
     }>("SELECT * FROM plan_runs ORDER BY plan_id");
     return res.rows.map((row) => PgGovernanceStore.toPlanRun(row));
   }

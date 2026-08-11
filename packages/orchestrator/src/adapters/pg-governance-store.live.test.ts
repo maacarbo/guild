@@ -108,6 +108,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     const run = {
       planId: "idea-1",
       ideaItem: { substrate: "multica", externalId: "idea-1" },
+      rulesSha: "sha-rules-1",
       stageIds: ["stg:idea-1:analysis", "stg:idea-1:architecture"],
       status: "active" as const,
     };

@@ -47,6 +47,8 @@ export interface EngagementRecord extends Engagement {
 export interface PlanRunRecord {
   planId: string;
   ideaItem?: WorkItemRef;
+  /** the SHA the project rules file is read at, pinned at idea adoption (M3, D13) — one rules version per run */
+  rulesSha?: string;
   /** ordered stage ids of the pipeline */
   stageIds: string[];
   status: "active" | "completed" | "rejected";

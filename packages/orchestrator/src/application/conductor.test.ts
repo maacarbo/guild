@@ -575,6 +575,41 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("project rules layer briefs at one pinned SHA (M3, D13)", () => {
+  it("adoption pins the rules SHA; stages fold AGENTS.md from it; the gate shows provenance", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-rules");
+    w.source.files.set("sha-rules:AGENTS.md", "Never commit secrets.\nPrefer small diffs.");
+    const { gate } = await adoptIdea(w);
+    expect((await w.store.getPlanRun("idea-1"))?.rulesSha).toBe("sha-rules");
+    const body = w.substrate.ticketBodies.get(gate.externalId) ?? "";
+    expect(body).toContain("AGENTS.md @ sha-rule");
+    const plan = await w.store.getLatestStagePlan("stg:idea-1:analysis");
+    expect(plan?.engagements[0]?.brief.constraints.some((c) => c.includes("Never commit secrets."))).toBe(true);
+  });
+
+  it("a repo without AGENTS.md briefs the global layer only — silence, not a warning", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-plain");
+    const { gate } = await adoptIdea(w);
+    expect(w.substrate.ticketBodies.get(gate.externalId) ?? "").not.toContain("AGENTS.md");
+  });
+
+  it("the pin is stable for the whole run even when the branch moves (one rules version per run)", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-r1");
+    w.source.files.set("sha-r1:AGENTS.md", "RULE-V1");
+    await adoptIdea(w, "Fix the typo.\ntemplate: quick-fix", "idea-qf");
+    w.source.shas.set("main", "sha-r2"); // the branch moves mid-run
+    w.source.files.set("sha-r2:AGENTS.md", "RULE-V2");
+    await driveStageToAccepted(w, "stg:idea-qf:implementation", "agent/implementer/i1", "sha-i");
+    const testPlan = await w.store.getLatestStagePlan("stg:idea-qf:test");
+    const constraints = testPlan?.engagements[0]?.brief.constraints ?? [];
+    expect(constraints.some((c) => c.includes("RULE-V1"))).toBe(true);
+    expect(constraints.some((c) => c.includes("RULE-V2"))).toBe(false);
+  });
+});
+
 describe("role memory rides across engagements (M3)", () => {
   it("a second engagement of the same role receives the artifact the first one updated — approval sees it", async () => {
     const w = makeWorld();

@@ -237,6 +237,21 @@ describe("upstream-authored augmentation (D6 applied — parseHandoffChecks boun
   });
 });
 
+describe("project rules fold into briefs (M3, D13)", () => {
+  it("rules constraint carries provenance and content verbatim", () => {
+    const { plan } = deriveStagePlan(idea, config, "test", 1, {
+      projectRules: { path: "AGENTS.md", sha: "sha-rules-123", content: "Never commit secrets.\nPrefer small diffs." },
+    });
+    const c = plan.engagements[0]!.brief.constraints;
+    expect(c.some((x) => x.includes("AGENTS.md @ sha-rule") && x.includes("Never commit secrets."))).toBe(true);
+  });
+
+  it("no rules, no constraint — the global layer stands alone", () => {
+    const { plan } = deriveStagePlan(idea, config, "test", 1, {});
+    expect(plan.engagements[0]!.brief.constraints.some((x) => x.includes("AGENTS.md"))).toBe(false);
+  });
+});
+
 describe("briefs carry what fresh context needs (D6/M2b: priorDecisions ride explicitly)", () => {
   it("instructions tell the role to author the NEXT stage's handoff checks — delivery has no successor", () => {
     for (const [i, kind] of STAGE_ORDER.entries()) {

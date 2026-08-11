@@ -89,6 +89,8 @@ const SPENDING: ReadonlySet<EngagementState> = new Set(["dispatched", "working",
 const TERMINAL_STATES: ReadonlySet<EngagementState> = new Set(["accepted", "cancelled", "escalated"]);
 /** role-memory artifacts stay bounded — briefs must not grow without limit (M3) */
 const ROLE_MEMORY_MAX_LINES = 20;
+/** the per-project rules file (M3, D13) — read at the run's pinned SHA */
+const RULES_PATH = "AGENTS.md";
 
 /** stage ids are conductor-minted as `stg:<ideaId>:<kind>` (planner identity rule) */
 function stageKindOf(stageId: string): StageKind {
@@ -389,9 +391,13 @@ export class Conductor {
     // names degrade to standard inside the planner, which also renders the
     // warning into the first gate body
     const { template } = templateFor(idea.body);
+    // one rules version per run (M3, D13): pin the target branch's head at
+    // adoption; every stage reads AGENTS.md at exactly this SHA
+    const rulesSha = (await this.deps.source.resolveRemoteSha(this.config.repoUrl, this.config.targetBranch)) ?? undefined;
     const run: PlanRunRecord = {
       planId: idea.ideaId,
       ideaItem: snap.item,
+      ...(rulesSha ? { rulesSha } : {}),
       stageIds: template.stages.map((kind) => `stg:${idea.ideaId}:${kind}`),
       status: "active",
     };
@@ -444,15 +450,30 @@ export class Conductor {
       upstream = { handoff: handoffRaw ? parseHandoffChecks(handoffRaw) : null, authoredBy: roleFor(prevKind) };
     }
 
+    // the run-pinned project rules (M3, D13): absence is silence, not a warning
+    let projectRules: { path: string; sha: string; content: string } | undefined;
+    if (run.rulesSha) {
+      const content = await this.deps.source.readFile(this.config.repoUrl, run.rulesSha, RULES_PATH);
+      if (content) projectRules = { path: RULES_PATH, sha: run.rulesSha, content };
+    }
+
     const { plan, warnings } = deriveStagePlan(
       idea,
       { projectId: this.config.projectScope, defaultPlanBudgetCents: this.config.defaultPlanBudgetCents },
       kind,
       planVersion,
-      { amendments, ...(upstream ? { upstream } : {}), priorDecisions: [...new Set(priorDecisions)] },
+      {
+        amendments,
+        ...(upstream ? { upstream } : {}),
+        priorDecisions: [...new Set(priorDecisions)],
+        ...(projectRules ? { projectRules } : {}),
+      },
     );
     await this.deps.store.saveStagePlan(plan);
-    return this.postGate(plan, warnings);
+    const notes = projectRules
+      ? [`Project rules: ${projectRules.path} @ ${projectRules.sha.slice(0, 8)} — folded into every brief.`]
+      : [];
+    return this.postGate(plan, warnings, notes);
   }
 
   /** the accepted engagement's validated sha for a stage (latest plan version) */
@@ -496,7 +517,7 @@ export class Conductor {
    * operator's lane move to ready-to-work IS the approval). Idempotent across
    * calls and restarts: the marker is the dedup key on the substrate itself.
    */
-  private async postGate(plan: StagePlan, warnings: string[]): Promise<WorkItemRef> {
+  private async postGate(plan: StagePlan, warnings: string[], notes: string[] = []): Promise<WorkItemRef> {
     const existing =
       (await this.deps.store.getGateTicket(plan.stageId, plan.planVersion)) ??
       (await this.deps.substrate.findWorkItem(this.gateMarker(plan.stageId, plan.planVersion)));
@@ -528,7 +549,7 @@ export class Conductor {
     const ticket = await this.deps.substrate.createTicket({
       markerId: this.gateMarker(plan.stageId, plan.planVersion),
       title: `Plan approval: ${plan.kind} stage (v${plan.planVersion})`,
-      body: this.renderPlanBody(plan, warnings),
+      body: this.renderPlanBody(plan, warnings, notes),
     });
     await this.deps.substrate.setLane(ticket, "waiting_for_feedback");
     await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, ticket);
@@ -1450,7 +1471,7 @@ export class Conductor {
       : `- command \`${check.run}\` exits ${check.expectExitCode} within ${check.timeoutSeconds}s`;
   }
 
-  private renderPlanBody(plan: StagePlan, warnings: string[]): string {
+  private renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
     const lines = [
       `## Stage plan — ${plan.kind}`,
       "",
@@ -1475,6 +1496,7 @@ export class Conductor {
           ? ["", "  Prior decisions & role memory (folded into the brief):", ...e.brief.priorDecisions.map((d) => `  - ${d}`)]
           : []),
       ]),
+      ...(notes.length ? ["", "### Notes", ...notes.map((n) => `- ${n}`)] : []),
       ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
       "",
       "**To approve:** move this ticket to *Ready to work*. **To amend:** comment `amend: <note>` here. **To reject:** move it to *Cancelled*.",
