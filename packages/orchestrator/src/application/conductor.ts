@@ -807,7 +807,7 @@ export class Conductor {
     }
     // escalated: spend stops now; the ticket stays visible for the operator —
     // close/lock happens when the operator resolves (cancel or rescope)
-    const spentCents = await this.finalSpend(next.engagementId);
+    const spentCents = await this.captureSpend(next);
     await this.deps.gateway.revokeKey(next.engagementId);
     await this.setEngagementLane(next);
     await this.deps.substrate.comment(
@@ -888,6 +888,22 @@ export class Conductor {
     }
   }
 
+  /**
+   * Read the final spend and persist it on the (post-transition) record
+   * BEFORE the caller revokes the key (#12): a crash between revocation and
+   * the termination-entry append then recovers the reading from the record
+   * instead of losing it to the deleted key. CAS against the record's own
+   * state — a concurrent writer's transition must not be clobbered by this
+   * accounting annotation.
+   */
+  private async captureSpend(record: EngagementRecord): Promise<number | undefined> {
+    const spentCents = await this.finalSpend(record.engagementId);
+    if (spentCents !== undefined) {
+      await this.deps.store.saveEngagementIf({ ...record, terminalSpendCents: spentCents }, record.state);
+    }
+    return spentCents;
+  }
+
   private async accept(record: EngagementRecord): Promise<void> {
     if (!record.item || !record.validatedSha) return;
     // merge first: a fast-forward failure leaves the engagement validated and
@@ -895,8 +911,8 @@ export class Conductor {
     await this.deps.source.fastForward(this.config.repoUrl, this.config.targetBranch, record.validatedSha);
     const accepted = await this.applyTransition(record, { kind: "accepted" }, "operator accepted");
     if (!accepted) return;
-    const spentCents = await this.finalSpend(record.engagementId);
-    await this.deps.gateway.revokeKey(record.engagementId);
+    const spentCents = await this.captureSpend(accepted);
+    await this.deps.gateway.revokeKey(accepted.engagementId);
     await this.deps.substrate.close(record.item);
     await this.deps.store.appendDecision({
       kind: "termination",
@@ -914,11 +930,11 @@ export class Conductor {
   private async cancelEngagement(record: EngagementRecord, reason: "operator" | "budget_hard_cap"): Promise<void> {
     const cancelled = await this.applyTransition(record, { kind: "cancelled", reason }, `cancelled: ${reason}`);
     if (!cancelled) return;
-    if (record.item) await this.deps.substrate.cancel(record.item, reason);
-    const spentCents = await this.finalSpend(record.engagementId);
-    await this.deps.gateway.revokeKey(record.engagementId);
+    if (cancelled.item) await this.deps.substrate.cancel(cancelled.item, reason);
+    const spentCents = await this.captureSpend(cancelled);
+    await this.deps.gateway.revokeKey(cancelled.engagementId);
     // close in the cancelled lane, never Done — this is not accepted work (B9)
-    if (record.item) await this.deps.substrate.close(record.item, "cancelled");
+    if (cancelled.item) await this.deps.substrate.close(cancelled.item, "cancelled");
     await this.deps.store.appendDecision({
       kind: "termination",
       terminated: {
@@ -1137,7 +1153,9 @@ export class Conductor {
             d.terminated.finalState === rec.state,
         );
         if (settled) return;
-        const spentCents = await this.finalSpend(rec.engagementId);
+        // live reading wins (crash happened before revocation); the persisted
+        // terminalSpendCents recovers the crash-after-revocation window (#12)
+        const spentCents = (await this.captureSpend(rec)) ?? rec.terminalSpendCents;
         await this.deps.gateway.revokeKey(rec.engagementId);
         const reason =
           rec.state === "cancelled"

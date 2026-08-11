@@ -27,6 +27,7 @@ interface EngagementRow {
   last_branch: string | null;
   last_judged_sha: string | null;
   last_judged_attempt: string | null;
+  terminal_spend_cents: number | null;
 }
 
 function toRecord(row: EngagementRow): EngagementRecord {
@@ -41,6 +42,8 @@ function toRecord(row: EngagementRow): EngagementRecord {
     ...(row.last_branch ? { lastBranch: row.last_branch } : {}),
     ...(row.last_judged_sha ? { lastJudgedSha: row.last_judged_sha } : {}),
     ...(row.last_judged_attempt ? { lastJudgedAttempt: row.last_judged_attempt } : {}),
+    // 0¢ is a legitimate reading — null check, never truthiness
+    ...(row.terminal_spend_cents != null ? { terminalSpendCents: row.terminal_spend_cents } : {}),
   };
 }
 
@@ -93,6 +96,7 @@ export class PgGovernanceStore implements GovernanceStore {
       ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_branch text;
       ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_judged_sha text;
       ALTER TABLE engagements ADD COLUMN IF NOT EXISTS last_judged_attempt text;
+      ALTER TABLE engagements ADD COLUMN IF NOT EXISTS terminal_spend_cents integer;
       CREATE TABLE IF NOT EXISTS decisions (
         seq   bigserial PRIMARY KEY,
         entry jsonb NOT NULL
@@ -147,13 +151,14 @@ export class PgGovernanceStore implements GovernanceStore {
       record.lastBranch ?? null,
       record.lastJudgedSha ?? null,
       record.lastJudgedAttempt ?? null,
+      record.terminalSpendCents ?? null,
     ];
   }
 
   async saveEngagement(record: EngagementRecord): Promise<void> {
     await this.pool.query(
-      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha, last_branch, last_judged_sha, last_judged_attempt)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO engagements (engagement_id, stage_id, plan_version, state, bounce_count, item, validated_sha, last_branch, last_judged_sha, last_judged_attempt, terminal_spend_cents)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (engagement_id) DO UPDATE SET
          state = EXCLUDED.state,
          bounce_count = EXCLUDED.bounce_count,
@@ -161,7 +166,8 @@ export class PgGovernanceStore implements GovernanceStore {
          validated_sha = EXCLUDED.validated_sha,
          last_branch = EXCLUDED.last_branch,
          last_judged_sha = EXCLUDED.last_judged_sha,
-         last_judged_attempt = EXCLUDED.last_judged_attempt`,
+         last_judged_attempt = EXCLUDED.last_judged_attempt,
+         terminal_spend_cents = EXCLUDED.terminal_spend_cents`,
       this.engagementParams(record),
     );
   }
@@ -171,8 +177,9 @@ export class PgGovernanceStore implements GovernanceStore {
     const res = await this.pool.query(
       `UPDATE engagements SET
          state = $2, bounce_count = $3, item = $4, validated_sha = $5,
-         last_branch = $6, last_judged_sha = $7, last_judged_attempt = $8
-       WHERE engagement_id = $1 AND state = $9`,
+         last_branch = $6, last_judged_sha = $7, last_judged_attempt = $8,
+         terminal_spend_cents = $9
+       WHERE engagement_id = $1 AND state = $10`,
       [
         record.engagementId,
         record.state,
@@ -182,6 +189,7 @@ export class PgGovernanceStore implements GovernanceStore {
         record.lastBranch ?? null,
         record.lastJudgedSha ?? null,
         record.lastJudgedAttempt ?? null,
+        record.terminalSpendCents ?? null,
         expectedState,
       ],
     );

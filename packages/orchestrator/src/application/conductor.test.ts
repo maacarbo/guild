@@ -1236,6 +1236,30 @@ describe("project accounting survives key revocation (termination captures the f
     expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 42 } });
   });
 
+  it("acceptance persists the final spend on the record BEFORE revoking the key (#12)", async () => {
+    const w = makeWorld();
+    const { item } = await driveToReported(w);
+    w.gateway.spend.set("eng-1", 42);
+    await w.conductor.handleEvent(laneMove(item, "done", "operator"));
+    expect((await w.store.getEngagement("eng-1"))?.terminalSpendCents).toBe(42);
+  });
+
+  it("a crash between revocation and the termination entry cannot lose the spend: the re-drive reads the persisted reading (#12)", async () => {
+    const w = makeWorld();
+    await driveToReported(w);
+    // crash simulation: transition + spend reading persisted, key revoked,
+    // then death before the termination entry was appended
+    const rec = (await w.store.getEngagement("eng-1"))!;
+    await w.store.saveEngagement({ ...rec, state: "accepted", terminalSpendCents: 30 });
+    w.gateway.deadKeys.add("eng-1");
+
+    await w.conductor.reconcile();
+    const term = (await w.store.listDecisions()).find(
+      (d) => d.kind === "termination" && d.terminated.engagementId === "eng-1",
+    );
+    expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 30 } });
+  });
+
   it("the sweep totals live keys PLUS terminated recordings — a revoked key never crashes it", async () => {
     const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 1, hardCapCents: 40 } });
     // engagement 1: full lifecycle, 30¢ spent, key revoked at acceptance

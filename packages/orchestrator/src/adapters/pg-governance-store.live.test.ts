@@ -71,6 +71,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       lastBranch: "agent/worker/abc",
       lastJudgedSha: "abc123",
       lastJudgedAttempt: "run-42",
+      terminalSpendCents: 57,
     });
     const rec = await store.getEngagement("eng-pg-1");
     expect(rec).toEqual({
@@ -84,6 +85,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
       lastBranch: "agent/worker/abc",
       lastJudgedSha: "abc123",
       lastJudgedAttempt: "run-42",
+      terminalSpendCents: 57,
     });
     expect(await store.getEngagement("eng-none")).toBeNull();
     expect((await store.listEngagements()).map((r) => r.engagementId)).toContain("eng-pg-1");
