@@ -59,5 +59,12 @@ describeExecutionSubstrateConformance(async () => {
         { ...apiConfig, token: "mul_invalid_conformance_token" },
         { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId, operatorMemberIds: [] },
       ),
+    freshSubstrate: () =>
+      createMulticaSubstrate(apiConfig, {
+        projectScope: live.workspaceId,
+        roleAgents,
+        selfMemberId: live.memberId,
+        operatorMemberIds: [],
+      }),
   };
 });

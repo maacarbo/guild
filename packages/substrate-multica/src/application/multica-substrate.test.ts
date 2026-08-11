@@ -100,7 +100,13 @@ class FakeMulticaApi implements MulticaApi {
   }
   async archiveAgent(id: string): Promise<void> {
     const idx = this.agents.findIndex((a) => a.id === id);
-    if (idx < 0) throw new MulticaHttpError(404, `no agent ${id}`);
+    if (idx < 0) {
+      // live wire behavior (2026-08-11): re-archive → 409, unknown id → 404
+      if (this.archivedAgents.some((a) => a.id === id)) {
+        throw new MulticaHttpError(409, "agent is already archived");
+      }
+      throw new MulticaHttpError(404, `no agent ${id}`);
+    }
     this.archivedAgents.push(...this.agents.splice(idx, 1));
   }
   async listComments(issueId: string): Promise<MulticaComment[]> {
@@ -465,6 +471,44 @@ describe("hire and retire (M3: dynamic team on the substrate)", () => {
   });
 
   it("retire of an unbound role is a no-op — idempotent re-drives", async () => {
+    const { substrate } = make();
+    expect(await substrate.retireAgent("nobody")).toEqual({ retired: false });
+  });
+});
+
+describe("retire survives a conductor restart (hint from the governance trail)", () => {
+  const hireSpec = { role: "security-reviewer", agentName: "guild-security-reviewer-r1", model: "m" };
+
+  it("a fresh substrate instance retires a prior instance's hire via the agentId hint", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    // restart: a new instance seeds only from static config — the binding is gone
+    const fresh = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+    });
+    const res = await fresh.retireAgent("security-reviewer", { agentId });
+    expect(res).toEqual({ retired: true, agentId });
+    expect(api.archivedAgents.some((a) => a.id === agentId), "agent actually archived — never leaked").toBe(true);
+  });
+
+  it("a crash-redrive against an already-archived hint still reports retired — the decision entry is owed", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    await substrate.retireAgent("security-reviewer");
+    // re-drive on a fresh instance: archive already happened, decision append crashed
+    const fresh = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: {},
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+    });
+    expect(await fresh.retireAgent("security-reviewer", { agentId })).toEqual({ retired: true, agentId });
+  });
+
+  it("no binding and no hint stays a no-op", async () => {
     const { substrate } = make();
     expect(await substrate.retireAgent("nobody")).toEqual({ retired: false });
   });

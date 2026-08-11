@@ -289,10 +289,15 @@ export interface ExecutionSubstrate {
   /**
    * Withdraw a role from the team (M3). One-way: the substrate registration is
    * retired, never resurrected — a later hire of the same role is a NEW agent.
-   * The retired agent's historical items stay readable. Idempotent: an
-   * unbound role no-ops (retired: false).
+   * The retired agent's historical items stay readable. Idempotent, and
+   * restart-safe via the hint: bindings are process state, so a caller that
+   * knows the hired agent (from its governance trail) passes hint.agentId and
+   * the retire converges even when this process never held the binding —
+   * including the crash-redrive where the agent is already retired (still
+   * retired: true: the caller's decision entry is owed). Only a hint-less,
+   * binding-less call no-ops (retired: false).
    */
-  retireAgent(role: string): Promise<{ retired: boolean; agentId?: string }>;
+  retireAgent(role: string, hint?: { agentId?: string }): Promise<{ retired: boolean; agentId?: string }>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
   /**
    * Route the role's subsequent work through the given gateway credential —

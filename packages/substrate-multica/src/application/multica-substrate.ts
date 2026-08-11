@@ -312,13 +312,28 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     }
   }
 
-  async retireAgent(role: string): Promise<{ retired: boolean; agentId?: string }> {
+  async retireAgent(role: string, hint?: { agentId?: string }): Promise<{ retired: boolean; agentId?: string }> {
     const binding = this.roleBindings.get(role);
-    if (!binding) return { retired: false };
+    // the hint WINS: a run retires the agent IT hired. If the role has since
+    // been re-bound to someone else (a later hire, or static config after a
+    // restart), that other agent is not this run's to retire.
+    const agentId = hint?.agentId ?? binding?.agentId;
+    if (!agentId) return { retired: false };
     try {
-      await this.api.archiveAgent(binding.agentId);
-      this.roleBindings.delete(role);
-      return { retired: true, agentId: binding.agentId };
+      try {
+        await this.api.archiveAgent(agentId);
+      } catch (e) {
+        // already archived (crash-redrive or prior-process retire): the
+        // retirement this call wants EXISTS — converge, the caller's decision
+        // entry is still owed. Live wire (2026-08-11): re-archive is 409
+        // "agent is already archived"; 404 covers a fully-vanished row. The
+        // archived listing is the arbiter either way; anything else rethrows.
+        if (!(e instanceof MulticaHttpError) || (e.httpStatus !== 404 && e.httpStatus !== 409)) throw e;
+        const archived = (await this.api.listAgents({ includeArchived: true })).some((a) => a.id === agentId);
+        if (!archived) throw e;
+      }
+      if (binding?.agentId === agentId) this.roleBindings.delete(role);
+      return { retired: true, agentId };
     } catch (e) {
       return this.fail(e);
     }

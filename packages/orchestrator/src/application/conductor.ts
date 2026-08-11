@@ -750,6 +750,11 @@ export class Conductor {
     if (!rec || rec.state !== "gated") return;
     if (await this.deps.store.getDispatchLock()) return; // hard-capped: no new spend
 
+    // Intent FIRST — the saga's documented crash-recovery anchor covers the
+    // hire too (a thrown hire, e.g. no online runtime, leaves the intent row
+    // and reconcile's saga re-drive retries the whole dispatch).
+    await this.deps.store.recordDispatchIntent(ep.engagementId, this.now());
+
     // Team evolution (M3): the plan demanding a role IS the hiring signal.
     // Idempotent for held roles; the per-run agent name makes a crashed hire
     // adopt its own registration on re-drive (and recovers bindings after a
@@ -772,7 +777,6 @@ export class Conductor {
       });
     }
 
-    await this.deps.store.recordDispatchIntent(ep.engagementId, this.now());
     const key = await this.deps.gateway.mintKey(ep.engagementId, ep.budgetCents);
     await this.deps.substrate.bindEngagementKey(ep.role, key.key);
     const item =
@@ -1054,14 +1058,20 @@ export class Conductor {
           if (d.kind === "retire" && d.planId === run.planId) hiredHere.delete(d.role);
         }
         for (const [role, hiredAgentId] of hiredHere) {
-          const res = await this.deps.substrate.retireAgent(role);
-          await this.deps.store.appendDecision({
-            kind: "retire",
-            role,
-            agentId: res.agentId ?? hiredAgentId,
-            planId: run.planId,
-            at: this.now(),
-          });
+          // the trail hint keeps retirement restart-safe: a fresh process holds
+          // no binding, but the hire decision knows the agent. The decision is
+          // appended ONLY on substrate confirmation — a silent no-op must never
+          // write false provenance into the append-only trail.
+          const res = await this.deps.substrate.retireAgent(role, { agentId: hiredAgentId });
+          if (res.retired) {
+            await this.deps.store.appendDecision({
+              kind: "retire",
+              role,
+              agentId: res.agentId ?? hiredAgentId,
+              planId: run.planId,
+              at: this.now(),
+            });
+          }
         }
         await this.deps.store.savePlanRun({ ...run, status: "completed" });
         if (run.ideaItem) {
