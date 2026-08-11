@@ -268,8 +268,7 @@ export class Conductor {
           at: this.now(),
         },
       });
-      const target = await this.projectNoticeTarget();
-      if (target) {
+      for (const target of await this.projectNoticeTargets()) {
         await this.deps.substrate.comment(
           target,
           `Budget hard cap reached: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢. ` +
@@ -289,8 +288,7 @@ export class Conductor {
         kind: "budget",
         event: { kind: "soft_cap", scope: "project", spentCents: totalSpent, capCents: budget.softCapCents, at: this.now() },
       });
-      const target = await this.projectNoticeTarget();
-      if (target) {
+      for (const target of await this.projectNoticeTargets()) {
         await this.deps.substrate.comment(
           target,
           `Budget soft cap: project spend ${totalSpent}¢ has crossed the ${budget.softCapCents}¢ warning line (hard cap ${budget.hardCapCents}¢).`,
@@ -328,12 +326,23 @@ export class Conductor {
     });
   }
 
-  /** where project-level budget notices land: the active run's idea ticket */
-  private async projectNoticeTarget(): Promise<WorkItemRef | null> {
+  /**
+   * Where project-level budget notices land: EVERY active run's idea ticket
+   * (#12) — under concurrent ideas a single arbitrary target left the other
+   * operators' surfaces silent. Deduped by ref; directly-adopted runs have no
+   * idea ticket and are skipped, as before.
+   */
+  private async projectNoticeTargets(): Promise<WorkItemRef[]> {
+    const seen = new Set<string>();
+    const targets: WorkItemRef[] = [];
     for (const run of await this.deps.store.listPlanRuns()) {
-      if (run.status === "active" && run.ideaItem) return run.ideaItem;
+      if (run.status !== "active" || !run.ideaItem) continue;
+      const key = `${run.ideaItem.substrate} ${run.ideaItem.externalId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push(run.ideaItem);
     }
-    return null;
+    return targets;
   }
 
   // ------------------------------------------------------- event routing

@@ -732,12 +732,12 @@ function seedIdea(w: World, id: string, title: string, body: string): WorkItemRe
   return { substrate: "fake", externalId: id };
 }
 
-async function adoptIdea(w: World, body = "A CLI that counts words.") {
-  const idea = seedIdea(w, "idea-1", "Idea: word counter", body);
+async function adoptIdea(w: World, body = "A CLI that counts words.", id = "idea-1") {
+  const idea = seedIdea(w, id, "Idea: word counter", body);
   await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: word counter", body));
-  const run = await w.store.getPlanRun("idea-1");
+  const run = await w.store.getPlanRun(id);
   expect(run, "plan run adopted").toBeTruthy();
-  const gate = await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1");
+  const gate = await w.substrate.findWorkItem(`gate:stg:${id}:analysis:v1`);
   expect(gate, "analysis gate posted").toBeTruthy();
   return { idea, run: run!, gate: gate! };
 }
@@ -1234,6 +1234,20 @@ describe("project accounting survives key revocation (termination captures the f
     await w.conductor.handleEvent(laneMove(item, "done", "operator"));
     const term = (await w.store.listDecisions()).find((d) => d.kind === "termination");
     expect(term).toMatchObject({ terminated: { finalState: "accepted", spentCents: 42 } });
+  });
+
+  it("project-cap notices reach EVERY active run's idea ticket, not an arbitrary first (#12)", async () => {
+    const w = makeWorld({ projectBudget: { projectId: "ws-1", softCapCents: 800, hardCapCents: 900 } });
+    const a = await adoptIdea(w);
+    const b = await adoptIdea(w, "A second concurrent idea.", "idea-2");
+    await w.conductor.handleEvent(laneMove(a.gate, "ready_to_work", "operator"));
+    await w.conductor.handleEvent(laneMove(b.gate, "ready_to_work", "operator"));
+    w.gateway.spend.set("eng:stg:idea-1:analysis:v1", 500);
+    w.gateway.spend.set("eng:stg:idea-2:analysis:v1", 500);
+
+    await w.conductor.sweep(); // 1000 >= 900 → hard cap halts the project
+    const noticed = w.substrate.comments.filter((c) => /hard cap/i.test(c.body)).map((c) => c.id);
+    expect(noticed.sort()).toEqual(["idea-1", "idea-2"]);
   });
 
   it("acceptance persists the final spend on the record BEFORE revoking the key (#12)", async () => {
