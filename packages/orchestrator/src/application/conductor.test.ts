@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   BoardActor,
+  HireSpec,
   WorkItemComment,
   ContractVerdict,
   EngagementKey,
@@ -101,6 +102,50 @@ class FakeSubstrate implements ExecutionSubstrate {
   }
   async comment(item: WorkItemRef, body: string): Promise<void> {
     this.comments.push({ id: item.externalId, body });
+  }
+  private static starterBindings() {
+    return new Map<string, string>(
+      ["analyst", "architect", "implementer", "tester", "worker"].map((r) => [r, `cfg:${r}`]),
+    );
+  }
+  /** substrate-side agent registry — survives "restarts"; bindings do not (M3) */
+  agentRegistry = new Map<string, { name: string; archived: boolean }>(
+    ["analyst", "architect", "implementer", "tester", "worker"].map((r) => [`cfg:${r}`, { name: `guild-${r}`, archived: false }]),
+  );
+  /** role → agentId; seeded like config-bound starter roles, extended by hires (M3) */
+  hiredRoles = FakeSubstrate.starterBindings();
+  /** when true, hireAgent throws — the adapter's "no online runtime" refusal */
+  failHires = false;
+  /** a fresh process: static-config bindings only, registry intact */
+  simulateRestart(): void {
+    this.hiredRoles = FakeSubstrate.starterBindings();
+  }
+  async hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }> {
+    if (this.failHires) throw new Error("no online runtime to hire onto — is the daemon up?");
+    const existing = this.hiredRoles.get(spec.role);
+    if (existing) return { hired: false, agentId: existing };
+    for (const [id, a] of this.agentRegistry) {
+      if (!a.archived && a.name === spec.agentName) {
+        this.hiredRoles.set(spec.role, id); // 409-adopt: crashed hire / restart recovery
+        return { hired: true, agentId: id };
+      }
+    }
+    const agentId = `hired:${spec.agentName}`;
+    this.agentRegistry.set(agentId, { name: spec.agentName, archived: false });
+    this.hiredRoles.set(spec.role, agentId);
+    this.ops.push("hireAgent");
+    return { hired: true, agentId };
+  }
+  async retireAgent(role: string, hint?: { agentId?: string }): Promise<{ retired: boolean; agentId?: string }> {
+    const bound = this.hiredRoles.get(role);
+    const agentId = hint?.agentId ?? bound; // hint wins — retire what was hired
+    if (!agentId) return { retired: false };
+    const entry = this.agentRegistry.get(agentId);
+    if (!entry) throw new Error(`no agent ${agentId}`);
+    entry.archived = true; // idempotent: archiving an archived agent converges
+    if (bound === agentId) this.hiredRoles.delete(role);
+    this.ops.push("retireAgent");
+    return { retired: true, agentId };
   }
   seedComment(item: WorkItemRef, actor: BoardActor, body: string, at: string): void {
     const commentId = `c-${this.seededComments.length + 1}`;
@@ -530,6 +575,75 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("team evolution: hire on demand, retire on completion (M3)", () => {
+  it("a role the plan demands but nobody holds is hired at dispatch, trail-recorded", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.hiredRoles.delete("analyst"); // the project started without an analyst
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect(w.substrate.hiredRoles.has("analyst"), "hired at dispatch").toBe(true);
+    const hire = (await w.store.listDecisions()).find((d) => d.kind === "hire");
+    expect(hire).toMatchObject({ kind: "hire", role: "analyst", planId: "idea-1" });
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+  });
+
+  it("an already-held role hires nothing — no decision noise", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect((await w.store.listDecisions()).some((d) => d.kind === "hire")).toBe(false);
+  });
+
+  it("a failed hire aborts dispatch BEFORE any spend; the intent row makes reconcile re-drive it", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.hiredRoles.delete("analyst");
+    w.substrate.failHires = true;
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator")).catch(() => {});
+    expect(w.gateway.mints, "no key minted for an unhirable role").toHaveLength(0);
+    expect(await w.store.listDispatchIntents(), "intent persisted before the hire attempt").toContain(
+      "eng:stg:idea-1:analysis:v1",
+    );
+    // the runtime comes back — reconcile's saga re-drive completes the dispatch
+    w.substrate.failHires = false;
+    await w.conductor.reconcile();
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+    expect((await w.store.listDecisions()).filter((d) => d.kind === "hire")).toHaveLength(1);
+  });
+
+  it("retirement survives a conductor restart: the trail hint retires the hire, never leaks it", async () => {
+    const w = makeWorld();
+    await adoptIdea(w, "Fix the typo.\ntemplate: quick-fix", "idea-qf");
+    w.substrate.hiredRoles.delete("implementer");
+    await driveStageToAccepted(w, "stg:idea-qf:implementation", "agent/implementer/i1", "sha-i");
+    w.substrate.simulateRestart(); // bindings lost; the substrate registry survives
+    await driveStageToAccepted(w, "stg:idea-qf:test", "agent/tester/t1", "sha-t");
+
+    expect((await w.store.getPlanRun("idea-qf"))?.status).toBe("completed");
+    const retire = (await w.store.listDecisions()).find((d) => d.kind === "retire");
+    expect(retire).toMatchObject({ kind: "retire", role: "implementer" });
+    const hired = [...w.substrate.agentRegistry.entries()].find(([id]) => id.startsWith("hired:guild-implementer"));
+    expect(hired?.[1].archived, "the agent is actually archived, not leaked").toBe(true);
+  });
+
+  it("roles hired during a run retire exactly once when the run completes", async () => {
+    const w = makeWorld();
+    await adoptIdea(w, "Fix the typo.\ntemplate: quick-fix", "idea-qf");
+    w.substrate.hiredRoles.delete("implementer");
+    w.substrate.hiredRoles.delete("tester");
+    await driveStageToAccepted(w, "stg:idea-qf:implementation", "agent/implementer/i1", "sha-i");
+    await driveStageToAccepted(w, "stg:idea-qf:test", "agent/tester/t1", "sha-t");
+
+    expect((await w.store.getPlanRun("idea-qf"))?.status).toBe("completed");
+    const retires = (await w.store.listDecisions()).filter((d) => d.kind === "retire");
+    expect(retires.map((d) => (d as { role: string }).role).sort()).toEqual(["implementer", "tester"]);
+    expect(w.substrate.hiredRoles.has("implementer"), "unbound after retirement").toBe(false);
+
+    await w.conductor.reconcile(); // idempotent — no duplicate retirements
+    expect((await w.store.listDecisions()).filter((d) => d.kind === "retire")).toHaveLength(2);
+  });
+});
+
 describe("template: directive shapes the plan run (M3, D12 amendment)", () => {
   it("a quick-fix idea adopts as a two-stage run: implementation → test", async () => {
     const w = makeWorld();
@@ -852,8 +966,9 @@ async function adoptIdea(w: World, body = "A CLI that counts words.", id = "idea
   await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: word counter", body));
   const run = await w.store.getPlanRun(id);
   expect(run, "plan run adopted").toBeTruthy();
-  const gate = await w.substrate.findWorkItem(`gate:stg:${id}:analysis:v1`);
-  expect(gate, "analysis gate posted").toBeTruthy();
+  // the idea's template picks the pipeline — the first gate is its first stage
+  const gate = await w.substrate.findWorkItem(`gate:${run!.stageIds[0]}:v1`);
+  expect(gate, "first stage gate posted").toBeTruthy();
   return { idea, run: run!, gate: gate! };
 }
 

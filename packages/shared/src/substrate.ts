@@ -203,6 +203,13 @@ export interface WorkItemComment {
   inReplyTo: string | null;
 }
 
+/** what a hire needs (M3): the Guild role, a unique substrate agent name, and the model route */
+export interface HireSpec {
+  role: string;
+  agentName: string;
+  model: string;
+}
+
 /**
  * Stable error categories on the substrate boundary — application code depends
  * on these, never on Multica-specific failure text. The set must totalize:
@@ -270,6 +277,27 @@ export interface ExecutionSubstrate {
    * read a downtime amendment was silently lost.
    */
   listComments(item: WorkItemRef): Promise<WorkItemComment[]>;
+  /**
+   * Team evolution (M3): make a role dispatchable on the substrate. Idempotent
+   * twice over — an already-bound role no-ops (hired: false), and a crashed
+   * hire re-driven with the same agentName adopts the existing registration
+   * instead of duplicating it (hired: true — the caller's decision entry is
+   * still owed). agentName must be unique per hire: retired names stay
+   * reserved by the substrate.
+   */
+  hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }>;
+  /**
+   * Withdraw a role from the team (M3). One-way: the substrate registration is
+   * retired, never resurrected — a later hire of the same role is a NEW agent.
+   * The retired agent's historical items stay readable. Idempotent, and
+   * restart-safe via the hint: bindings are process state, so a caller that
+   * knows the hired agent (from its governance trail) passes hint.agentId and
+   * the retire converges even when this process never held the binding —
+   * including the crash-redrive where the agent is already retired (still
+   * retired: true: the caller's decision entry is owed). Only a hint-less,
+   * binding-less call no-ops (retired: false).
+   */
+  retireAgent(role: string, hint?: { agentId?: string }): Promise<{ retired: boolean; agentId?: string }>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
   /**
    * Route the role's subsequent work through the given gateway credential —

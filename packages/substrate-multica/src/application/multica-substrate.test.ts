@@ -36,6 +36,7 @@ class FakeMulticaApi implements MulticaApi {
   agents: MulticaAgent[] = [
     { id: "agent-1", name: "worker-agent", model: "litellm/or-gemini-flash-lite", runtime_id: "rt-1" },
   ];
+  archivedAgents: MulticaAgent[] = [];
   private seq = 0;
 
   async createIssue(input: { title: string; description: string }): Promise<MulticaIssue> {
@@ -81,6 +82,32 @@ class FakeMulticaApi implements MulticaApi {
     };
     this.comments.push(c);
     return c;
+  }
+  async listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
+    return opts?.includeArchived ? [...this.agents, ...this.archivedAgents] : [...this.agents];
+  }
+  runtimes: Array<{ id: string; status: string }> = [{ id: "rt-1", status: "online" }];
+  async listRuntimes() {
+    return this.runtimes;
+  }
+  async createAgent(spec: { name: string; runtime_id: string; model: string }): Promise<MulticaAgent> {
+    if ([...this.agents, ...this.archivedAgents].some((a) => a.name === spec.name)) {
+      throw new MulticaHttpError(409, `an agent named "${spec.name}" already exists in this workspace`);
+    }
+    const agent: MulticaAgent = { id: `agent-${this.agents.length + this.archivedAgents.length + 100}`, name: spec.name, model: spec.model, runtime_id: spec.runtime_id };
+    this.agents.push(agent);
+    return agent;
+  }
+  async archiveAgent(id: string): Promise<void> {
+    const idx = this.agents.findIndex((a) => a.id === id);
+    if (idx < 0) {
+      // live wire behavior (2026-08-11): re-archive → 409, unknown id → 404
+      if (this.archivedAgents.some((a) => a.id === id)) {
+        throw new MulticaHttpError(409, "agent is already archived");
+      }
+      throw new MulticaHttpError(404, `no agent ${id}`);
+    }
+    this.archivedAgents.push(...this.agents.splice(idx, 1));
   }
   async listComments(issueId: string): Promise<MulticaComment[]> {
     return this.comments.filter((c) => c.issue_id === issueId);
@@ -369,5 +396,120 @@ describe("listComments (#12 reconcile read)", () => {
     expect(comments.map((c) => c.actor)).toEqual(["operator", "agent", "unknown", "conductor"]);
     expect(comments[0]).toMatchObject({ commentId: "c1", author: "member-op", body: "amend: tighter", at: "t1", inReplyTo: null });
     expect(comments[3].inReplyTo).toBe("c1");
+  });
+});
+
+describe("archived-agent tolerance (M3: retire = archive; reads must survive)", () => {
+  const hireAndAssign = async () => {
+    const { api, substrate } = make();
+    const ref = await substrate.createWorkItem(spec("eng-arch"));
+    // a HIRED agent is not in the roleAgents name cache — resolution must go
+    // through the API, which 404s once the agent is archived
+    api.agents.push({ id: "agent-hired", name: "guild-hired-x", model: "m", runtime_id: "rt-1" });
+    (await api.getIssue(ref.externalId)).assignee_id = "agent-hired";
+    return { api, substrate, ref };
+  };
+
+  it("resolves an archived assignee via the archived listing instead of aborting the read path", async () => {
+    const { api, substrate, ref } = await hireAndAssign();
+    const idx = api.agents.findIndex((a) => a.id === "agent-hired");
+    api.archivedAgents.push(...api.agents.splice(idx, 1));
+    const snap = await substrate.getWorkItem(ref);
+    expect(snap.item).toEqual(ref);
+  });
+
+  it("degrades to the bare agent id when the agent is gone entirely — never a thrown read", async () => {
+    const { api, substrate, ref } = await hireAndAssign();
+    const idx = api.agents.findIndex((a) => a.id === "agent-hired");
+    api.agents.splice(idx, 1);
+    const snap = await substrate.getWorkItem(ref);
+    expect(snap.item).toEqual(ref);
+  });
+});
+
+describe("hire and retire (M3: dynamic team on the substrate)", () => {
+  const hireSpec = { role: "security-reviewer", agentName: "guild-security-reviewer-idea9", model: "litellm/or-deepseek-v3-2" };
+
+  it("hire creates the agent on an online runtime, binds the role, dispatchable at once", async () => {
+    const { api, substrate } = make();
+    const res = await substrate.hireAgent(hireSpec);
+    expect(res.hired).toBe(true);
+    const created = api.agents.find((a) => a.name === hireSpec.agentName);
+    expect(created?.runtime_id).toBe("rt-1");
+    const ref = await substrate.createWorkItem(spec("eng-h1", "security-reviewer"));
+    expect((await api.getIssue(ref.externalId)).assignee_id).toBe(res.agentId);
+  });
+
+  it("hire refuses when no runtime is online — an agent must never be created unborn", async () => {
+    const { api, substrate } = make();
+    api.runtimes = [{ id: "rt-1", status: "offline" }];
+    await expect(substrate.hireAgent(hireSpec)).rejects.toMatchObject({ retryable: true });
+    expect(api.agents.some((a) => a.name === hireSpec.agentName)).toBe(false);
+  });
+
+  it("hire is idempotent: a bound role no-ops; a crashed hire adopts the same-name agent instead of duplicating", async () => {
+    const { api, substrate } = make();
+    const first = await substrate.hireAgent(hireSpec);
+    expect(await substrate.hireAgent(hireSpec)).toEqual({ hired: false, agentId: first.agentId });
+    // crash between create and bind: the agent exists by name, the role is unbound
+    api.agents.push({ id: "agent-pre", name: "guild-doc-writer-idea9", model: "m", runtime_id: "rt-1" });
+    const adopted = await substrate.hireAgent({ role: "doc-writer", agentName: "guild-doc-writer-idea9", model: "m" });
+    expect(adopted).toEqual({ hired: true, agentId: "agent-pre" });
+    expect(api.agents.filter((a) => a.name === "guild-doc-writer-idea9")).toHaveLength(1);
+  });
+
+  it("retire archives the agent, unbinds the role, and the agent's history stays readable", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    const ref = await substrate.createWorkItem(spec("eng-h2", "security-reviewer"));
+    const res = await substrate.retireAgent("security-reviewer");
+    expect(res).toEqual({ retired: true, agentId });
+    expect(api.archivedAgents.some((a) => a.id === agentId)).toBe(true);
+    const err = await substrate.createWorkItem(spec("eng-h3", "security-reviewer")).catch((e) => e);
+    expect(err.category).toBe("unsupported_capability");
+    expect((await substrate.getWorkItem(ref)).item).toEqual(ref);
+  });
+
+  it("retire of an unbound role is a no-op — idempotent re-drives", async () => {
+    const { substrate } = make();
+    expect(await substrate.retireAgent("nobody")).toEqual({ retired: false });
+  });
+});
+
+describe("retire survives a conductor restart (hint from the governance trail)", () => {
+  const hireSpec = { role: "security-reviewer", agentName: "guild-security-reviewer-r1", model: "m" };
+
+  it("a fresh substrate instance retires a prior instance's hire via the agentId hint", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    // restart: a new instance seeds only from static config — the binding is gone
+    const fresh = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+    });
+    const res = await fresh.retireAgent("security-reviewer", { agentId });
+    expect(res).toEqual({ retired: true, agentId });
+    expect(api.archivedAgents.some((a) => a.id === agentId), "agent actually archived — never leaked").toBe(true);
+  });
+
+  it("a crash-redrive against an already-archived hint still reports retired — the decision entry is owed", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    await substrate.retireAgent("security-reviewer");
+    // re-drive on a fresh instance: archive already happened, decision append crashed
+    const fresh = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: {},
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+    });
+    expect(await fresh.retireAgent("security-reviewer", { agentId })).toEqual({ retired: true, agentId });
+  });
+
+  it("no binding and no hint stays a no-op", async () => {
+    const { substrate } = make();
+    expect(await substrate.retireAgent("nobody")).toEqual({ retired: false });
   });
 });

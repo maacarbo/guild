@@ -9,6 +9,7 @@ import type {
   CancellationReason,
   ContractVerdict,
   ExecutionSubstrate,
+  HireSpec,
   Lane,
   SubstrateEvent,
   TicketSpec,
@@ -64,12 +65,15 @@ export interface MulticaSubstrateConfig {
 export class MulticaSubstrate implements ExecutionSubstrate {
   readonly name = "multica";
   private readonly agentNames = new Map<string, string>();
+  /** role → agent binding; seeded from config, mutated ONLY by hire/retire (M3) */
+  private readonly roleBindings = new Map<string, RoleBinding>();
 
   constructor(
     private readonly api: MulticaApi,
     private readonly config: MulticaSubstrateConfig,
   ) {
-    for (const binding of Object.values(config.roleAgents)) {
+    for (const [role, binding] of Object.entries(config.roleAgents)) {
+      this.roleBindings.set(role, binding);
       this.agentNames.set(binding.agentId, binding.agentName);
     }
   }
@@ -90,9 +94,21 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   private async agentNameFor(agentId: string): Promise<string> {
     const known = this.agentNames.get(agentId);
     if (known) return known;
-    const agent = await this.api.getAgent(agentId);
-    this.agentNames.set(agentId, agent.name);
-    return agent.name;
+    try {
+      const agent = await this.api.getAgent(agentId);
+      this.agentNames.set(agentId, agent.name);
+      return agent.name;
+    } catch (e) {
+      if (!(e instanceof MulticaHttpError) || e.httpStatus !== 404) throw e;
+      // M3 retire = archive: the agent leaves getAgent but its historical
+      // items remain on the board, and reconcile reads EVERY item — a name
+      // lookup must degrade (archived listing, then the bare id), never
+      // abort the read path. Cached either way: one miss, not one per pass.
+      const archived = (await this.api.listAgents({ includeArchived: true })).find((a) => a.id === agentId);
+      const name = archived?.name ?? agentId;
+      this.agentNames.set(agentId, name);
+      return name;
+    }
   }
 
   private assertScope(projectScope: string): void {
@@ -106,7 +122,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   }
 
   async createWorkItem(spec: WorkItemSpec): Promise<WorkItemRef> {
-    const binding = this.config.roleAgents[spec.role];
+    const binding = this.roleBindings.get(spec.role);
     if (!binding) {
       throw new SubstrateFault(
         "unsupported_capability",
@@ -225,7 +241,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   }
 
   async bindEngagementKey(role: string, key: string): Promise<void> {
-    const binding = this.config.roleAgents[role];
+    const binding = this.roleBindings.get(role);
     if (!binding) {
       throw new SubstrateFault(
         "unsupported_capability",
@@ -254,6 +270,70 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async comment(item: WorkItemRef, body: string, opts?: { inReplyTo?: string }): Promise<void> {
     try {
       await this.api.createComment(item.externalId, body, opts?.inReplyTo);
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }> {
+    const bound = this.roleBindings.get(spec.role);
+    if (bound) return { hired: false, agentId: bound.agentId };
+    try {
+      // agents bind to a runtime at creation (backend rejects runtime_id-less
+      // creates) and only an ONLINE runtime's daemon dispatches — probed live
+      // 2026-08-11: creation on the online runtime reached task_run running
+      // with no daemon restart
+      const online = (await this.api.listRuntimes()).find((r) => r.status === "online");
+      if (!online) {
+        throw new SubstrateFault("substrate_internal", true, "no online runtime to hire onto — is the daemon up?");
+      }
+      let agentId: string;
+      try {
+        agentId = (await this.api.createAgent({ name: spec.agentName, runtime_id: online.id, model: spec.model })).id;
+      } catch (e) {
+        // crashed-hire re-drive: the same-name agent already exists — adopt it
+        // rather than duplicate (names are unique per hire by contract)
+        if (!(e instanceof MulticaHttpError) || e.httpStatus !== 409) throw e;
+        const existing = (await this.api.listAgents()).find((a) => a.name === spec.agentName);
+        if (!existing) {
+          throw new SubstrateFault(
+            "substrate_internal",
+            false,
+            `agent name "${spec.agentName}" is reserved by a retired agent — hire names must be unique per hire`,
+          );
+        }
+        agentId = existing.id;
+      }
+      this.roleBindings.set(spec.role, { agentId, agentName: spec.agentName });
+      this.agentNames.set(agentId, spec.agentName);
+      return { hired: true, agentId };
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async retireAgent(role: string, hint?: { agentId?: string }): Promise<{ retired: boolean; agentId?: string }> {
+    const binding = this.roleBindings.get(role);
+    // the hint WINS: a run retires the agent IT hired. If the role has since
+    // been re-bound to someone else (a later hire, or static config after a
+    // restart), that other agent is not this run's to retire.
+    const agentId = hint?.agentId ?? binding?.agentId;
+    if (!agentId) return { retired: false };
+    try {
+      try {
+        await this.api.archiveAgent(agentId);
+      } catch (e) {
+        // already archived (crash-redrive or prior-process retire): the
+        // retirement this call wants EXISTS — converge, the caller's decision
+        // entry is still owed. Live wire (2026-08-11): re-archive is 409
+        // "agent is already archived"; 404 covers a fully-vanished row. The
+        // archived listing is the arbiter either way; anything else rethrows.
+        if (!(e instanceof MulticaHttpError) || (e.httpStatus !== 404 && e.httpStatus !== 409)) throw e;
+        const archived = (await this.api.listAgents({ includeArchived: true })).some((a) => a.id === agentId);
+        if (!archived) throw e;
+      }
+      if (binding?.agentId === agentId) this.roleBindings.delete(role);
+      return { retired: true, agentId };
     } catch (e) {
       return this.fail(e);
     }

@@ -91,3 +91,35 @@ describe("FetchMulticaApi error surface", () => {
     expect(body.allow_duplicate).toBe(true);
   });
 });
+
+describe("agent-management primitives (M3 hiring — live-probed 2026-08-11)", () => {
+  it("listRuntimes GETs /api/runtimes", async () => {
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://multica.test/api/runtimes");
+      return new Response(JSON.stringify([{ id: "rt-1", status: "online" }]), { status: 200 });
+    }) as typeof fetch);
+    expect(await api().listRuntimes()).toEqual([{ id: "rt-1", status: "online" }]);
+  });
+
+  it("createAgent POSTs the spec — runtime_id is REQUIRED by the backend, so the type demands it", async () => {
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://multica.test/api/agents");
+      expect(init?.method).toBe("POST");
+      const body = JSON.parse(String(init?.body));
+      expect(body).toEqual({ name: "guild-sec-1", runtime_id: "rt-1", model: "litellm/or-deepseek-v3-2" });
+      return new Response(JSON.stringify({ id: "a-9", ...body }), { status: 201 });
+    }) as typeof fetch);
+    const created = await api().createAgent({ name: "guild-sec-1", runtime_id: "rt-1", model: "litellm/or-deepseek-v3-2" });
+    expect(created.id).toBe("a-9");
+  });
+
+  it("archiveAgent POSTs /api/agents/{id}/archive — the only retire the API has (DELETE is 405)", async () => {
+    let called = "";
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      called = `${init?.method} ${String(input)}`;
+      return new Response(JSON.stringify({ id: "a-9", archived_at: "t" }), { status: 200 });
+    }) as typeof fetch);
+    await api().archiveAgent("a-9");
+    expect(called).toBe("POST http://multica.test/api/agents/a-9/archive");
+  });
+});

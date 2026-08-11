@@ -6,7 +6,7 @@
  * - WS auth is the first frame `{"type":"auth","payload":{"token":…}}`
  */
 
-import type { MulticaAgent, MulticaComment, MulticaIssue, MulticaTaskRun } from "../domain/multica-types.js";
+import type { MulticaAgent, MulticaComment, MulticaIssue, MulticaRuntime, MulticaTaskRun } from "../domain/multica-types.js";
 import type { MulticaApi, MulticaWsFrame } from "../ports/multica-api.js";
 import { MulticaHttpError } from "../ports/multica-api.js";
 
@@ -95,6 +95,22 @@ export class FetchMulticaApi implements MulticaApi {
 
   listComments(issueId: string): Promise<MulticaComment[]> {
     return this.request("GET", `/api/issues/${issueId}/comments`);
+  }
+
+  listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
+    return this.request("GET", `/api/agents${opts?.includeArchived ? "?include_archived=true" : ""}`);
+  }
+
+  listRuntimes(): Promise<MulticaRuntime[]> {
+    return this.request("GET", "/api/runtimes");
+  }
+
+  createAgent(spec: { name: string; runtime_id: string; model: string; description?: string }): Promise<MulticaAgent> {
+    return this.request("POST", "/api/agents", spec);
+  }
+
+  async archiveAgent(id: string): Promise<void> {
+    await this.request("POST", `/api/agents/${id}/archive`);
   }
 
   async cancelTask(taskId: string): Promise<void> {
