@@ -45,6 +45,8 @@ export interface MulticaComment {
   content: string;
   parent_id: string | null;
   author_type: string;
+  /** present on the wire (probe 2026-08-11: GET /comments returns it) — required for D15 actor attribution on the reconcile read path (#12) */
+  author_id?: string;
   created_at: string;
 }
 

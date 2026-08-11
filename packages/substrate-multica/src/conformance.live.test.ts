@@ -57,13 +57,5 @@ describeExecutionSubstrateConformance(async () => {
         { ...apiConfig, token: "mul_invalid_conformance_token" },
         { projectScope: live.workspaceId, roleAgents, selfMemberId: live.memberId, operatorMemberIds: [] },
       ),
-    listComments: async (ref: WorkItemRef) => {
-      const res = await fetch(`${live.baseUrl}/api/issues/${ref.externalId}/comments`, {
-        headers: { authorization: `Bearer ${live.token}`, "x-workspace-id": live.workspaceId },
-      });
-      if (!res.ok) throw new Error(`comments read → ${res.status}`);
-      const comments = (await res.json()) as Array<{ id: string; content: string; parent_id: string | null }>;
-      return comments.map((c) => ({ id: c.id, body: c.content, inReplyTo: c.parent_id }));
-    },
   };
 });

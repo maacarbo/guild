@@ -650,20 +650,29 @@ export class Conductor {
   ): Promise<void> {
     const note = ev.body.trim();
     if (!/^amend\b/i.test(note)) return;
+    await this.applyGateAmend(gateKey, note, ev.at);
+  }
+
+  /**
+   * The amendment application shared by the live comment path and the
+   * reconcile recovery path (#12). recordGateDecision's first-writer-wins key
+   * makes replays no-ops; returns whether a re-gate actually happened.
+   */
+  private async applyGateAmend(gateKey: GateTicketKey, note: string, at: string): Promise<boolean> {
     const plan = await this.deps.store.getStagePlan(gateKey.stageId, gateKey.planVersion);
     const latest = await this.deps.store.getLatestStagePlan(gateKey.stageId);
-    if (!plan || !latest || latest.planVersion !== gateKey.planVersion) return; // stale gate
+    if (!plan || !latest || latest.planVersion !== gateKey.planVersion) return false; // stale gate
     const run = await this.runContaining(gateKey.stageId);
-    if (!run || run.status !== "active" || !run.ideaItem) return;
+    if (!run || run.status !== "active" || !run.ideaItem) return false;
 
     const decision: GateDecision = {
       kind: "amended",
       stageId: gateKey.stageId,
       planVersion: gateKey.planVersion,
       note,
-      at: ev.at,
+      at,
     };
-    if (!(await this.deps.store.recordGateDecision(decision))) return; // already decided
+    if (!(await this.deps.store.recordGateDecision(decision))) return false; // already decided
     await this.deps.store.appendDecision({ kind: "gate", decision });
 
     // supersede the un-dispatched engagements of the amended version
@@ -682,7 +691,7 @@ export class Conductor {
               engagementId: ep.engagementId,
               finalState: "cancelled",
               reason: "plan_amended",
-              at: ev.at,
+              at,
             },
           });
         }
@@ -693,6 +702,7 @@ export class Conductor {
 
     const index = run.stageIds.indexOf(gateKey.stageId);
     await this.openStage(run, index, gateKey.planVersion + 1);
+    return true;
   }
 
   // ------------------------------------------------------------ dispatch
@@ -1083,8 +1093,38 @@ export class Conductor {
           if (gate) {
             const snap = await this.deps.substrate.getWorkItem(gate);
             const gateKey = { stageId: plan.stageId, planVersion: plan.planVersion };
-            if (snap.lane === "ready_to_work") await this.deps.substrate.setLane(gate, "waiting_for_feedback");
-            else if (snap.lane === "cancelled") await this.rejectStage(gateKey, this.now());
+            if (snap.lane === "cancelled") {
+              await this.rejectStage(gateKey, this.now());
+              break;
+            }
+            // Amend-while-down recovery (#12): operator `amend:` comments on
+            // the CURRENT gate ticket are by construction unprocessed — a live
+            // application supersedes the ticket. Oldest first; each note
+            // re-derives against the then-latest version, so several downtime
+            // notes stack exactly as they would have live. Amend WINS over a
+            // downtime go-lane (operator decision 2026-08-11, extending the
+            // D15c reject-beats-stale-approve stance): the re-gate posts
+            // v+1 in waiting-for-feedback and the stale move dies with the
+            // superseded ticket. (A crash mid-loop leaves later notes on the
+            // superseded ticket — visible in its body, reapplied by nobody;
+            // accepted residual, the gate body shows what was folded.)
+            const pending = (await this.deps.substrate.listComments(gate))
+              .filter((c) => c.actor === "operator" && /^amend\b/i.test(c.body.trim()))
+              .sort((a, b) => a.at.localeCompare(b.at));
+            let amended = false;
+            for (const c of pending) {
+              const current = await this.deps.store.getLatestStagePlan(stageId);
+              if (!current) break;
+              const applied = await this.applyGateAmend(
+                { stageId, planVersion: current.planVersion },
+                c.body.trim(),
+                c.at,
+              );
+              amended = amended || applied;
+            }
+            if (!amended && snap.lane === "ready_to_work") {
+              await this.deps.substrate.setLane(gate, "waiting_for_feedback");
+            }
           }
           break;
         }

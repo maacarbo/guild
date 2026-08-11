@@ -93,6 +93,10 @@ export class FetchMulticaApi implements MulticaApi {
     });
   }
 
+  listComments(issueId: string): Promise<MulticaComment[]> {
+    return this.request("GET", `/api/issues/${issueId}/comments`);
+  }
+
   async cancelTask(taskId: string): Promise<void> {
     await this.request("POST", `/api/tasks/${taskId}/cancel`);
   }

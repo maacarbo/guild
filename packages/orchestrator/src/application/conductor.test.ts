@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   BoardActor,
+  WorkItemComment,
   ContractVerdict,
   EngagementKey,
   KeySpend,
@@ -34,6 +35,8 @@ class FakeSubstrate implements ExecutionSubstrate {
   snapshots = new Map<string, Partial<WorkItemSnapshot>>();
   laneLog: Array<{ id: string; lane: Lane }> = [];
   comments: Array<{ id: string; body: string }> = [];
+  /** board-authored comments visible to the reconcile read path (#12) */
+  seededComments: Array<{ id: string; commentId: string; author: string; actor: BoardActor; body: string; at: string }> = [];
   reworks: Array<{ id: string; verdict: ContractVerdict }> = [];
   boundKeys: Array<{ role: string; key: string }> = [];
   cancels: string[] = [];
@@ -96,6 +99,29 @@ class FakeSubstrate implements ExecutionSubstrate {
   }
   async comment(item: WorkItemRef, body: string): Promise<void> {
     this.comments.push({ id: item.externalId, body });
+  }
+  seedComment(item: WorkItemRef, actor: BoardActor, body: string, at: string): void {
+    const commentId = `c-${this.seededComments.length + 1}`;
+    this.seededComments.push({ id: item.externalId, commentId, author: actor, actor, body, at });
+  }
+  async listComments(item: WorkItemRef): Promise<WorkItemComment[]> {
+    // board-authored first, then the conductor's own outbound comments —
+    // reconcile filters by actor, so the conductor never reacts to itself
+    return [
+      ...this.seededComments
+        .filter((c) => c.id === item.externalId)
+        .map(({ commentId, author, actor, body, at }) => ({ commentId, author, actor, body, at, inReplyTo: null })),
+      ...this.comments
+        .filter((c) => c.id === item.externalId)
+        .map((c, i) => ({
+          commentId: `out-${i}`,
+          author: "conductor",
+          actor: "conductor" as BoardActor,
+          body: c.body,
+          at: `t-out-${i}`,
+          inReplyTo: null,
+        })),
+    ];
   }
   async requestRework(item: WorkItemRef, verdict: ContractVerdict): Promise<void> {
     this.reworks.push({ id: item.externalId, verdict });
@@ -495,6 +521,47 @@ describe("questions and blockers", () => {
     await w.conductor.handleEvent(statusEv(item, "running"));
     await w.conductor.handleEvent(commentEv(item, "conductor"));
     expect((await w.store.getEngagement("eng-1"))?.state).toBe("working");
+  });
+});
+
+describe("amend-while-down recovery (#12: reconcile consults gate comments)", () => {
+  it("an operator amend comment posted while the conductor was down is applied on reconcile", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    // downtime: the comment landed on the board only — no event ever arrived
+    w.substrate.seedComment(gate, "operator", "amend: also count characters", "t-amend");
+
+    await w.conductor.reconcile();
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v2"), "re-gated at v2").toBeTruthy();
+    const latest = await w.store.getLatestStagePlan("stg:idea-1:analysis");
+    expect(latest?.planVersion).toBe(2);
+    expect(latest?.objective).toContain("also count characters");
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+    // idempotent: a second pass must not re-apply the same note
+    await w.conductor.reconcile();
+    expect((await w.store.getLatestStagePlan("stg:idea-1:analysis"))?.planVersion).toBe(2);
+  });
+
+  it("amend WINS over a downtime go-lane: re-gate, never dispatch the pre-amend plan", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.items.get(gate.externalId)!.lane = "ready_to_work"; // moved while down
+    w.substrate.seedComment(gate, "operator", "amend: tighter scope", "t-amend");
+
+    await w.conductor.reconcile();
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v2"), "amended, not dispatched").toBeTruthy();
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("cancelled");
+    expect(w.gateway.mints, "no key minted from the stale move").toHaveLength(0);
+  });
+
+  it("a non-operator amend comment recovers nothing — attribution fails closed", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.seedComment(gate, "agent", "amend: malicious repricing budget: 99.00", "t-x");
+
+    await w.conductor.reconcile();
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v2")).toBeNull();
+    expect((await w.store.getLatestStagePlan("stg:idea-1:analysis"))?.planVersion).toBe(1);
   });
 });
 
