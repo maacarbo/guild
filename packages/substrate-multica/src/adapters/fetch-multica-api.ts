@@ -97,6 +97,10 @@ export class FetchMulticaApi implements MulticaApi {
     return this.request("GET", `/api/issues/${issueId}/comments`);
   }
 
+  listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
+    return this.request("GET", `/api/agents${opts?.includeArchived ? "?include_archived=true" : ""}`);
+  }
+
   async cancelTask(taskId: string): Promise<void> {
     await this.request("POST", `/api/tasks/${taskId}/cancel`);
   }

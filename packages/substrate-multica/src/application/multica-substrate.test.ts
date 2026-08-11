@@ -36,6 +36,7 @@ class FakeMulticaApi implements MulticaApi {
   agents: MulticaAgent[] = [
     { id: "agent-1", name: "worker-agent", model: "litellm/or-gemini-flash-lite", runtime_id: "rt-1" },
   ];
+  archivedAgents: MulticaAgent[] = [];
   private seq = 0;
 
   async createIssue(input: { title: string; description: string }): Promise<MulticaIssue> {
@@ -81,6 +82,9 @@ class FakeMulticaApi implements MulticaApi {
     };
     this.comments.push(c);
     return c;
+  }
+  async listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
+    return opts?.includeArchived ? [...this.agents, ...this.archivedAgents] : [...this.agents];
   }
   async listComments(issueId: string): Promise<MulticaComment[]> {
     return this.comments.filter((c) => c.issue_id === issueId);
@@ -369,5 +373,33 @@ describe("listComments (#12 reconcile read)", () => {
     expect(comments.map((c) => c.actor)).toEqual(["operator", "agent", "unknown", "conductor"]);
     expect(comments[0]).toMatchObject({ commentId: "c1", author: "member-op", body: "amend: tighter", at: "t1", inReplyTo: null });
     expect(comments[3].inReplyTo).toBe("c1");
+  });
+});
+
+describe("archived-agent tolerance (M3: retire = archive; reads must survive)", () => {
+  const hireAndAssign = async () => {
+    const { api, substrate } = make();
+    const ref = await substrate.createWorkItem(spec("eng-arch"));
+    // a HIRED agent is not in the roleAgents name cache — resolution must go
+    // through the API, which 404s once the agent is archived
+    api.agents.push({ id: "agent-hired", name: "guild-hired-x", model: "m", runtime_id: "rt-1" });
+    (await api.getIssue(ref.externalId)).assignee_id = "agent-hired";
+    return { api, substrate, ref };
+  };
+
+  it("resolves an archived assignee via the archived listing instead of aborting the read path", async () => {
+    const { api, substrate, ref } = await hireAndAssign();
+    const idx = api.agents.findIndex((a) => a.id === "agent-hired");
+    api.archivedAgents.push(...api.agents.splice(idx, 1));
+    const snap = await substrate.getWorkItem(ref);
+    expect(snap.item).toEqual(ref);
+  });
+
+  it("degrades to the bare agent id when the agent is gone entirely — never a thrown read", async () => {
+    const { api, substrate, ref } = await hireAndAssign();
+    const idx = api.agents.findIndex((a) => a.id === "agent-hired");
+    api.agents.splice(idx, 1);
+    const snap = await substrate.getWorkItem(ref);
+    expect(snap.item).toEqual(ref);
   });
 });

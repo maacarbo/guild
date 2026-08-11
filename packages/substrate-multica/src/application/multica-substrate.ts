@@ -90,9 +90,21 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   private async agentNameFor(agentId: string): Promise<string> {
     const known = this.agentNames.get(agentId);
     if (known) return known;
-    const agent = await this.api.getAgent(agentId);
-    this.agentNames.set(agentId, agent.name);
-    return agent.name;
+    try {
+      const agent = await this.api.getAgent(agentId);
+      this.agentNames.set(agentId, agent.name);
+      return agent.name;
+    } catch (e) {
+      if (!(e instanceof MulticaHttpError) || e.httpStatus !== 404) throw e;
+      // M3 retire = archive: the agent leaves getAgent but its historical
+      // items remain on the board, and reconcile reads EVERY item — a name
+      // lookup must degrade (archived listing, then the bare id), never
+      // abort the read path. Cached either way: one miss, not one per pass.
+      const archived = (await this.api.listAgents({ includeArchived: true })).find((a) => a.id === agentId);
+      const name = archived?.name ?? agentId;
+      this.agentNames.set(agentId, name);
+      return name;
+    }
   }
 
   private assertScope(projectScope: string): void {

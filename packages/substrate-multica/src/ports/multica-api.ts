@@ -35,6 +35,8 @@ export interface MulticaApi {
   listComments(issueId: string): Promise<MulticaComment[]>;
   cancelTask(taskId: string): Promise<void>;
   getAgent(id: string): Promise<MulticaAgent>;
+  /** M3: archived agents (retired hires) leave the default listing but their items remain readable */
+  listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]>;
   /** wholesale custom_env replacement — v0.4.15 dedicated endpoint, member-token auth (M1b live) */
   updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void>;
   /** long-lived frame stream; ends on disconnect — the caller owns reconnect/reconcile */
