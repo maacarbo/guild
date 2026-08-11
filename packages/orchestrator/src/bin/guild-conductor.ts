@@ -28,6 +28,7 @@ const env = readEnv([
   { name: "GUILD_REPO_URL", source: "product repository (HTTPS with the scoped git PAT embedded)" },
   { name: "GUILD_TARGET_BRANCH", source: "acceptance fast-forward target", fallback: "main" },
   { name: "GUILD_PLAN_BUDGET_CENTS", source: "default plan budget when the idea names none", fallback: "300" },
+  { name: "GUILD_AGENT_MODEL", source: "model route hired agents bind to (M3) — cheap tier by default", fallback: "litellm/or-deepseek-v3-2" },
   { name: "GUILD_PROJECT_SOFT_CAP_CENTS", source: "project soft cap (watchdog warn)", optional: true },
   { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
   { name: "GUILD_VALIDATOR_IMAGE", source: "sandbox image for contract checks", fallback: "node:22-alpine" },
@@ -122,6 +123,7 @@ async function main(): Promise<void> {
       repoUrl: env.GUILD_REPO_URL,
       targetBranch: env.GUILD_TARGET_BRANCH,
       defaultPlanBudgetCents: intEnv(env, "GUILD_PLAN_BUDGET_CENTS"),
+      agentModel: env.GUILD_AGENT_MODEL,
       ...(soft !== undefined && hard !== undefined
         ? { projectBudget: { projectId: env.GUILD_WORKSPACE_ID, softCapCents: soft, hardCapCents: hard } }
         : {}),
