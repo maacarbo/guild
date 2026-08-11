@@ -23,6 +23,10 @@ export interface ConformanceEnv {
   role: string;
   /** a role no agent is bound to — must classify as unsupported_capability */
   unknownRole: string;
+  /** a role safe to hire and retire in this environment (M3 team evolution) */
+  hirableRole: string;
+  /** the model route hires bind to — the environment's cheap tier */
+  hireModel: string;
   /** minimal valid spec with a fresh, unique engagementId per call */
   makeSpec(overrides?: Partial<Omit<WorkItemSpec, "engagementId">>): WorkItemSpec;
   /** same substrate wired with invalid credentials — for auth classification */
@@ -314,6 +318,28 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       const err = await e.substrate.createWorkItem(e.makeSpec({ role: e.unknownRole })).catch((x) => x);
       expect(isSubstrateError(err), `expected SubstrateError, got: ${err}`).toBe(true);
       expect(err.category).toBe("unsupported_capability");
+    });
+
+    it("hire makes a role dispatchable; retire withdraws it one-way; history survives (M3)", async () => {
+      const e = await env();
+      const agentName = `conf-hire-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      const hired = await e.substrate.hireAgent({ role: e.hirableRole, agentName, model: e.hireModel });
+      expect(hired.hired).toBe(true);
+      // idempotent: a bound role no-ops
+      expect(await e.substrate.hireAgent({ role: e.hirableRole, agentName, model: e.hireModel })).toEqual({
+        hired: false,
+        agentId: hired.agentId,
+      });
+      const ref = await e.substrate.createWorkItem(e.makeSpec({ role: e.hirableRole }));
+      await e.substrate.cancel(ref, "operator");
+      const retired = await e.substrate.retireAgent(e.hirableRole);
+      expect(retired).toEqual({ retired: true, agentId: hired.agentId });
+      const err = await e.substrate.createWorkItem(e.makeSpec({ role: e.hirableRole })).catch((x) => x);
+      expect(err.category, "retired role is unbound again").toBe("unsupported_capability");
+      // the retired agent's historical item stays readable — reconcile reads every item
+      const snap = await e.substrate.getWorkItem(ref);
+      expect(snap.item).toEqual(ref);
+      expect(await e.substrate.retireAgent(e.hirableRole), "retire is idempotent").toEqual({ retired: false });
     });
 
     it("an agent completes a work item: status events over watch, done snapshot, work report", async () => {

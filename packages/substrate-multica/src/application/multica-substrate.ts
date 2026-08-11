@@ -9,6 +9,7 @@ import type {
   CancellationReason,
   ContractVerdict,
   ExecutionSubstrate,
+  HireSpec,
   Lane,
   SubstrateEvent,
   TicketSpec,
@@ -64,12 +65,15 @@ export interface MulticaSubstrateConfig {
 export class MulticaSubstrate implements ExecutionSubstrate {
   readonly name = "multica";
   private readonly agentNames = new Map<string, string>();
+  /** role → agent binding; seeded from config, mutated ONLY by hire/retire (M3) */
+  private readonly roleBindings = new Map<string, RoleBinding>();
 
   constructor(
     private readonly api: MulticaApi,
     private readonly config: MulticaSubstrateConfig,
   ) {
-    for (const binding of Object.values(config.roleAgents)) {
+    for (const [role, binding] of Object.entries(config.roleAgents)) {
+      this.roleBindings.set(role, binding);
       this.agentNames.set(binding.agentId, binding.agentName);
     }
   }
@@ -118,7 +122,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   }
 
   async createWorkItem(spec: WorkItemSpec): Promise<WorkItemRef> {
-    const binding = this.config.roleAgents[spec.role];
+    const binding = this.roleBindings.get(spec.role);
     if (!binding) {
       throw new SubstrateFault(
         "unsupported_capability",
@@ -237,7 +241,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   }
 
   async bindEngagementKey(role: string, key: string): Promise<void> {
-    const binding = this.config.roleAgents[role];
+    const binding = this.roleBindings.get(role);
     if (!binding) {
       throw new SubstrateFault(
         "unsupported_capability",
@@ -266,6 +270,55 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async comment(item: WorkItemRef, body: string, opts?: { inReplyTo?: string }): Promise<void> {
     try {
       await this.api.createComment(item.externalId, body, opts?.inReplyTo);
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }> {
+    const bound = this.roleBindings.get(spec.role);
+    if (bound) return { hired: false, agentId: bound.agentId };
+    try {
+      // agents bind to a runtime at creation (backend rejects runtime_id-less
+      // creates) and only an ONLINE runtime's daemon dispatches — probed live
+      // 2026-08-11: creation on the online runtime reached task_run running
+      // with no daemon restart
+      const online = (await this.api.listRuntimes()).find((r) => r.status === "online");
+      if (!online) {
+        throw new SubstrateFault("substrate_internal", true, "no online runtime to hire onto — is the daemon up?");
+      }
+      let agentId: string;
+      try {
+        agentId = (await this.api.createAgent({ name: spec.agentName, runtime_id: online.id, model: spec.model })).id;
+      } catch (e) {
+        // crashed-hire re-drive: the same-name agent already exists — adopt it
+        // rather than duplicate (names are unique per hire by contract)
+        if (!(e instanceof MulticaHttpError) || e.httpStatus !== 409) throw e;
+        const existing = (await this.api.listAgents()).find((a) => a.name === spec.agentName);
+        if (!existing) {
+          throw new SubstrateFault(
+            "substrate_internal",
+            false,
+            `agent name "${spec.agentName}" is reserved by a retired agent — hire names must be unique per hire`,
+          );
+        }
+        agentId = existing.id;
+      }
+      this.roleBindings.set(spec.role, { agentId, agentName: spec.agentName });
+      this.agentNames.set(agentId, spec.agentName);
+      return { hired: true, agentId };
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async retireAgent(role: string): Promise<{ retired: boolean; agentId?: string }> {
+    const binding = this.roleBindings.get(role);
+    if (!binding) return { retired: false };
+    try {
+      await this.api.archiveAgent(binding.agentId);
+      this.roleBindings.delete(role);
+      return { retired: true, agentId: binding.agentId };
     } catch (e) {
       return this.fail(e);
     }

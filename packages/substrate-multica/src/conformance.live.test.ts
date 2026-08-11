@@ -42,6 +42,8 @@ describeExecutionSubstrateConformance(async () => {
     projectScope: live.workspaceId,
     role: "worker",
     unknownRole: "astrologer",
+    hirableRole: "conformance-hire",
+    hireModel: "litellm/or-gemini-flash-lite",
     makeSpec: (overrides) => {
       const engagementId = `conf-${crypto.randomUUID().slice(0, 8)}`;
       return {

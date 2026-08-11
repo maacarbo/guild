@@ -420,3 +420,52 @@ describe("archived-agent tolerance (M3: retire = archive; reads must survive)", 
     expect(snap.item).toEqual(ref);
   });
 });
+
+describe("hire and retire (M3: dynamic team on the substrate)", () => {
+  const hireSpec = { role: "security-reviewer", agentName: "guild-security-reviewer-idea9", model: "litellm/or-deepseek-v3-2" };
+
+  it("hire creates the agent on an online runtime, binds the role, dispatchable at once", async () => {
+    const { api, substrate } = make();
+    const res = await substrate.hireAgent(hireSpec);
+    expect(res.hired).toBe(true);
+    const created = api.agents.find((a) => a.name === hireSpec.agentName);
+    expect(created?.runtime_id).toBe("rt-1");
+    const ref = await substrate.createWorkItem(spec("eng-h1", "security-reviewer"));
+    expect((await api.getIssue(ref.externalId)).assignee_id).toBe(res.agentId);
+  });
+
+  it("hire refuses when no runtime is online — an agent must never be created unborn", async () => {
+    const { api, substrate } = make();
+    api.runtimes = [{ id: "rt-1", status: "offline" }];
+    await expect(substrate.hireAgent(hireSpec)).rejects.toMatchObject({ retryable: true });
+    expect(api.agents.some((a) => a.name === hireSpec.agentName)).toBe(false);
+  });
+
+  it("hire is idempotent: a bound role no-ops; a crashed hire adopts the same-name agent instead of duplicating", async () => {
+    const { api, substrate } = make();
+    const first = await substrate.hireAgent(hireSpec);
+    expect(await substrate.hireAgent(hireSpec)).toEqual({ hired: false, agentId: first.agentId });
+    // crash between create and bind: the agent exists by name, the role is unbound
+    api.agents.push({ id: "agent-pre", name: "guild-doc-writer-idea9", model: "m", runtime_id: "rt-1" });
+    const adopted = await substrate.hireAgent({ role: "doc-writer", agentName: "guild-doc-writer-idea9", model: "m" });
+    expect(adopted).toEqual({ hired: true, agentId: "agent-pre" });
+    expect(api.agents.filter((a) => a.name === "guild-doc-writer-idea9")).toHaveLength(1);
+  });
+
+  it("retire archives the agent, unbinds the role, and the agent's history stays readable", async () => {
+    const { api, substrate } = make();
+    const { agentId } = await substrate.hireAgent(hireSpec);
+    const ref = await substrate.createWorkItem(spec("eng-h2", "security-reviewer"));
+    const res = await substrate.retireAgent("security-reviewer");
+    expect(res).toEqual({ retired: true, agentId });
+    expect(api.archivedAgents.some((a) => a.id === agentId)).toBe(true);
+    const err = await substrate.createWorkItem(spec("eng-h3", "security-reviewer")).catch((e) => e);
+    expect(err.category).toBe("unsupported_capability");
+    expect((await substrate.getWorkItem(ref)).item).toEqual(ref);
+  });
+
+  it("retire of an unbound role is a no-op — idempotent re-drives", async () => {
+    const { substrate } = make();
+    expect(await substrate.retireAgent("nobody")).toEqual({ retired: false });
+  });
+});

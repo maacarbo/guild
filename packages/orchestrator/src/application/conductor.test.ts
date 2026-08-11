@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   BoardActor,
+  HireSpec,
   WorkItemComment,
   ContractVerdict,
   EngagementKey,
@@ -101,6 +102,23 @@ class FakeSubstrate implements ExecutionSubstrate {
   }
   async comment(item: WorkItemRef, body: string): Promise<void> {
     this.comments.push({ id: item.externalId, body });
+  }
+  /** role → agentId for roles hired at runtime (M3) */
+  hiredRoles = new Map<string, string>();
+  async hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }> {
+    const existing = this.hiredRoles.get(spec.role);
+    if (existing) return { hired: false, agentId: existing };
+    const agentId = `hired:${spec.agentName}`;
+    this.hiredRoles.set(spec.role, agentId);
+    this.ops.push("hireAgent");
+    return { hired: true, agentId };
+  }
+  async retireAgent(role: string): Promise<{ retired: boolean; agentId?: string }> {
+    const agentId = this.hiredRoles.get(role);
+    if (!agentId) return { retired: false };
+    this.hiredRoles.delete(role);
+    this.ops.push("retireAgent");
+    return { retired: true, agentId };
   }
   seedComment(item: WorkItemRef, actor: BoardActor, body: string, at: string): void {
     const commentId = `c-${this.seededComments.length + 1}`;
