@@ -93,8 +93,26 @@ export function parseBudgetDirective(text: string): number | null {
   return dollars * 100 + cents;
 }
 
+/**
+ * Per-DIRECTIVE sanity ceiling (#12, operator decision 2026-08-11): a
+ * fat-fingered `budget: 999999` would mint a $999,999 virtual-key cap. The
+ * clamp targets typos, not the operator's authority: it bounds ONE parsed
+ * directive — the plan total when it sits in the idea body, a single stage's
+ * override when it arrives in an amend note (five deliberate per-stage
+ * amendments can still authorize 5x, each behind its own explicit gate
+ * approval) — and the CONFIGURED default (GUILD_PLAN_BUDGET_CENTS) passes
+ * through untouched: the composition root owns that trade-off.
+ */
+export const MAX_PLAN_BUDGET_CENTS = 10_000;
+
+/** the amendment-note grammar — ONE definition shared by the live comment path and the reconcile recovery scan (#12) */
+export function isAmendNote(text: string): boolean {
+  return /^amend\b/i.test(text.trim());
+}
+
 export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
-  return parseBudgetDirective(idea.body) ?? config.defaultPlanBudgetCents;
+  const directive = parseBudgetDirective(idea.body);
+  return directive !== null ? Math.min(directive, MAX_PLAN_BUDGET_CENTS) : config.defaultPlanBudgetCents;
 }
 
 function stageBudgetCents(total: number, kind: StageKind): number {
@@ -238,8 +256,16 @@ export function deriveStagePlan(
 ): DerivedStage {
   const warnings: string[] = [];
   const amendments = opts.amendments ?? [];
-  const amendedBudget = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
+  const amendedBudgetRaw = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
+  const amendedBudget = amendedBudgetRaw !== undefined ? Math.min(amendedBudgetRaw, MAX_PLAN_BUDGET_CENTS) : undefined;
   const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), kind);
+  const ideaDirective = parseBudgetDirective(idea.body);
+  const clampedRaw = amendedBudgetRaw !== undefined ? amendedBudgetRaw : ideaDirective;
+  if (clampedRaw !== null && clampedRaw !== undefined && clampedRaw > MAX_PLAN_BUDGET_CENTS) {
+    warnings.push(
+      `The budget: directive (${clampedRaw}¢) exceeds the ${MAX_PLAN_BUDGET_CENTS}¢ sanity ceiling and was clamped — raise MAX_PLAN_BUDGET_CENTS deliberately if this was intended (#12).`,
+    );
+  }
   const stageId = `stg:${idea.ideaId}:${kind}`;
   const engagementId = `eng:${stageId}:v${planVersion}`;
 

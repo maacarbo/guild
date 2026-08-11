@@ -49,6 +49,12 @@ export interface ModelGateway {
    */
   revokeKey(engagementId: string): Promise<void>;
 
-  /** Read spend for reconciliation and the budget ledger. */
-  getSpend(engagementId: string): Promise<KeySpend>;
+  /**
+   * Read spend for reconciliation and the budget ledger. Returns null only
+   * when the key DEFINITIVELY does not exist (revoked or never minted); a
+   * transient read failure throws instead (#12) — the distinction is
+   * load-bearing: termination flows persist the final reading before
+   * revocation, and treating a 5xx as "key gone" would lose that spend.
+   */
+  getSpend(engagementId: string): Promise<KeySpend | null>;
 }

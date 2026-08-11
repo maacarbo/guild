@@ -12,6 +12,7 @@ import type {
   Lane,
   SubstrateEvent,
   TicketSpec,
+  WorkItemComment,
   WorkItemRef,
   WorkItemSnapshot,
   WorkItemSpec,
@@ -21,6 +22,7 @@ import { renderBrief } from "../domain/brief.js";
 import { substrateEventFromFrame } from "../domain/events.js";
 import { deriveSnapshot } from "../domain/snapshot.js";
 import {
+  actorFrom,
   classifyHttpError,
   embedEngagementMarker,
   extractEngagementId,
@@ -252,6 +254,25 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async comment(item: WorkItemRef, body: string, opts?: { inReplyTo?: string }): Promise<void> {
     try {
       await this.api.createComment(item.externalId, body, opts?.inReplyTo);
+    } catch (e) {
+      return this.fail(e);
+    }
+  }
+
+  async listComments(item: WorkItemRef): Promise<WorkItemComment[]> {
+    try {
+      const comments = await this.api.listComments(item.externalId);
+      // actor attribution MUST match the live comment-event mapping
+      // (domain/events.ts) — a divergent reconcile path would let a downtime
+      // comment be attributed differently than the same comment live (D15)
+      return comments.map((c) => ({
+        commentId: c.id,
+        author: c.author_id ?? c.author_type ?? "",
+        actor: actorFrom(c.author_type, c.author_id, this.config.selfMemberId, this.config.operatorMemberIds),
+        body: c.content ?? "",
+        at: c.created_at ?? "",
+        inReplyTo: c.parent_id ?? null,
+      }));
     } catch (e) {
       return this.fail(e);
     }

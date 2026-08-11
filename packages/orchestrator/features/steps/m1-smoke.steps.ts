@@ -210,6 +210,7 @@ Then("the spend is attributed to the engagement's virtual key", async () => {
   const deadline = Date.now() + 150_000;
   for (;;) {
     const spend = await world.gateway!.getSpend(world.engagementId);
+    assert.ok(spend, "engagement key exists during the run");
     if (spend.spentCents > 0) {
       assert.equal(spend.budgetCents, 50);
       return;

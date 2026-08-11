@@ -27,8 +27,6 @@ export interface ConformanceEnv {
   makeSpec(overrides?: Partial<Omit<WorkItemSpec, "engagementId">>): WorkItemSpec;
   /** same substrate wired with invalid credentials — for auth classification */
   unauthenticatedSubstrate(): ExecutionSubstrate;
-  /** optional env introspection beyond the port — enables stronger comment assertions */
-  listComments?(ref: WorkItemRef): Promise<Array<{ id: string; body: string; inReplyTo: string | null }>>;
 }
 
 const TERMINAL: WorkItemStatus[] = ["done", "failed", "cancelled"];
@@ -129,14 +127,15 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       const { ref } = await createItem(e);
       await e.substrate.cancel(ref, "operator");
       await e.substrate.comment(ref, "conformance: top-level comment");
-      if (e.listComments) {
-        const first = (await e.listComments(ref)).find((c) => c.body.includes("top-level comment"));
-        expect(first, "top-level comment visible").toBeTruthy();
-        expect(first!.inReplyTo).toBeNull();
-        await e.substrate.comment(ref, "conformance: threaded reply", { inReplyTo: first!.id });
-        const reply = (await e.listComments(ref)).find((c) => c.body.includes("threaded reply"));
-        expect(reply!.inReplyTo).toBe(first!.id);
-      }
+      const first = (await e.substrate.listComments(ref)).find((c) => c.body.includes("top-level comment"));
+      expect(first, "top-level comment visible").toBeTruthy();
+      expect(first!.inReplyTo).toBeNull();
+      // the substrate's own comments attribute as the conductor — the same
+      // fail-closed mapping the reconcile amend-recovery leans on (#12/D15)
+      expect(first!.actor).toBe("conductor");
+      await e.substrate.comment(ref, "conformance: threaded reply", { inReplyTo: first!.commentId });
+      const reply = (await e.substrate.listComments(ref)).find((c) => c.body.includes("threaded reply"));
+      expect(reply!.inReplyTo).toBe(first!.commentId);
       await e.substrate.cancel(ref, "operator"); // comments can enqueue new work (P5/P6)
     });
 
@@ -160,11 +159,9 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
         ],
       };
       await e.substrate.requestRework(ref, verdict);
-      if (e.listComments) {
-        const bounce = (await e.listComments(ref)).find((c) => c.body.includes("conformance-fixture"));
-        expect(bounce, "bounce comment visible with failing detail").toBeTruthy();
-        expect(bounce!.inReplyTo).toBeNull(); // top-level triggers the agent (P5)
-      }
+      const bounce = (await e.substrate.listComments(ref)).find((c) => c.body.includes("conformance-fixture"));
+      expect(bounce, "bounce comment visible with failing detail").toBeTruthy();
+      expect(bounce!.inReplyTo).toBeNull(); // top-level triggers the agent (P5)
       await e.substrate.cancel(ref, "operator");
     });
 

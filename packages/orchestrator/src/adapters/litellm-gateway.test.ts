@@ -106,16 +106,16 @@ describe("LiteLlmModelGateway.getSpend", () => {
     const spend = await gateway.getSpend("eng-1");
     expect(spend).toEqual({ engagementId: "eng-1", spentCents: 2, budgetCents: 100, exhausted: false });
     keys.get(key)!.spend = 1.01;
-    expect((await gateway.getSpend("eng-1")).exhausted).toBe(true);
+    expect((await gateway.getSpend("eng-1"))!.exhausted).toBe(true);
   });
 
   it("does not overstate cents on IEEE754 drift: 0.07 is 7 cents, 0.14 is 14, never +1", async () => {
     const { gateway, keys } = make();
     const { key } = await gateway.mintKey("eng-1", 100);
     keys.get(key)!.spend = 0.07;
-    expect((await gateway.getSpend("eng-1")).spentCents).toBe(7);
+    expect((await gateway.getSpend("eng-1"))!.spentCents).toBe(7);
     keys.get(key)!.spend = 0.14;
-    expect((await gateway.getSpend("eng-1")).spentCents).toBe(14);
+    expect((await gateway.getSpend("eng-1"))!.spentCents).toBe(14);
   });
 
   it("reads spend by alias when this process never minted the key (conductor restart)", async () => {
@@ -125,9 +125,27 @@ describe("LiteLlmModelGateway.getSpend", () => {
     expect(spend).toEqual({ engagementId: "eng-7", spentCents: 25, budgetCents: 50, exhausted: false });
   });
 
-  it("throws for an engagement with no key anywhere", async () => {
+  it("reports a key that exists nowhere as null — definitive absence, never an error (#12)", async () => {
     const { gateway } = make();
-    await expect(gateway.getSpend("eng-ghost")).rejects.toThrow(/eng-ghost/);
+    expect(await gateway.getSpend("eng-ghost")).toBeNull();
+  });
+
+  it("a 404 on a minted key reads as revoked → null (#12)", async () => {
+    const { gateway, keys } = make();
+    const { key } = await gateway.mintKey("eng-1", 100);
+    keys.delete(key); // revoked underneath the in-process cache
+    expect(await gateway.getSpend("eng-1")).toBeNull();
+  });
+
+  it("a transient 5xx on the spend read THROWS instead of masquerading as absence (#12)", async () => {
+    const stub = stubGateway();
+    const failing: typeof fetch = async (input, init) => {
+      if (String(input).includes("/key/info")) return new Response("upstream busy", { status: 503 });
+      return stub.fetchImpl(input, init);
+    };
+    const gateway = new LiteLlmModelGateway({ baseUrl: "http://litellm.test", masterKey: "sk-master" }, failing);
+    await gateway.mintKey("eng-1", 100);
+    await expect(gateway.getSpend("eng-1")).rejects.toThrow(/503/);
   });
 });
 

@@ -190,6 +190,20 @@ export type SubstrateEvent =
   | { kind: "usage"; eventId: string; item: WorkItemRef; tokens: number; costCents?: number; at: string };
 
 /**
+ * A comment read back from a work item (#12 reconciliation read): the
+ * 'comment' event's fields minus the event envelope, plus threading — actor
+ * attribution follows the same fail-closed mapping as the event path (D15).
+ */
+export interface WorkItemComment {
+  commentId: string;
+  author: string;
+  actor: BoardActor;
+  body: string;
+  at: string;
+  inReplyTo: string | null;
+}
+
+/**
  * Stable error categories on the substrate boundary — application code depends
  * on these, never on Multica-specific failure text. The set must totalize:
  * an unexpected substrate-side fault (e.g. HTTP 5xx) maps to
@@ -248,6 +262,14 @@ export interface ExecutionSubstrate {
    * snapshot.markerId, never by expecting the adapter to pre-filter.
    */
   listWorkItems(projectScope: string): Promise<WorkItemSnapshot[]>;
+  /**
+   * Reconciliation read (#12): the comments on one work item, oldest first.
+   * Events are the live path; this read is the recovery path for operator
+   * directives (gate `amend:` comments) posted while the conductor was down —
+   * WorkItemSnapshot deliberately carries no comment history, so without this
+   * read a downtime amendment was silently lost.
+   */
+  listComments(item: WorkItemRef): Promise<WorkItemComment[]>;
   assign(item: WorkItemRef, agent: string): Promise<void>;
   /**
    * Route the role's subsequent work through the given gateway credential —

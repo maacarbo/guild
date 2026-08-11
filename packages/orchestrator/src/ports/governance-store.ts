@@ -28,6 +28,15 @@ export interface EngagementRecord extends Engagement {
    * judged (and bounced/escalated) instead of stranded (#11)
    */
   lastJudgedAttempt?: string;
+  /**
+   * the final gateway spend reading, persisted BEFORE key revocation (#12):
+   * a crash between revocation and the termination-entry append would
+   * otherwise lose the spend forever (revoked keys are unreadable), letting a
+   * near-cap project under-trigger its hard cap. Accounting annotation only —
+   * lives on the record, never on the domain Engagement, and is never read by
+   * transitions (D7 purity).
+   */
+  terminalSpendCents?: number;
 }
 
 /**

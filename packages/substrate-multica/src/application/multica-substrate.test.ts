@@ -82,6 +82,9 @@ class FakeMulticaApi implements MulticaApi {
     this.comments.push(c);
     return c;
   }
+  async listComments(issueId: string): Promise<MulticaComment[]> {
+    return this.comments.filter((c) => c.issue_id === issueId);
+  }
   async cancelTask(taskId: string): Promise<void> {
     this.cancelled.push(taskId);
   }
@@ -342,5 +345,29 @@ describe("bindEngagementKey", () => {
     const err = await substrate.bindEngagementKey("stranger", "sk-x").catch((x) => x);
     expect(isSubstrateError(err)).toBe(true);
     expect(err.category).toBe("unsupported_capability");
+  });
+});
+
+describe("listComments (#12 reconcile read)", () => {
+  it("maps comments with the SAME fail-closed actor attribution as the live event path (D15)", async () => {
+    const api = new FakeMulticaApi();
+    const substrate = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+      selfMemberId: "member-self",
+      operatorMemberIds: ["member-op"],
+    });
+    const ref = await substrate.createWorkItem(spec("eng-9"));
+    api.comments.push(
+      { id: "c1", issue_id: ref.externalId, content: "amend: tighter", parent_id: null, author_type: "member", author_id: "member-op", created_at: "t1" },
+      { id: "c2", issue_id: ref.externalId, content: "pushed", parent_id: null, author_type: "agent", author_id: "agent-1", created_at: "t2" },
+      // no author_id on the wire → attribution fails closed, never operator
+      { id: "c3", issue_id: ref.externalId, content: "amend: forged", parent_id: null, author_type: "member", created_at: "t3" },
+      { id: "c4", issue_id: ref.externalId, content: "self", parent_id: "c1", author_type: "member", author_id: "member-self", created_at: "t4" },
+    );
+    const comments = await substrate.listComments(ref);
+    expect(comments.map((c) => c.actor)).toEqual(["operator", "agent", "unknown", "conductor"]);
+    expect(comments[0]).toMatchObject({ commentId: "c1", author: "member-op", body: "amend: tighter", at: "t1", inReplyTo: null });
+    expect(comments[3].inReplyTo).toBe("c1");
   });
 });

@@ -46,6 +46,29 @@ describe("budget allocation is mechanical (D12)", () => {
     expect(planBudgetCents({ ...idea, body: "budget: much" }, config)).toBe(1000);
   });
 
+  it("a fat-fingered directive is clamped to the plan ceiling and the gate body warns (#12)", () => {
+    const huge = { ...idea, body: "budget: 999999" };
+    expect(planBudgetCents(huge, config)).toBe(10000);
+    const { plan, warnings } = deriveStagePlan(huge, config, "test", 1);
+    expect(plan.budgetCents).toBe(2000); // 20% of the clamped $100 total
+    expect(warnings.some((w) => w.includes("ceiling"))).toBe(true);
+  });
+
+  it("the ceiling clamps directives only — the CONFIGURED default passes through untouched (#12)", () => {
+    const generous = { ...config, defaultPlanBudgetCents: 25000 };
+    expect(planBudgetCents(idea, generous)).toBe(25000);
+    const { warnings } = deriveStagePlan(idea, generous, "test", 1);
+    expect(warnings.some((w) => w.includes("ceiling"))).toBe(false);
+  });
+
+  it("an amendment budget: override is clamped to the same ceiling with a warning (#12)", () => {
+    const { plan, warnings } = deriveStagePlan(idea, config, "test", 2, {
+      amendments: ["amend: budget: 500.00"],
+    });
+    expect(plan.budgetCents).toBe(10000);
+    expect(warnings.some((w) => w.includes("ceiling"))).toBe(true);
+  });
+
   it("prose ending in a budget-looking phrase is not a directive — only a line-anchored budget: reprices (C4)", () => {
     expect(parseBudgetDirective("amend: reduced scope; running budget: 3")).toBeNull();
     expect(parseBudgetDirective("we cut the running budget: 3")).toBeNull();

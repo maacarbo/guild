@@ -31,6 +31,8 @@ export interface MulticaApi {
   updateIssue(id: string, patch: Partial<MulticaIssue> & { assignee_type?: string }): Promise<MulticaIssue>;
   listTaskRuns(issueId: string): Promise<MulticaTaskRun[]>;
   createComment(issueId: string, content: string, parentId?: string): Promise<MulticaComment>;
+  /** reconciliation read (#12): the issue's comments, as returned by the backend (chronological) */
+  listComments(issueId: string): Promise<MulticaComment[]>;
   cancelTask(taskId: string): Promise<void>;
   getAgent(id: string): Promise<MulticaAgent>;
   /** wholesale custom_env replacement — v0.4.15 dedicated endpoint, member-token auth (M1b live) */

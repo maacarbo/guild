@@ -41,6 +41,7 @@ import {
   STAGE_ORDER,
   deriveStagePlan,
   handoffPathFor,
+  isAmendNote,
   parseHandoffChecks,
   roleFor,
   type Idea,
@@ -170,9 +171,11 @@ export class Conductor {
     const spends = new Map<string, KeySpend>();
     for (const id of minted) {
       try {
-        spends.set(id, await this.deps.gateway.getSpend(id));
+        const spend = await this.deps.gateway.getSpend(id);
+        // null = revoked — its final reading rides in the termination entry
+        if (spend) spends.set(id, spend);
       } catch {
-        // revoked key — its final reading rides in the termination entry
+        // transient read failure — skip this key this pass; the next sweep retries
       }
     }
     const decisions = await this.deps.store.listDecisions();
@@ -225,6 +228,13 @@ export class Conductor {
     }
     let totalSpent = [...spends.values()].reduce((sum, s) => sum + s.spentCents, 0);
     for (const [id, cents] of terminatedSpend) if (!spends.has(id)) totalSpent += cents;
+    // #12: the revoke→termination-entry window — a terminal record whose final
+    // reading was persisted but whose entry hasn't landed yet still counts
+    for (const rec of records) {
+      if (!TERMINAL_STATES.has(rec.state) || rec.terminalSpendCents === undefined) continue;
+      if (spends.has(rec.engagementId) || terminatedSpend.has(rec.engagementId)) continue;
+      totalSpent += rec.terminalSpendCents;
+    }
 
     const lock = await this.deps.store.getDispatchLock();
     if (lock) {
@@ -268,8 +278,7 @@ export class Conductor {
           at: this.now(),
         },
       });
-      const target = await this.projectNoticeTarget();
-      if (target) {
+      for (const target of await this.projectNoticeTargets()) {
         await this.deps.substrate.comment(
           target,
           `Budget hard cap reached: project spend ${totalSpent}¢ >= cap ${budget.hardCapCents}¢. ` +
@@ -289,8 +298,7 @@ export class Conductor {
         kind: "budget",
         event: { kind: "soft_cap", scope: "project", spentCents: totalSpent, capCents: budget.softCapCents, at: this.now() },
       });
-      const target = await this.projectNoticeTarget();
-      if (target) {
+      for (const target of await this.projectNoticeTargets()) {
         await this.deps.substrate.comment(
           target,
           `Budget soft cap: project spend ${totalSpent}¢ has crossed the ${budget.softCapCents}¢ warning line (hard cap ${budget.hardCapCents}¢).`,
@@ -328,12 +336,23 @@ export class Conductor {
     });
   }
 
-  /** where project-level budget notices land: the active run's idea ticket */
-  private async projectNoticeTarget(): Promise<WorkItemRef | null> {
+  /**
+   * Where project-level budget notices land: EVERY active run's idea ticket
+   * (#12) — under concurrent ideas a single arbitrary target left the other
+   * operators' surfaces silent. Deduped by ref; directly-adopted runs have no
+   * idea ticket and are skipped, as before.
+   */
+  private async projectNoticeTargets(): Promise<WorkItemRef[]> {
+    const seen = new Set<string>();
+    const targets: WorkItemRef[] = [];
     for (const run of await this.deps.store.listPlanRuns()) {
-      if (run.status === "active" && run.ideaItem) return run.ideaItem;
+      if (run.status !== "active" || !run.ideaItem) continue;
+      const key = `${run.ideaItem.substrate} ${run.ideaItem.externalId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push(run.ideaItem);
     }
-    return null;
+    return targets;
   }
 
   // ------------------------------------------------------- event routing
@@ -639,23 +658,46 @@ export class Conductor {
     gateKey: GateTicketKey,
     ev: Extract<SubstrateEvent, { kind: "comment" }>,
   ): Promise<void> {
-    const note = ev.body.trim();
-    if (!/^amend\b/i.test(note)) return;
+    if (!isAmendNote(ev.body)) return;
+    await this.applyGateAmend(gateKey, ev.body.trim(), ev.at);
+  }
+
+  /**
+   * The amendment application shared by the live comment path and the
+   * reconcile recovery path (#12). recordGateDecision's first-writer-wins key
+   * makes replays no-ops; returns whether a re-gate actually happened.
+   */
+  private async applyGateAmend(gateKey: GateTicketKey, note: string, at: string): Promise<boolean> {
     const plan = await this.deps.store.getStagePlan(gateKey.stageId, gateKey.planVersion);
     const latest = await this.deps.store.getLatestStagePlan(gateKey.stageId);
-    if (!plan || !latest || latest.planVersion !== gateKey.planVersion) return; // stale gate
+    if (!plan || !latest || latest.planVersion !== gateKey.planVersion) return false; // stale gate
     const run = await this.runContaining(gateKey.stageId);
-    if (!run || run.status !== "active" || !run.ideaItem) return;
+    if (!run || run.status !== "active" || !run.ideaItem) return false;
 
     const decision: GateDecision = {
       kind: "amended",
       stageId: gateKey.stageId,
       planVersion: gateKey.planVersion,
       note,
-      at: ev.at,
+      at,
     };
-    if (!(await this.deps.store.recordGateDecision(decision))) return; // already decided
+    if (!(await this.deps.store.recordGateDecision(decision))) return false; // already decided
     await this.deps.store.appendDecision({ kind: "gate", decision });
+    await this.driveAmendTail(gateKey, at);
+    return true;
+  }
+
+  /**
+   * Everything an amendment does AFTER its decision is durably recorded —
+   * split out because a crash inside this tail leaves the first-writer-wins
+   * decision blocking every replay (#12 review): reconcile detects "amended
+   * at the latest version, no successor plan" and re-drives this, idempotent
+   * throughout (transition CAS, idempotent lane set, deterministic re-derive).
+   */
+  private async driveAmendTail(gateKey: GateTicketKey, at: string): Promise<void> {
+    const plan = await this.deps.store.getStagePlan(gateKey.stageId, gateKey.planVersion);
+    const run = await this.runContaining(gateKey.stageId);
+    if (!plan || !run || run.status !== "active") return;
 
     // supersede the un-dispatched engagements of the amended version
     for (const ep of plan.engagements) {
@@ -673,7 +715,7 @@ export class Conductor {
               engagementId: ep.engagementId,
               finalState: "cancelled",
               reason: "plan_amended",
-              at: ev.at,
+              at,
             },
           });
         }
@@ -807,7 +849,7 @@ export class Conductor {
     }
     // escalated: spend stops now; the ticket stays visible for the operator —
     // close/lock happens when the operator resolves (cancel or rescope)
-    const spentCents = await this.finalSpend(next.engagementId);
+    const spentCents = await this.captureSpend(next);
     await this.deps.gateway.revokeKey(next.engagementId);
     await this.setEngagementLane(next);
     await this.deps.substrate.comment(
@@ -881,11 +923,27 @@ export class Conductor {
    * accounting sums live keys plus these termination-entry recordings.
    */
   private async finalSpend(engagementId: string): Promise<number | undefined> {
-    try {
-      return (await this.deps.gateway.getSpend(engagementId)).spentCents;
-    } catch {
-      return undefined; // key already gone — nothing left to read
+    // null = the key definitively does not exist. A TRANSIENT failure throws
+    // through (#12 review): the caller's termination effects abort before
+    // revocation, so the re-drive retries against the still-live key instead
+    // of appending a spendless entry that loses the reading forever.
+    return (await this.deps.gateway.getSpend(engagementId))?.spentCents;
+  }
+
+  /**
+   * Read the final spend and persist it on the (post-transition) record
+   * BEFORE the caller revokes the key (#12): a crash between revocation and
+   * the termination-entry append then recovers the reading from the record
+   * instead of losing it to the deleted key. CAS against the record's own
+   * state — a concurrent writer's transition must not be clobbered by this
+   * accounting annotation.
+   */
+  private async captureSpend(record: EngagementRecord): Promise<number | undefined> {
+    const spentCents = await this.finalSpend(record.engagementId);
+    if (spentCents !== undefined) {
+      await this.deps.store.saveEngagementIf({ ...record, terminalSpendCents: spentCents }, record.state);
     }
+    return spentCents;
   }
 
   private async accept(record: EngagementRecord): Promise<void> {
@@ -895,8 +953,8 @@ export class Conductor {
     await this.deps.source.fastForward(this.config.repoUrl, this.config.targetBranch, record.validatedSha);
     const accepted = await this.applyTransition(record, { kind: "accepted" }, "operator accepted");
     if (!accepted) return;
-    const spentCents = await this.finalSpend(record.engagementId);
-    await this.deps.gateway.revokeKey(record.engagementId);
+    const spentCents = await this.captureSpend(accepted);
+    await this.deps.gateway.revokeKey(accepted.engagementId);
     await this.deps.substrate.close(record.item);
     await this.deps.store.appendDecision({
       kind: "termination",
@@ -914,11 +972,11 @@ export class Conductor {
   private async cancelEngagement(record: EngagementRecord, reason: "operator" | "budget_hard_cap"): Promise<void> {
     const cancelled = await this.applyTransition(record, { kind: "cancelled", reason }, `cancelled: ${reason}`);
     if (!cancelled) return;
-    if (record.item) await this.deps.substrate.cancel(record.item, reason);
-    const spentCents = await this.finalSpend(record.engagementId);
-    await this.deps.gateway.revokeKey(record.engagementId);
+    if (cancelled.item) await this.deps.substrate.cancel(cancelled.item, reason);
+    const spentCents = await this.captureSpend(cancelled);
+    await this.deps.gateway.revokeKey(cancelled.engagementId);
     // close in the cancelled lane, never Done — this is not accepted work (B9)
-    if (record.item) await this.deps.substrate.close(record.item, "cancelled");
+    if (cancelled.item) await this.deps.substrate.close(cancelled.item, "cancelled");
     await this.deps.store.appendDecision({
       kind: "termination",
       terminated: {
@@ -1053,13 +1111,58 @@ export class Conductor {
             break;
           }
           if (await this.stageComplete(plan)) continue;
+          // #12 review: a crash inside the amend tail leaves the amended
+          // decision recorded at the (still-)latest version with no successor
+          // plan — first-writer-wins then blocks every comment replay. Detect
+          // and re-drive the tail before anything else touches this gate.
+          const recorded = await this.deps.store.getGateDecision(stageId, plan.planVersion);
+          if (recorded?.kind === "amended") {
+            await this.driveAmendTail({ stageId, planVersion: plan.planVersion }, recorded.at);
+            break;
+          }
           await this.postGate(plan, []);
           const gate = await this.deps.store.getGateTicket(plan.stageId, plan.planVersion);
           if (gate) {
             const snap = await this.deps.substrate.getWorkItem(gate);
             const gateKey = { stageId: plan.stageId, planVersion: plan.planVersion };
-            if (snap.lane === "ready_to_work") await this.deps.substrate.setLane(gate, "waiting_for_feedback");
-            else if (snap.lane === "cancelled") await this.rejectStage(gateKey, this.now());
+            if (snap.lane === "cancelled") {
+              await this.rejectStage(gateKey, this.now());
+              break;
+            }
+            // Amend-while-down recovery (#12): operator `amend:` comments on
+            // the CURRENT gate ticket are by construction unprocessed — a live
+            // application supersedes the ticket. Oldest first; each note
+            // re-derives against the then-latest version, so several downtime
+            // notes stack exactly as they would have live. Amend WINS over a
+            // downtime go-lane (operator decision 2026-08-11, extending the
+            // D15c reject-beats-stale-approve stance): the re-gate posts
+            // v+1 in waiting-for-feedback and the stale move dies with the
+            // superseded ticket. (A crash mid-loop leaves later notes on the
+            // superseded ticket — visible in its body, reapplied by nobody;
+            // accepted residual, the gate body shows what was folded.)
+            let amended = false;
+            try {
+              const pending = (await this.deps.substrate.listComments(gate))
+                .filter((c) => c.actor === "operator" && isAmendNote(c.body))
+                .sort((a, b) => a.at.localeCompare(b.at));
+              for (const c of pending) {
+                const current = await this.deps.store.getLatestStagePlan(stageId);
+                if (!current) break;
+                const applied = await this.applyGateAmend(
+                  { stageId, planVersion: current.planVersion },
+                  c.body.trim(),
+                  c.at,
+                );
+                amended = amended || applied;
+              }
+            } catch (e) {
+              // a broken comments read must not skip the D15c go-lane
+              // neutralization below (#12 review) — the scan retries next pass
+              errors.push(`amend-scan ${stageId}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+            if (!amended && snap.lane === "ready_to_work") {
+              await this.deps.substrate.setLane(gate, "waiting_for_feedback");
+            }
           }
           break;
         }
@@ -1137,7 +1240,9 @@ export class Conductor {
             d.terminated.finalState === rec.state,
         );
         if (settled) return;
-        const spentCents = await this.finalSpend(rec.engagementId);
+        // live reading wins (crash happened before revocation); the persisted
+        // terminalSpendCents recovers the crash-after-revocation window (#12)
+        const spentCents = (await this.captureSpend(rec)) ?? rec.terminalSpendCents;
         await this.deps.gateway.revokeKey(rec.engagementId);
         const reason =
           rec.state === "cancelled"
