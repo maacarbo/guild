@@ -22,5 +22,8 @@ export type DecisionEntry =
   | { kind: "verdict"; engagementId: string; verdict: ContractVerdict }
   | { kind: "bounce"; outcome: BounceOutcome }
   | { kind: "termination"; terminated: EngagementTerminated }
+  /** M3 team evolution: staffing acts are governance provenance like any gate (never a type without its producer — #23 E2) */
+  | { kind: "hire"; role: string; agentId: string; planId: string; at: string }
+  | { kind: "retire"; role: string; agentId: string; planId: string; at: string }
   /** watchdog provenance (D12): every cap event and lock release is queryable */
   | { kind: "budget"; event: BudgetEvent };

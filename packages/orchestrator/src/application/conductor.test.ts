@@ -103,8 +103,10 @@ class FakeSubstrate implements ExecutionSubstrate {
   async comment(item: WorkItemRef, body: string): Promise<void> {
     this.comments.push({ id: item.externalId, body });
   }
-  /** role → agentId for roles hired at runtime (M3) */
-  hiredRoles = new Map<string, string>();
+  /** role → agentId; seeded like config-bound starter roles, extended by hires (M3) */
+  hiredRoles = new Map<string, string>(
+    ["analyst", "architect", "implementer", "tester", "worker"].map((r) => [r, `cfg:${r}`]),
+  );
   async hireAgent(spec: HireSpec): Promise<{ hired: boolean; agentId: string }> {
     const existing = this.hiredRoles.get(spec.role);
     if (existing) return { hired: false, agentId: existing };
@@ -548,6 +550,43 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("team evolution: hire on demand, retire on completion (M3)", () => {
+  it("a role the plan demands but nobody holds is hired at dispatch, trail-recorded", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    w.substrate.hiredRoles.delete("analyst"); // the project started without an analyst
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect(w.substrate.hiredRoles.has("analyst"), "hired at dispatch").toBe(true);
+    const hire = (await w.store.listDecisions()).find((d) => d.kind === "hire");
+    expect(hire).toMatchObject({ kind: "hire", role: "analyst", planId: "idea-1" });
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("dispatched");
+  });
+
+  it("an already-held role hires nothing — no decision noise", async () => {
+    const w = makeWorld();
+    const { gate } = await adoptIdea(w);
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    expect((await w.store.listDecisions()).some((d) => d.kind === "hire")).toBe(false);
+  });
+
+  it("roles hired during a run retire exactly once when the run completes", async () => {
+    const w = makeWorld();
+    await adoptIdea(w, "Fix the typo.\ntemplate: quick-fix", "idea-qf");
+    w.substrate.hiredRoles.delete("implementer");
+    w.substrate.hiredRoles.delete("tester");
+    await driveStageToAccepted(w, "stg:idea-qf:implementation", "agent/implementer/i1", "sha-i");
+    await driveStageToAccepted(w, "stg:idea-qf:test", "agent/tester/t1", "sha-t");
+
+    expect((await w.store.getPlanRun("idea-qf"))?.status).toBe("completed");
+    const retires = (await w.store.listDecisions()).filter((d) => d.kind === "retire");
+    expect(retires.map((d) => (d as { role: string }).role).sort()).toEqual(["implementer", "tester"]);
+    expect(w.substrate.hiredRoles.has("implementer"), "unbound after retirement").toBe(false);
+
+    await w.conductor.reconcile(); // idempotent — no duplicate retirements
+    expect((await w.store.listDecisions()).filter((d) => d.kind === "retire")).toHaveLength(2);
+  });
+});
+
 describe("template: directive shapes the plan run (M3, D12 amendment)", () => {
   it("a quick-fix idea adopts as a two-stage run: implementation → test", async () => {
     const w = makeWorld();
@@ -870,8 +909,9 @@ async function adoptIdea(w: World, body = "A CLI that counts words.", id = "idea
   await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: word counter", body));
   const run = await w.store.getPlanRun(id);
   expect(run, "plan run adopted").toBeTruthy();
-  const gate = await w.substrate.findWorkItem(`gate:stg:${id}:analysis:v1`);
-  expect(gate, "analysis gate posted").toBeTruthy();
+  // the idea's template picks the pipeline — the first gate is its first stage
+  const gate = await w.substrate.findWorkItem(`gate:${run!.stageIds[0]}:v1`);
+  expect(gate, "first stage gate posted").toBeTruthy();
   return { idea, run: run!, gate: gate! };
 }
 

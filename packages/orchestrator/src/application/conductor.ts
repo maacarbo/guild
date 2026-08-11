@@ -79,6 +79,8 @@ export interface ConductorConfig {
   projectBudget?: ProjectBudget;
   /** engagement soft-cap warning threshold as a fraction of budgetCents (D12 default 0.8) */
   softCapRatio?: number;
+  /** the model route hires bind to (M3) — defaults to the gateway's cheap tier */
+  agentModel?: string;
 }
 
 const TERMINAL_WORK: ReadonlySet<string> = new Set(["done", "failed", "cancelled"]);
@@ -748,6 +750,28 @@ export class Conductor {
     if (!rec || rec.state !== "gated") return;
     if (await this.deps.store.getDispatchLock()) return; // hard-capped: no new spend
 
+    // Team evolution (M3): the plan demanding a role IS the hiring signal.
+    // Idempotent for held roles; the per-run agent name makes a crashed hire
+    // adopt its own registration on re-drive (and recovers bindings after a
+    // conductor restart). Runs before any spend: no key is minted for a role
+    // that cannot exist.
+    const stageId = ep.engagementId.replace(/^eng:/, "").replace(/:v\d+$/, "");
+    const run = await this.runContaining(stageId);
+    const hire = await this.deps.substrate.hireAgent({
+      role: ep.role,
+      agentName: `guild-${ep.role}-${run ? run.planId.slice(0, 8) : "adhoc"}`,
+      model: this.config.agentModel ?? "litellm/or-deepseek-v3-2",
+    });
+    if (hire.hired && run) {
+      await this.deps.store.appendDecision({
+        kind: "hire",
+        role: ep.role,
+        agentId: hire.agentId,
+        planId: run.planId,
+        at: this.now(),
+      });
+    }
+
     await this.deps.store.recordDispatchIntent(ep.engagementId, this.now());
     const key = await this.deps.gateway.mintKey(ep.engagementId, ep.budgetCents);
     await this.deps.substrate.bindEngagementKey(ep.role, key.key);
@@ -1019,6 +1043,26 @@ export class Conductor {
         }
       }
       if (!advanced) {
+        // Retire the roles THIS run hired (M3): trail-derived, so a restart
+        // needs no in-memory state; retire lands BEFORE the completed-status
+        // save so a crash re-drives it on the still-active run, and the
+        // hire-minus-retire set plus retireAgent's no-op make replays exact.
+        const decisions = await this.deps.store.listDecisions();
+        const hiredHere = new Map<string, string>();
+        for (const d of decisions) {
+          if (d.kind === "hire" && d.planId === run.planId) hiredHere.set(d.role, d.agentId);
+          if (d.kind === "retire" && d.planId === run.planId) hiredHere.delete(d.role);
+        }
+        for (const [role, hiredAgentId] of hiredHere) {
+          const res = await this.deps.substrate.retireAgent(role);
+          await this.deps.store.appendDecision({
+            kind: "retire",
+            role,
+            agentId: res.agentId ?? hiredAgentId,
+            planId: run.planId,
+            at: this.now(),
+          });
+        }
         await this.deps.store.savePlanRun({ ...run, status: "completed" });
         if (run.ideaItem) {
           await this.deps.substrate.comment(
