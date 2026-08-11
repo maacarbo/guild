@@ -47,6 +47,13 @@ export class InMemoryGovernanceStore implements GovernanceStore {
   async listDecisions(): Promise<DecisionEntry[]> {
     return [...this.decisions];
   }
+  private roleMemory = new Map<string, string>();
+  async getRoleMemory(role: string): Promise<string | null> {
+    return this.roleMemory.get(role) ?? null;
+  }
+  async saveRoleMemory(role: string, content: string): Promise<void> {
+    this.roleMemory.set(role, content);
+  }
   async recordDispatchIntent(engagementId: string, at: string): Promise<void> {
     if (!this.intents.has(engagementId)) this.intents.set(engagementId, at);
   }

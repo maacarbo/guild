@@ -34,7 +34,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     // dev DB, our tables only
     const pool = (store as unknown as { pool: { query(sql: string): Promise<unknown> } }).pool;
     await pool.query(
-      "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock",
+      "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock, role_memory",
     );
   });
 
@@ -108,6 +108,7 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
     const run = {
       planId: "idea-1",
       ideaItem: { substrate: "multica", externalId: "idea-1" },
+      rulesSha: "sha-rules-1",
       stageIds: ["stg:idea-1:analysis", "stg:idea-1:architecture"],
       status: "active" as const,
     };

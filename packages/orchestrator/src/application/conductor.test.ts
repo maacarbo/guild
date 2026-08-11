@@ -575,6 +575,57 @@ describe("questions and blockers", () => {
   });
 });
 
+describe("project rules layer briefs at one pinned SHA (M3, D13)", () => {
+  it("adoption pins the rules SHA; stages fold AGENTS.md from it; the gate shows provenance", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-rules");
+    w.source.files.set("sha-rules:AGENTS.md", "Never commit secrets.\nPrefer small diffs.");
+    const { gate } = await adoptIdea(w);
+    expect((await w.store.getPlanRun("idea-1"))?.rulesSha).toBe("sha-rules");
+    const body = w.substrate.ticketBodies.get(gate.externalId) ?? "";
+    expect(body).toContain("AGENTS.md @ sha-rule");
+    const plan = await w.store.getLatestStagePlan("stg:idea-1:analysis");
+    expect(plan?.engagements[0]?.brief.constraints.some((c) => c.includes("Never commit secrets."))).toBe(true);
+  });
+
+  it("a repo without AGENTS.md briefs the global layer only — silence, not a warning", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-plain");
+    const { gate } = await adoptIdea(w);
+    expect(w.substrate.ticketBodies.get(gate.externalId) ?? "").not.toContain("AGENTS.md");
+  });
+
+  it("the pin is stable for the whole run even when the branch moves (one rules version per run)", async () => {
+    const w = makeWorld();
+    w.source.shas.set("main", "sha-r1");
+    w.source.files.set("sha-r1:AGENTS.md", "RULE-V1");
+    await adoptIdea(w, "Fix the typo.\ntemplate: quick-fix", "idea-qf");
+    w.source.shas.set("main", "sha-r2"); // the branch moves mid-run
+    w.source.files.set("sha-r2:AGENTS.md", "RULE-V2");
+    await driveStageToAccepted(w, "stg:idea-qf:implementation", "agent/implementer/i1", "sha-i");
+    const testPlan = await w.store.getLatestStagePlan("stg:idea-qf:test");
+    const constraints = testPlan?.engagements[0]?.brief.constraints ?? [];
+    expect(constraints.some((c) => c.includes("RULE-V1"))).toBe(true);
+    expect(constraints.some((c) => c.includes("RULE-V2"))).toBe(false);
+  });
+});
+
+describe("role memory rides across engagements (M3)", () => {
+  it("a second engagement of the same role receives the artifact the first one updated — approval sees it", async () => {
+    const w = makeWorld();
+    await adoptIdea(w, "Fix A.\ntemplate: quick-fix", "idea-a");
+    await driveStageToAccepted(w, "stg:idea-a:implementation", "agent/implementer/i1", "sha-a1");
+    expect(await w.store.getRoleMemory("implementer")).toContain("implementation stg:idea-a:implementation accepted at sha-a1");
+
+    await adoptIdea(w, "Fix B.\ntemplate: quick-fix", "idea-b");
+    const gate = await w.substrate.findWorkItem("gate:stg:idea-b:implementation:v1");
+    const body = w.substrate.ticketBodies.get(gate!.externalId) ?? "";
+    expect(body, "operator approval covers the memory that shaped the brief").toContain("sha-a1");
+    const plan = await w.store.getLatestStagePlan("stg:idea-b:implementation");
+    expect(plan?.engagements[0]?.brief.priorDecisions.some((d) => d.includes("sha-a1"))).toBe(true);
+  });
+});
+
 describe("team evolution: hire on demand, retire on completion (M3)", () => {
   it("a role the plan demands but nobody holds is hired at dispatch, trail-recorded", async () => {
     const w = makeWorld();
@@ -1125,7 +1176,7 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
 
     const arch = await w.store.getLatestStagePlan("stg:idea-1:architecture");
     expect(arch, "architecture plan opened").toBeTruthy();
-    expect(arch!.engagements[0]!.brief.priorDecisions).toEqual(["analysis accepted at sha-analysis"]);
+    expect(arch!.engagements[0]!.brief.priorDecisions).toEqual(["analysis stg:idea-1:analysis accepted at sha-analysis"]);
     const contract = arch!.engagements[0]!.brief.contract;
     expect(contract.authoredBy).toBe("analyst");
     expect(contract.checks).toContainEqual({ kind: "artifact", path: "docs/ADR-1.md" });
@@ -1257,10 +1308,12 @@ describe("the whole pipeline (the M2 demo skeleton)", () => {
     // priorDecisions accumulate down the pipeline
     const delivery = (await w.store.getLatestStagePlan("stg:idea-1:delivery"))!;
     expect(delivery.engagements[0]!.brief.priorDecisions).toEqual([
-      "analysis accepted at sha-0",
-      "architecture accepted at sha-1",
-      "implementation accepted at sha-2",
-      "test accepted at sha-3",
+      // ONE canonical phrasing per fact: the implementer's memory line and the
+      // run-local implementation line are the same string, deduped (M3)
+      "implementation stg:idea-1:implementation accepted at sha-2",
+      "analysis stg:idea-1:analysis accepted at sha-0",
+      "architecture stg:idea-1:architecture accepted at sha-1",
+      "test stg:idea-1:test accepted at sha-3",
     ]);
   });
 });

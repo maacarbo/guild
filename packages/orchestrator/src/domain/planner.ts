@@ -40,6 +40,8 @@ export interface DeriveOptions {
   upstream?: { handoff: UpstreamHandoff | null; authoredBy: string };
   /** upstream decisions that must survive the fresh-context reset (M3 automates) */
   priorDecisions?: string[];
+  /** the project rules file read at the run's pinned SHA (M3, D13) — folded into every brief's constraints with provenance */
+  projectRules?: { path: string; sha: string; content: string };
 }
 
 export interface DerivedStage {
@@ -328,6 +330,9 @@ export function deriveStagePlan(
             constraints: [
               "Zero-dependency Node.js ≥ 22 only — no npm installs; tests run offline via `node --test`.",
               "Work only inside the repository; push to your task branch; never merge or tag.",
+              ...(opts.projectRules
+                ? [`Project rules (${opts.projectRules.path} @ ${opts.projectRules.sha.slice(0, 8)}):\n${opts.projectRules.content}`]
+                : []),
               ...amendments,
             ],
           },

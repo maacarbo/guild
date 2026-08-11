@@ -87,6 +87,10 @@ const TERMINAL_WORK: ReadonlySet<string> = new Set(["done", "failed", "cancelled
 /** states holding a live key whose work the hard cap cancels — validated work survives (D12) */
 const SPENDING: ReadonlySet<EngagementState> = new Set(["dispatched", "working", "blocked", "reported", "bounced"]);
 const TERMINAL_STATES: ReadonlySet<EngagementState> = new Set(["accepted", "cancelled", "escalated"]);
+/** role-memory artifacts stay bounded — briefs must not grow without limit (M3) */
+const ROLE_MEMORY_MAX_LINES = 20;
+/** the per-project rules file (M3, D13) — read at the run's pinned SHA */
+const RULES_PATH = "AGENTS.md";
 
 /** stage ids are conductor-minted as `stg:<ideaId>:<kind>` (planner identity rule) */
 function stageKindOf(stageId: string): StageKind {
@@ -387,9 +391,13 @@ export class Conductor {
     // names degrade to standard inside the planner, which also renders the
     // warning into the first gate body
     const { template } = templateFor(idea.body);
+    // one rules version per run (M3, D13): pin the target branch's head at
+    // adoption; every stage reads AGENTS.md at exactly this SHA
+    const rulesSha = (await this.deps.source.resolveRemoteSha(this.config.repoUrl, this.config.targetBranch)) ?? undefined;
     const run: PlanRunRecord = {
       planId: idea.ideaId,
       ideaItem: snap.item,
+      ...(rulesSha ? { rulesSha } : {}),
       stageIds: template.stages.map((kind) => `stg:${idea.ideaId}:${kind}`),
       status: "active",
     };
@@ -424,14 +432,17 @@ export class Conductor {
     const amendments = await this.amendmentNotes(stageId);
 
     let upstream: { handoff: UpstreamHandoff | null; authoredBy: string } | undefined;
-    const priorDecisions: string[] = [];
+    // the role's durable memory leads (M3: briefs stop carrying priorDecisions
+    // by hand); run-local acceptances follow; dedup at the end
+    const memory = await this.deps.store.getRoleMemory(roleFor(kind));
+    const priorDecisions: string[] = memory ? memory.split("\n") : [];
     if (index > 0) {
       const prevStageId = run.stageIds[index - 1]!;
       const prevKind = stageKindOf(prevStageId);
       let handoffRaw: string | null = null;
       for (let i = 0; i < index; i++) {
         const sha = await this.stageValidatedSha(run.stageIds[i]!);
-        if (sha) priorDecisions.push(`${stageKindOf(run.stageIds[i]!)} accepted at ${sha}`);
+        if (sha) priorDecisions.push(`${stageKindOf(run.stageIds[i]!)} ${run.stageIds[i]!} accepted at ${sha}`);
         if (i === index - 1 && sha) {
           handoffRaw = await this.deps.source.readFile(this.config.repoUrl, sha, handoffPathFor(kind));
         }
@@ -439,15 +450,33 @@ export class Conductor {
       upstream = { handoff: handoffRaw ? parseHandoffChecks(handoffRaw) : null, authoredBy: roleFor(prevKind) };
     }
 
+    // the run-pinned project rules (M3, D13): absence is silence, not a warning.
+    // Caveat (verify finding): the source adapter collapses transport faults
+    // to null too, so a transient git failure drops the rules for THIS stage
+    // only — narrow, and the gate body's missing Notes line is the tell.
+    let projectRules: { path: string; sha: string; content: string } | undefined;
+    if (run.rulesSha) {
+      const content = await this.deps.source.readFile(this.config.repoUrl, run.rulesSha, RULES_PATH);
+      if (content) projectRules = { path: RULES_PATH, sha: run.rulesSha, content };
+    }
+
     const { plan, warnings } = deriveStagePlan(
       idea,
       { projectId: this.config.projectScope, defaultPlanBudgetCents: this.config.defaultPlanBudgetCents },
       kind,
       planVersion,
-      { amendments, ...(upstream ? { upstream } : {}), priorDecisions },
+      {
+        amendments,
+        ...(upstream ? { upstream } : {}),
+        priorDecisions: [...new Set(priorDecisions)],
+        ...(projectRules ? { projectRules } : {}),
+      },
     );
     await this.deps.store.saveStagePlan(plan);
-    return this.postGate(plan, warnings);
+    const notes = projectRules
+      ? [`Project rules: ${projectRules.path} @ ${projectRules.sha.slice(0, 8)} — folded into every brief.`]
+      : [];
+    return this.postGate(plan, warnings, notes);
   }
 
   /** the accepted engagement's validated sha for a stage (latest plan version) */
@@ -491,7 +520,7 @@ export class Conductor {
    * operator's lane move to ready-to-work IS the approval). Idempotent across
    * calls and restarts: the marker is the dedup key on the substrate itself.
    */
-  private async postGate(plan: StagePlan, warnings: string[]): Promise<WorkItemRef> {
+  private async postGate(plan: StagePlan, warnings: string[], notes: string[] = []): Promise<WorkItemRef> {
     const existing =
       (await this.deps.store.getGateTicket(plan.stageId, plan.planVersion)) ??
       (await this.deps.substrate.findWorkItem(this.gateMarker(plan.stageId, plan.planVersion)));
@@ -523,7 +552,7 @@ export class Conductor {
     const ticket = await this.deps.substrate.createTicket({
       markerId: this.gateMarker(plan.stageId, plan.planVersion),
       title: `Plan approval: ${plan.kind} stage (v${plan.planVersion})`,
-      body: this.renderPlanBody(plan, warnings),
+      body: this.renderPlanBody(plan, warnings, notes),
     });
     await this.deps.substrate.setLane(ticket, "waiting_for_feedback");
     await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, ticket);
@@ -979,6 +1008,27 @@ export class Conductor {
     return spentCents;
   }
 
+  /**
+   * Deterministic role-memory maintenance (M3): on acceptance, the accepting
+   * role's artifact gains one machine-derived line (D12 traceability — never
+   * agent free text), bounded to the newest ROLE_MEMORY_MAX_LINES. Idempotent:
+   * re-driven accepts add nothing.
+   */
+  private async recordRoleMemory(rec: EngagementRecord): Promise<void> {
+    if (!rec.validatedSha) return;
+    const kind = stageKindOf(rec.stageId);
+    const role = roleFor(kind);
+    // ONE canonical phrasing shared with openStage's run-local lines — the
+    // Set-dedup in openStage only works on exact strings (verify finding).
+    // The 20-line cap silently drops the oldest facts; acceptable: every
+    // acceptance stays queryable in the decisions table forever.
+    const line = `${kind} ${rec.stageId} accepted at ${rec.validatedSha}`;
+    const lines = (await this.deps.store.getRoleMemory(role))?.split("\n") ?? [];
+    if (lines.includes(line)) return;
+    lines.push(line);
+    await this.deps.store.saveRoleMemory(role, lines.slice(-ROLE_MEMORY_MAX_LINES).join("\n"));
+  }
+
   private async accept(record: EngagementRecord): Promise<void> {
     if (!record.item || !record.validatedSha) return;
     // merge first: a fast-forward failure leaves the engagement validated and
@@ -986,6 +1036,7 @@ export class Conductor {
     await this.deps.source.fastForward(this.config.repoUrl, this.config.targetBranch, record.validatedSha);
     const accepted = await this.applyTransition(record, { kind: "accepted" }, "operator accepted");
     if (!accepted) return;
+    await this.recordRoleMemory(accepted);
     const spentCents = await this.captureSpend(accepted);
     await this.deps.gateway.revokeKey(accepted.engagementId);
     await this.deps.substrate.close(record.item);
@@ -1299,6 +1350,7 @@ export class Conductor {
             d.terminated.finalState === rec.state,
         );
         if (settled) return;
+        if (rec.state === "accepted") await this.recordRoleMemory(rec); // idempotent (M3)
         // live reading wins (crash happened before revocation); the persisted
         // terminalSpendCents recovers the crash-after-revocation window (#12)
         const spentCents = (await this.captureSpend(rec)) ?? rec.terminalSpendCents;
@@ -1426,7 +1478,7 @@ export class Conductor {
       : `- command \`${check.run}\` exits ${check.expectExitCode} within ${check.timeoutSeconds}s`;
   }
 
-  private renderPlanBody(plan: StagePlan, warnings: string[]): string {
+  private renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
     const lines = [
       `## Stage plan — ${plan.kind}`,
       "",
@@ -1445,7 +1497,13 @@ export class Conductor {
         "  ```gherkin",
         ...e.brief.contract.gherkin.split("\n").map((line) => `  ${line}`),
         "  ```",
+        // approval covers what shaped the brief (M3 operator decision):
+        // role memory + prior acceptances render verbatim
+        ...(e.brief.priorDecisions.length
+          ? ["", "  Prior decisions & role memory (folded into the brief):", ...e.brief.priorDecisions.map((d) => `  - ${d}`)]
+          : []),
       ]),
+      ...(notes.length ? ["", "### Notes", ...notes.map((n) => `- ${n}`)] : []),
       ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
       "",
       "**To approve:** move this ticket to *Ready to work*. **To amend:** comment `amend: <note>` here. **To reject:** move it to *Cancelled*.",
