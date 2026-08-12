@@ -218,7 +218,7 @@ When("the operator posts the demo idea as a board ticket", async () => {
       // $5: headroom for a bounce-rework cycle per stage on the cheap tier —
       // a 2026-08-12 run hit a genuine bounce and the 15% architecture split
       // of $3 (45c) capped out mid-rework (the budget doing its job)
-      "budget: 5.00",
+      "budget: 10.00",
     ].join("\n"),
   });
   assert.ok(res.ok, `idea ticket → ${res.status}`);
@@ -239,7 +239,7 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
   );
   // the plan allocated 15% of the idea's $5 directive
   const plan = await world.store!.getStagePlan(stageIdOf(world.ideaId, "analysis"), 1);
-  assert.equal(plan?.budgetCents, 75, "analysis v1 carries the mechanical allocation (15% of 500¢)");
+  assert.equal(plan?.budgetCents, 150, "analysis v1 carries the mechanical allocation (15% of 1000¢)");
 });
 
 When("the operator amends the analysis plan with a budget directive", async () => {
