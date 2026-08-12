@@ -241,7 +241,9 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
 
 When("the operator amends the analysis plan with a budget directive", async () => {
   const res = await operatorApi("POST", `/api/issues/${world.gateV1!.externalId}/comments`, {
-    content: "amend: sharpen the spec toward CLI ergonomics. budget: 0.60",
+    // C4 grammar (#12): a budget: directive must be its own line — prose
+    // trailing into "budget: X" deliberately never reprices
+    content: "amend: sharpen the spec toward CLI ergonomics.\nbudget: 0.60",
   });
   assert.ok(res.ok, `amend comment → ${res.status}`);
 });
