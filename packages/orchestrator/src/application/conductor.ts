@@ -392,8 +392,16 @@ export class Conductor {
     // warning into the first gate body
     const { template } = templateFor(idea.body);
     // one rules version per run (M3, D13): pin the target branch's head at
-    // adoption; every stage reads AGENTS.md at exactly this SHA
-    const rulesSha = (await this.deps.source.resolveRemoteSha(this.config.repoUrl, this.config.targetBranch)) ?? undefined;
+    // adoption; every stage reads AGENTS.md at exactly this SHA. A transient
+    // git outage must never block adoption — it is a board-side act; the run
+    // then simply carries no rules pin (absence is silence). Found live by
+    // the v0.2.0 smoke: an unreachable remote re-errored every reconcile tick.
+    let rulesSha: string | undefined;
+    try {
+      rulesSha = (await this.deps.source.resolveRemoteSha(this.config.repoUrl, this.config.targetBranch)) ?? undefined;
+    } catch {
+      // degraded: no pin; the gate body's missing Notes line is the tell
+    }
     const run: PlanRunRecord = {
       planId: idea.ideaId,
       ideaItem: snap.item,
