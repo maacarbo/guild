@@ -237,9 +237,9 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
     "the analysis v1 gate in waiting-for-feedback",
     3 * 60 * 1000,
   );
-  // the plan allocated 15% of the idea's 100¢
+  // the plan allocated 15% of the idea's $5 directive
   const plan = await world.store!.getStagePlan(stageIdOf(world.ideaId, "analysis"), 1);
-  assert.equal(plan?.budgetCents, 45, "analysis v1 carries the mechanical allocation (15% of 300¢)");
+  assert.equal(plan?.budgetCents, 75, "analysis v1 carries the mechanical allocation (15% of 500¢)");
 });
 
 When("the operator amends the analysis plan with a budget directive", async () => {
