@@ -111,6 +111,21 @@ provider key — so every call is metered and hard-capped (`max_budget`).
 OpenCode agents use `provider/model`-qualified models against the baked
 `litellm` provider (e.g. `litellm/or-claude-haiku-4-5`).
 
+### Upgrading a `v0.1.1` install to `v0.2.0` (M3 team evolution)
+
+Non-breaking. Pull the new images and restart — the conductor applies its
+additive schema migrations (role memory, run rules pin, terminal spend) at
+startup:
+
+```bash
+git checkout v0.2.0
+docker compose -f docker-compose.yml pull guild-conductor guild-daemon
+docker compose -f docker-compose.yml --profile daemon --profile conductor up -d
+```
+
+Optional new configuration: `GUILD_AGENT_MODEL` (the model route runtime-hired
+agents bind to; defaults to the gateway's cheap tier).
+
 ### Upgrading a `v0.1.0` install to `v0.1.1` (D15 daemon identity)
 
 `v0.1.0` had the operator hand-mint `MULTICA_DAEMON_TOKEN` from their own
