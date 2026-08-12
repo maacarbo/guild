@@ -215,7 +215,10 @@ When("the operator posts the demo idea as a board ticket", async () => {
       "only argument; zero runtime dependencies; tests runnable offline with",
       "`node --test`.",
       "",
-      "budget: 3.00",
+      // $5: headroom for a bounce-rework cycle per stage on the cheap tier —
+      // a 2026-08-12 run hit a genuine bounce and the 15% architecture split
+      // of $3 (45c) capped out mid-rework (the budget doing its job)
+      "budget: 5.00",
     ].join("\n"),
   });
   assert.ok(res.ok, `idea ticket → ${res.status}`);
