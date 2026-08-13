@@ -373,6 +373,22 @@ describe("bindEngagementKey", () => {
     expect(isSubstrateError(err)).toBe(true);
     expect(err.category).toBe("unsupported_capability");
   });
+
+  it("folds the configured engagement env (per-project git cred NAME, #6) into every bind — the key always wins a collision", async () => {
+    const api = new FakeMulticaApi();
+    const substrate = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+      engagementEnv: { GUILD_GIT_CRED: "GUILD_GIT_TOKEN_MYPROJ", GUILD_DAEMON_VIRTUAL_KEY: "never-wins" },
+    });
+    await substrate.bindEngagementKey("worker", "sk-engagement-1");
+    expect(api.agentEnvs.get("agent-1")).toEqual({
+      GUILD_GIT_CRED: "GUILD_GIT_TOKEN_MYPROJ",
+      GUILD_DAEMON_VIRTUAL_KEY: "sk-engagement-1",
+    });
+  });
 });
 
 describe("listComments (#12 reconcile read)", () => {

@@ -29,6 +29,9 @@ const env = readEnv([
   { name: "GUILD_TARGET_BRANCH", source: "acceptance fast-forward target", fallback: "main" },
   { name: "GUILD_PLAN_BUDGET_CENTS", source: "default plan budget when the idea names none", fallback: "300" },
   { name: "GUILD_AGENT_MODEL", source: "model route hired agents bind to (M3) — cheap tier by default", fallback: "litellm/or-deepseek-v3-2" },
+  // #6 (D17): the NAME of the daemon-env var holding this project's git token —
+  // name-indirection: the value lives only in the daemon container's env
+  { name: "GUILD_GIT_CRED_NAME", source: "per-project git credential env NAME in the daemon (D17)", optional: true },
   { name: "GUILD_PROJECT_SOFT_CAP_CENTS", source: "project soft cap (watchdog warn)", optional: true },
   { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
   { name: "GUILD_VALIDATOR_IMAGE", source: "sandbox image for contract checks", fallback: "node:22-alpine" },
@@ -98,6 +101,7 @@ async function main(): Promise<void> {
       roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,
       selfMemberId,
       operatorMemberIds,
+      ...(env.GUILD_GIT_CRED_NAME ? { engagementEnv: { GUILD_GIT_CRED: env.GUILD_GIT_CRED_NAME } } : {}),
     },
   );
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);

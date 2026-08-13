@@ -234,6 +234,8 @@ services:
       GUILD_PLAN_BUDGET_CENTS: ${GUILD_PLAN_BUDGET_CENTS:-300}
       # M3 hiring: the model route runtime-hired agents bind to (cheap tier, D2)
       GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v3-2}
+      # D17 (#6): NAME of the daemon-env var holding this project's git token
+      GUILD_GIT_CRED_NAME: ${GUILD_GIT_CRED_NAME:-}
       GUILD_PROJECT_SOFT_CAP_CENTS: ${GUILD_PROJECT_SOFT_CAP_CENTS:-}
       GUILD_PROJECT_HARD_CAP_CENTS: ${GUILD_PROJECT_HARD_CAP_CENTS:-}
       GUILD_VALIDATOR_IMAGE: ${GUILD_VALIDATOR_IMAGE:-node:22-alpine}
