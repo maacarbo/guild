@@ -888,3 +888,45 @@ Fresh installs are unaffected. End-to-end confirmation (a daemon actually
 running as `daemon@guild.local` and dispatching a task) is a deployment-time
 step, performed when the stack is rebuilt to mirror `main` after the fix
 merges — not exercised here to avoid mutating the running dev daemon.
+## Addendum 2026-08-13 — P17 re-run under the D15 identity split: membership-gated runtime projection
+
+Re-ran P17/P18 on the live stack (Multica v0.4.15) after D15 moved the daemon
+to its own non-owner identity (`daemon@guild.local`). One real mechanics
+delta, one reaffirmation:
+
+### P17 delta — projection is membership-gated now (still PASS, one daemon serves N workspaces)
+
+The 2026-08-02 result ("runtime rows project into every workspace of the
+owning user, immediately, no restart") described the pre-D15 world where the
+daemon token WAS the workspace-owning operator. Under D15 the daemon user is
+not the creator of new workspaces, and projection follows **membership**:
+
+- A freshly created workspace (`POST /api/workspaces`, operator-owned) showed
+  **no** daemon runtime row while the daemon user was not a member.
+- Membership needs the invitation handshake (as recorded in the 2026-08-03
+  P23 addendum): operator `POST /api/workspaces/{id}/members {email, role}`
+  mints a *pending* invitation (`user_id` alone is rejected — "email is
+  required"); the daemon token lists it (`GET /api/invitations`) and joins via
+  `POST /api/invitations/{id}/accept`. Both calls are API-automatable with
+  tokens `guild init` already holds.
+- **The instant the acceptance landed, a NEW, distinct runtime row appeared
+  online in the second workspace — no daemon restart** (row ids differ per
+  workspace for the same physical daemon, as in the 2026-08-02 run; the
+  original workspace's row stayed online and its agent bindings untouched).
+- Service proven end-to-end again: an agent created in workspace 2 on that
+  row (`or-deepseek-v3-2`) picked up a dispatched issue and pushed the
+  contracted branch (`probe/p17` on the scratch repo) to completion.
+
+Consequence for #5/D10 unchanged in substance, sharper in mechanics: mapping
+A still runs on ONE daemon container, but multi-project provisioning must
+drive the invite/accept handshake per new workspace — "serves every workspace
+of its owner" is now precisely "serves every workspace of which its user is a
+member".
+
+### P18 — reaffirmed (unchanged verdict)
+
+The project entity still carries no repo surface: no `repos` field on the
+entity, `PUT` with a `repos` array returns 200 with the field silently
+dropped, `GET /api/projects/{id}/repos` → 404 (and `PATCH` on the entity is
+405 — `PUT` is the update verb). Repo wiring remains workspace-level only;
+mapping B stays dead for repo isolation.
