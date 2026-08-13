@@ -216,8 +216,26 @@ function stageMission(kind: StageKind): string {
   }
 }
 
-function instructionsFor(kind: StageKind, idea: Idea): string {
-  const next = STAGE_ORDER[STAGE_ORDER.indexOf(kind) + 1];
+/** the artifact a stage itself produces — what its contract checks may touch (#35) */
+function stageDeliverable(kind: StageKind): string {
+  switch (kind) {
+    case "analysis":
+      return "docs/SPEC.md";
+    case "architecture":
+      return "design documents under docs/ (docs/DESIGN.md)";
+    case "implementation":
+      return "working code with a package.json and tests passing under `node --test`";
+    case "test":
+      return "tests/acceptance.test.mjs and the passing suite";
+    case "delivery":
+      return "README.md and the green suite";
+  }
+}
+
+function instructionsFor(kind: StageKind, idea: Idea, stages: readonly StageKind[]): string {
+  // next stage per the ACTIVE template — briefing a role to author checks for
+  // a stage the template never runs would be dead instruction (#35)
+  const next = stages[stages.indexOf(kind) + 1];
   const lines = [
     stageMission(kind),
     "",
@@ -233,10 +251,33 @@ function instructionsFor(kind: StageKind, idea: Idea): string {
         `{"gherkin"?: string, "checks": [{"kind":"artifact","path":...,"mustContain"?:...} | ` +
         `{"kind":"command","run":...,"expectExitCode":...,"timeoutSeconds":...}]} ` +
         `(max 8 checks, command timeouts ≤ 600s, offline-capable commands only). ` +
+        `These checks gate the ${next} stage itself, so every check must be satisfiable by that stage's own ` +
+        `deliverable — ${stageDeliverable(next)} — never by artifacts of later stages: a check that executes ` +
+        `not-yet-written code cannot pass and forces the ${next} stage into bounce escalation. ` +
         `Valid checks become part of the ${next} contract the operator approves.`,
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * Stages whose whole deliverable lives under docs/ — an upstream check that
+ * reaches outside can only be satisfied by later stages' work, so the gate
+ * body warns the operator before approval (#35, D12 refinement). Advisory
+ * only: the check still merges; the operator amends or bounces with guidance.
+ */
+const DOCS_ONLY_STAGES: ReadonlySet<StageKind> = new Set(["analysis", "architecture"]);
+
+/** first path-like token outside docs/ in a check, or null when clean */
+function outsideDocsReference(check: ContractCheck): string | null {
+  if (check.kind === "artifact") return check.path.startsWith("docs/") ? null : check.path;
+  for (const raw of check.run.split(/\s+/)) {
+    const token = raw.replace(/^["']+|["']+$/g, "");
+    if (token.startsWith("-") || token.startsWith("docs/")) continue;
+    // path-like: contains a separator, or ends in a real file extension
+    if (token.includes("/") || /\.[a-z][a-z0-9]*$/i.test(token)) return token;
+  }
+  return null;
 }
 
 /**
@@ -287,6 +328,18 @@ export function deriveStagePlan(
       authoredBy = opts.upstream.authoredBy;
       checks = [...checks, ...opts.upstream.handoff.checks];
       if (opts.upstream.handoff.gherkin) gherkin = `${gherkin}\n\n${opts.upstream.handoff.gherkin}`;
+      if (DOCS_ONLY_STAGES.has(kind)) {
+        for (const check of opts.upstream.handoff.checks) {
+          const offender = outsideDocsReference(check);
+          if (offender !== null) {
+            warnings.push(
+              `Upstream check references "${offender}" outside docs/ — the ${kind} stage delivers documents only, ` +
+                `so this check may only be satisfiable by later stages' work and would bounce to escalation (#35). ` +
+                `Amend or bounce with guidance before approving.`,
+            );
+          }
+        }
+      }
     } else {
       warnings.push(
         `No valid upstream handoff at ${handoffPathFor(kind)} — this contract carries Guild's floor checks only.`,
@@ -323,7 +376,7 @@ export function deriveStagePlan(
           budgetCents,
           brief: {
             roleContext: roleTemplateFor(roleFor(kind)).roleContext,
-            instructions: instructionsFor(kind, idea),
+            instructions: instructionsFor(kind, idea, template.stages),
             contract,
             priorDecisions: opts.priorDecisions ?? [],
             artifactRefs: [],
