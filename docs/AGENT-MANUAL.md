@@ -84,16 +84,20 @@ Directives are **own-line** grammar (prose that merely ends in
 - `budget: 5.00` — plan budget in dollars (integer-cent math; per-directive
   clamp at $100). Without it, the configured default applies.
 - `template: standard` (analysis → architecture → implementation → test →
-  delivery, budget split 15/15/40/20/10) or `template: quick-fix`
-  (implementation → test, 70/30). Unknown names degrade to `standard` with a
-  gate-body warning.
+  delivery, budget split 15/15/40/20/10), `template: quick-fix`
+  (implementation → test, 70/30), or `template: enterprise`
+  (business-analysis → technical-analysis → architecture-security →
+  implementation → test → delivery, 10/10/15/35/20/10 — #28). Unknown names
+  degrade to `standard` with a gate-body warning.
 
 Expected outcome: within a reconcile tick the conductor comments a plan
 reference on your ticket and posts the first stage's **gate ticket** in the
 waiting-for-feedback lane. Every Guild-authored ticket carries the same
 HTML-comment marker key in its description — `<!-- guild:engagement=… -->`;
-the gate's marker value is `gate:stg:<ideaId>:<stageKind>:v<n>`, an
-engagement's is `eng:stg:<ideaId>:<stageKind>:v<n>`. Nothing spends before
+the gate's marker value is `gate:stg:<ideaId>:<stageSlug>:v<n>`, an
+engagement's is `eng:stg:<ideaId>:<stageSlug>:v<n>` (the slug equals the
+stage kind for `standard`/`quick-fix`; enterprise slugs like
+`business-analysis` are their own identities — #28). Nothing spends before
 you approve.
 
 ## To approve a stage gate

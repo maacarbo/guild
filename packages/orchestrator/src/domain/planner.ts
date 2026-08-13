@@ -216,12 +216,15 @@ function floorChecks(kind: StageKind): ContractCheck[] {
   }
 }
 
-function floorGherkin(kind: StageKind, idea: Idea): string {
+function floorGherkin(entry: StageEntry, idea: Idea): string {
+  // slug and entry role (#28) — byte-identical to the old kind/role text for
+  // classic templates, distinct per stage for enterprise
+  const role = roleForEntry(entry);
   return [
-    `Feature: ${kind} stage of "${idea.title}"`,
-    `  Scenario: the ${roleFor(kind)} hands off ${kind} work that satisfies the contract checks`,
+    `Feature: ${entry.slug} stage of "${idea.title}"`,
+    `  Scenario: the ${role} hands off ${entry.slug} work that satisfies the contract checks`,
     `    Given the approved stage plan for "${idea.title}"`,
-    `    When the ${roleFor(kind)} reports done`,
+    `    When the ${role} reports done`,
     `    Then every contract check passes against the pushed engagement branch`,
   ].join("\n");
 }
@@ -366,7 +369,7 @@ export function deriveStagePlan(
   const isFirst = template.stages[0]?.slug === entry.slug;
   let authoredBy = isFirst ? "operator" : "guild-floor";
   let checks = floorChecks(kind);
-  let gherkin = floorGherkin(kind, idea);
+  let gherkin = floorGherkin(entry, idea);
   if (opts.upstream) {
     if (opts.upstream.handoff) {
       authoredBy = opts.upstream.authoredBy;

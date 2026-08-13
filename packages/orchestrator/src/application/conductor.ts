@@ -561,7 +561,9 @@ export class Conductor {
 
     const ticket = await this.deps.substrate.createTicket({
       markerId: this.gateMarker(plan.stageId, plan.planVersion),
-      title: `Plan approval: ${plan.kind} stage (v${plan.planVersion})`,
+      // the SLUG names the stage (#28) — two same-kind enterprise stages must
+      // never post identically-titled approval tickets
+      title: `Plan approval: ${stageSlugOf(plan.stageId)} stage (v${plan.planVersion})`,
       body: this.renderPlanBody(plan, warnings, notes),
     });
     await this.deps.substrate.setLane(ticket, "waiting_for_feedback");
@@ -1526,7 +1528,7 @@ export class Conductor {
 
   private renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
     const lines = [
-      `## Stage plan — ${plan.kind}`,
+      `## Stage plan — ${stageSlugOf(plan.stageId)}`,
       "",
       plan.objective,
       "",
