@@ -28,6 +28,7 @@ import { Conductor } from "../../src/application/conductor.js";
 import { GitSourceControl } from "../../src/adapters/git-source-control.js";
 import { LiteLlmModelGateway } from "../../src/adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../../src/adapters/pg-governance-store.js";
+import { ensureIsolatedDatabase, isolatedDatabaseUrl } from "../../src/testkit/live-db.js";
 import { STAGE_ORDER } from "../../src/domain/planner.js";
 import type { DecisionEntry } from "../../src/domain/decisions.js";
 import { createContractValidator } from "../../src/index.js";
@@ -67,9 +68,13 @@ const world = {
   idea2Engagement: "",
 };
 
-function pgUrl(): string {
+function pgAdminUrl(): string {
   return `postgres://guild:${encodeURIComponent(envValue("GUILD_POSTGRES_PASSWORD"))}@127.0.0.1:5442/guild`;
 }
+
+// #27: the smoke truncates at start and leaves run state behind — it gets its
+// own database so the compose conductor's governance state is untouchable
+const pgUrl = (): string => isolatedDatabaseUrl(pgAdminUrl());
 
 async function operatorApi(method: string, path: string, body?: unknown): Promise<Response> {
   return fetch(`${MULTICA_URL}${path}`, {
@@ -114,6 +119,10 @@ After(async () => {
   world.abort.abort();
   await world.runLoop?.catch(() => undefined);
   await world.store?.close().catch(() => undefined);
+  // #27: with the smoke on its own database, the compose conductor has no
+  // plan-run row for the demo idea — a live leftover would be re-adopted as a
+  // fresh idea on the next reconcile; cancel it board-side
+  if (world.ideaId) await operatorMovesTicket(world.ideaId, "cancelled").catch(() => undefined);
 });
 
 Given("the live stack, the four role agents, and a clean governance database", async () => {
@@ -182,6 +191,7 @@ Given("the live stack, the four role agents, and a clean governance database", a
   // the validator sandbox needs node for the demo floor checks
   await exec("docker", ["image", "inspect", VALIDATOR_IMAGE]).catch(() => exec("docker", ["pull", VALIDATOR_IMAGE]));
 
+  await ensureIsolatedDatabase(pgAdminUrl());
   const pool = new pg.Pool({ connectionString: pgUrl(), max: 1 });
   await pool
     .query(
