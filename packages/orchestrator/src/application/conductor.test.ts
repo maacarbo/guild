@@ -1216,6 +1216,28 @@ describe("advisory engagements (#29: observe-and-flag riders never gate completi
     expect(w.gateway.revokes.includes(advisoryId), "advisory key revoked").toBe(true);
   });
 
+  it("an all-advisory stage never completes — the same fail-safe wedge as an empty stage", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    const stageId = "stg:idea-1:analysis";
+    const plan = (await w.store.getLatestStagePlan(stageId))!;
+    const worker = plan.engagements[0]!;
+    await w.store.saveStagePlan({
+      ...plan,
+      engagements: [{ ...worker, engagementId: `eng:${stageId}:monitor:v1`, role: "focus-monitor", advisory: true }],
+    });
+    await w.store.saveEngagement({
+      engagementId: `eng:${stageId}:monitor:v1`,
+      stageId,
+      planVersion: plan.planVersion,
+      state: "gated",
+      bounceCount: 0,
+    });
+    await w.conductor.reconcile();
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"), "must not advance").toBeNull();
+    expect((await w.store.getPlanRun("idea-1"))?.status).toBe("active");
+  });
+
   it("an advisory report is never judged — no contract, no verdict, no bounce", async () => {
     const w = makeWorld();
     await adoptIdea(w);

@@ -1161,6 +1161,10 @@ export class Conductor {
       const rec = await this.deps.store.getEngagement(ep.engagementId);
       if (rec?.state !== "accepted") return false;
     }
+    // required === 0 (empty stage, or all-advisory) never completes — the same
+    // fail-safe wedge the empty stage always had: a stage that can produce no
+    // acceptable work must stall visibly, never advance silently. A planner
+    // that emits advisory riders must emit ≥ 1 non-advisory engagement too.
     return required > 0;
   }
 
