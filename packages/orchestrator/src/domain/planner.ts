@@ -268,12 +268,17 @@ function instructionsFor(kind: StageKind, idea: Idea, stages: readonly StageKind
  */
 const DOCS_ONLY_STAGES: ReadonlySet<StageKind> = new Set(["analysis", "architecture"]);
 
+/** inside docs/ with no ../ traversal — a docs/-prefix alone proves nothing */
+function withinDocs(path: string): boolean {
+  return path.startsWith("docs/") && !path.split("/").includes("..");
+}
+
 /** first path-like token outside docs/ in a check, or null when clean */
 function outsideDocsReference(check: ContractCheck): string | null {
-  if (check.kind === "artifact") return check.path.startsWith("docs/") ? null : check.path;
+  if (check.kind === "artifact") return withinDocs(check.path) ? null : check.path;
   for (const raw of check.run.split(/\s+/)) {
     const token = raw.replace(/^["']+|["']+$/g, "");
-    if (token.startsWith("-") || token.startsWith("docs/")) continue;
+    if (token.startsWith("-") || withinDocs(token)) continue;
     // path-like: contains a separator, or ends in a real file extension
     if (token.includes("/") || /\.[a-z][a-z0-9]*$/i.test(token)) return token;
   }

@@ -257,6 +257,16 @@ describe("stage-inappropriate upstream checks warn in the gate body (#35, D12 re
     expect(warnings.some((w) => w.includes("src/wc.mjs") && w.includes("outside docs/"))).toBe(true);
   });
 
+  it("a docs/-prefixed traversal does not slip the warning (docs/../src)", () => {
+    const { warnings } = deriveStagePlan(idea, config, "architecture", 1, {
+      ...upstreamOf([
+        { kind: "artifact", path: "docs/../src/wc.mjs" },
+        { kind: "command", run: "node docs/../bin/wc.mjs", expectExitCode: 0, timeoutSeconds: 60 },
+      ]),
+    });
+    expect(warnings.filter((w) => w.includes("outside docs/")).length).toBe(2);
+  });
+
   it("architecture checks against docs/ raise no warning", () => {
     const { warnings } = deriveStagePlan(idea, config, "architecture", 1, {
       ...upstreamOf([
