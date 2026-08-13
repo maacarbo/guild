@@ -1,8 +1,8 @@
 /**
- * PgGovernanceStore against the compose stack's Guild Postgres
- * (GUILD_LIVE_STACK-gated; the DB is published loopback-only for the
- * host-side conductor of the M1–M2a dev era). Truncates its tables at start —
- * this is the dev database, not a shared one.
+ * PgGovernanceStore against the compose stack's Postgres, in the ISOLATED
+ * `guild_test` database (#27): the suite truncates and leaves fixture rows,
+ * and neither must ever be visible to a reconciling conductor — an override
+ * URL contributes host/credentials only, never the database name.
  */
 
 import { readFileSync } from "node:fs";
@@ -11,11 +11,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StagePlan } from "@guild/shared";
 import type { DecisionEntry } from "../domain/decisions.js";
 import { governanceStoreContract } from "../testkit/governance-store-conformance.js";
+import { LIVE_TEST_DATABASE, ensureIsolatedDatabase, isolatedDatabaseUrl } from "../testkit/live-db.js";
 import { PgGovernanceStore } from "./pg-governance-store.js";
 
 const live = process.env.GUILD_LIVE_STACK === "1";
 
-function connectionString(): string {
+function adminUrl(): string {
   if (process.env.GUILD_POSTGRES_URL) return process.env.GUILD_POSTGRES_URL;
   const password =
     process.env.GUILD_POSTGRES_PASSWORD ??
@@ -26,12 +27,15 @@ function connectionString(): string {
   return `postgres://guild:${encodeURIComponent(password.trim())}@127.0.0.1:5442/guild`;
 }
 
+const connectionString = (): string => isolatedDatabaseUrl(adminUrl());
+
 describe.runIf(live)("PgGovernanceStore (live)", () => {
   let store: PgGovernanceStore;
 
   beforeAll(async () => {
+    await ensureIsolatedDatabase(adminUrl());
     store = await PgGovernanceStore.connect(connectionString());
-    // dev DB, our tables only
+    // the suite's OWN database (#27) — truncating here can never reach the conductor
     const pool = (store as unknown as { pool: { query(sql: string): Promise<unknown> } }).pool;
     await pool.query(
       "TRUNCATE engagements, decisions, dispatch_intents, gate_tickets, gate_decisions, plan_runs, stage_plans, dispatch_lock, role_memory",
@@ -40,6 +44,12 @@ describe.runIf(live)("PgGovernanceStore (live)", () => {
 
   afterAll(async () => {
     await store?.close();
+  });
+
+  it(`runs against its own ${LIVE_TEST_DATABASE} database — never the conductor's (#27)`, async () => {
+    const pool = (store as unknown as { pool: { query(sql: string): Promise<{ rows: { db: string }[] }> } }).pool;
+    const { rows } = await pool.query("SELECT current_database() AS db");
+    expect(rows[0]!.db).toBe(LIVE_TEST_DATABASE);
   });
 
   it("connects idempotently — ensureSchema twice is harmless", async () => {

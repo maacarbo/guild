@@ -34,6 +34,7 @@ import { Conductor } from "../../src/application/conductor.js";
 import { GitSourceControl } from "../../src/adapters/git-source-control.js";
 import { LiteLlmModelGateway } from "../../src/adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../../src/adapters/pg-governance-store.js";
+import { ensureIsolatedDatabase, isolatedDatabaseUrl } from "../../src/testkit/live-db.js";
 import type { DecisionEntry } from "../../src/domain/decisions.js";
 import { createContractValidator } from "../../src/index.js";
 
@@ -75,9 +76,13 @@ const world = {
   validatedSha: "",
 };
 
-function pgUrl(): string {
+function pgAdminUrl(): string {
   return `postgres://guild:${encodeURIComponent(envValue("GUILD_POSTGRES_PASSWORD"))}@127.0.0.1:5442/guild`;
 }
+
+// #27: the acceptance truncates at start — it gets its own database so the
+// compose conductor's governance state is untouchable
+const pgUrl = (): string => isolatedDatabaseUrl(pgAdminUrl());
 
 async function operatorMovesTicket(externalId: string, status: string): Promise<void> {
   const res = await fetch(`${MULTICA_URL}/api/issues/${externalId}`, {
@@ -161,7 +166,8 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
   );
   world.gateway = new LiteLlmModelGateway({ baseUrl: GATEWAY_URL, masterKey: envValue("LITELLM_MASTER_KEY") });
 
-  // the acceptance owns the dev governance DB — start from a clean slate
+  // the acceptance owns its ISOLATED database (#27) — start from a clean slate
+  await ensureIsolatedDatabase(pgAdminUrl());
   const pool = new pg.Pool({ connectionString: pgUrl(), max: 1 });
   await pool
     .query(
