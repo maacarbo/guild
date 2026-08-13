@@ -202,6 +202,30 @@ the conformance suite (M1b+) before deploying. The release watcher's PR does
 the mechanical half of this for you; the review and the conformance run remain
 yours.
 
+## Per-project git credentials (D17)
+
+The daemon's ambient PAT is the bootstrap credential. To scope a project's
+git access to exactly its repos (#6):
+
+1. **Mint a repo-scoped token** on the host: GitLab — a project access token
+   (API-mintable: `POST /projects/:id/access_tokens` with an operator token);
+   GitHub — a fine-grained PAT restricted to the project's repos (UI-minted;
+   a GitHub App installation token is the automatable path if you run one).
+2. **Give it to the daemon by name**: add e.g. `GUILD_GIT_TOKEN_MYPROJ` to the
+   daemon service's environment via a compose override file (value in `.env`,
+   name in the override — never in tracked files).
+3. **Point the conductor at the name**: set `GUILD_GIT_CRED_NAME=GUILD_GIT_TOKEN_MYPROJ`
+   in the conductor's env. Every engagement's `custom_env` then carries
+   `GUILD_GIT_CRED=<that name>`, and the daemon image's env-first credential
+   helper resolves it at git time (falling back to the ambient store when
+   unset — unconfigured projects keep working). For GitLab set
+   `GUILD_GIT_CRED_USERNAME` on the daemon if your setup needs a specific
+   username; the default `x-access-token` suits GitHub.
+4. **Revoke** = revoke on the host + drop the env var; other projects are
+   untouched. Note the honest boundary (ARCHITECTURE.md D17): projects
+   sharing one daemon container share its env — intra-daemon isolation needs
+   a daemon service per project.
+
 ## Isolation
 
 This stack talks only to: its own containers, GitHub (git + API for the

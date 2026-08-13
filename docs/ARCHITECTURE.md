@@ -363,6 +363,16 @@ flowchart TB
 
 Mechanics (M3): hire is idempotent twice over (bound role no-ops; a crashed hire re-driven with its unique per-run name adopts the existing registration — which also recovers process-local bindings after a restart); retirement is trail-derived (hire-minus-retire per plan run), hint-carried so a fresh process retires a prior process's hire, and the hint wins over a re-bound role — a config-bound starter agent is never a run's to archive. Hire/retire decisions are appended to the governance trail; `guild doctor` surfaces role agents sitting on offline runtimes (drift is operator-actioned, never auto-rebound).
 
+### D17 — Per-project git credentials: repo-scoped tokens by name-indirection (added 2026-08-13, #6, operator-ratified)
+
+| Option | Pros | Cons |
+|---|---|---|
+| **Repo-scoped tokens, delivered by NAME-indirection** ✔ | Rides the proven `custom_env` hook (P3/M1; child-process propagation live-proven 2026-08-13, probe P6: an injected var reached the task's shell children verbatim); **no new custody class** — token values live only in the daemon container's env (operator-provisioned, secrets by name in compose), the conductor's per-engagement env carries only the NAME (`GUILD_GIT_CRED=GUILD_GIT_TOKEN_<PROJECT>`), resolved by an env-first credential helper in the daemon image; host-agnostic (GitHub + GitLab over HTTPS+token); revocation = host-side revoke + drop the env var | Per-host minting differs: GitLab project access tokens are API-mintable, GitHub fine-grained PATs are paste-only (a GitHub App installation token is the automatable GitHub path — future); intra-daemon isolation is NOT provided (see custody note) |
+| SSH deploy keys | Universal host support; API-registrable | Key **files** cannot ride `custom_env` → per-project daemon services with mounted keys, plus private-key custody — a new secret class the M1–M3 hardening floor forbids |
+| Status quo (one ambient PAT) | Zero work | Every agent inherits access to every repo — fails the requirement |
+
+Custody model and its honest boundary: Guild never holds a credential value — the conductor config names the variable (`GUILD_GIT_CRED_NAME`), the substrate folds the name into every engagement bind, and the daemon's helper (strict `A-Z0-9_` name validation before any expansion — the name is agent-reachable input) resolves it at git time, falling back to the ambient bootstrap store. **Within one daemon container, any agent can name any variable that container holds** — per-project tokens in a shared daemon bound blast radius at the host/scope level (a token reaches only its repos), not between projects sharing that daemon; a project needing intra-daemon isolation runs its own daemon service (the declared daemon-per-project compose pattern). The ambient PAT shrinks to bootstrap as projects opt in. Evidence: probe P6 (2026-08-13, scratch branch `probe/p6`). **Revisit if:** GitHub App integration lands (automatable GitHub minting + short-lived tokens), or multi-project deployments make daemon-per-project the default topology.
+
 ## Open Questions
 
 1. ~~Multica's agent/squad **management** API surface~~ — **resolved 2026-08-11 by D16**: probed live at every tier (create/update/env/archive AND dispatchability of a runtime-created agent without daemon restart); API-backed hiring shipped with M3, the idle-pool fallback dropped.

@@ -53,6 +53,13 @@ export interface MulticaSubstrateConfig {
    */
   selfMemberId: string;
   /**
+   * extra env folded into every engagement bind (#6, D17): today the
+   * per-project git credential NAME (GUILD_GIT_CRED=<daemon env var name>) —
+   * name-indirection keeps credential VALUES out of Guild entirely. The
+   * per-engagement key always wins a collision.
+   */
+  engagementEnv?: Record<string, string>;
+  /**
    * explicit operator member allowlist (D15, audit #17 A5d): a member move/creation
    * reads as "operator" only if its actor id is on this list — every other member is
    * "unknown". Required (not optional) so no composition root silently omits it; the
@@ -252,8 +259,12 @@ export class MulticaSubstrate implements ExecutionSubstrate {
     try {
       // wholesale replacement is safe: one agent = at most one open engagement.
       // GUILD_DAEMON_VIRTUAL_KEY is the daemon image's gateway-credential hook
-      // (proven end-to-end at M1: per-engagement spend attribution).
-      await this.api.updateAgentEnv(binding.agentId, { GUILD_DAEMON_VIRTUAL_KEY: key });
+      // (proven end-to-end at M1: per-engagement spend attribution); the
+      // configured engagementEnv rides along (#6) and never outranks the key.
+      await this.api.updateAgentEnv(binding.agentId, {
+        ...this.config.engagementEnv,
+        GUILD_DAEMON_VIRTUAL_KEY: key,
+      });
     } catch (e) {
       return this.fail(e);
     }
