@@ -39,12 +39,12 @@ import { applyGateDecision } from "../domain/gate.js";
 import { laneFor } from "../domain/lane.js";
 import { templateFor } from "../domain/templates.js";
 import {
-  STAGE_ORDER,
   deriveStagePlan,
   handoffPathFor,
   isAmendNote,
   parseHandoffChecks,
-  roleFor,
+  roleForEntry,
+  stageEntryFor,
   type Idea,
   type UpstreamHandoff,
 } from "../domain/planner.js";
@@ -92,9 +92,9 @@ const ROLE_MEMORY_MAX_LINES = 20;
 /** the per-project rules file (M3, D13) — read at the run's pinned SHA */
 const RULES_PATH = "AGENTS.md";
 
-/** stage ids are conductor-minted as `stg:<ideaId>:<kind>` (planner identity rule) */
-function stageKindOf(stageId: string): StageKind {
-  return stageId.slice(stageId.lastIndexOf(":") + 1) as StageKind;
+/** stage ids are conductor-minted as `stg:<ideaId>:<slug>` (#28 — slug == kind for classic templates) */
+function stageSlugOf(stageId: string): string {
+  return stageId.slice(stageId.lastIndexOf(":") + 1);
 }
 
 export class Conductor {
@@ -406,7 +406,7 @@ export class Conductor {
       planId: idea.ideaId,
       ideaItem: snap.item,
       ...(rulesSha ? { rulesSha } : {}),
-      stageIds: template.stages.map((kind) => `stg:${idea.ideaId}:${kind}`),
+      stageIds: template.stages.map((s) => `stg:${idea.ideaId}:${s.slug}`),
       status: "active",
     };
     await this.deps.store.savePlanRun(run);
@@ -415,7 +415,7 @@ export class Conductor {
       await this.deps.substrate.comment(
         snap.item,
         `Guild proposes a ${run.stageIds.length}-stage delivery plan for this idea. ` +
-          `Stage 1 (${stageKindOf(run.stageIds[0]!)}) awaits your approval on its plan ticket: ` +
+          `Stage 1 (${stageSlugOf(run.stageIds[0]!)}) awaits your approval on its plan ticket: ` +
           `move it to *Ready to work* to approve, comment \`amend: <note>\` on it to revise, ` +
           `or move it to *Cancelled* to reject.`,
       );
@@ -432,30 +432,32 @@ export class Conductor {
   private async openStage(run: PlanRunRecord, index: number, planVersion: number): Promise<WorkItemRef | null> {
     const stageId = run.stageIds[index];
     if (!stageId) return null;
-    const kind = stageKindOf(stageId);
+    const slug = stageSlugOf(stageId);
     if (!run.ideaItem) return null; // directly-adopted runs post via postStageForApproval
 
     const ideaSnap = await this.deps.substrate.getWorkItem(run.ideaItem);
     const idea: Idea = { ideaId: run.planId, title: ideaSnap.title, body: ideaSnap.body };
+    // entry resolution mirrors deriveStagePlan's (same template read, #28)
+    const entry = stageEntryFor(templateFor(idea.body).template, slug);
     const amendments = await this.amendmentNotes(stageId);
 
     let upstream: { handoff: UpstreamHandoff | null; authoredBy: string } | undefined;
     // the role's durable memory leads (M3: briefs stop carrying priorDecisions
     // by hand); run-local acceptances follow; dedup at the end
-    const memory = await this.deps.store.getRoleMemory(roleFor(kind));
+    const memory = await this.deps.store.getRoleMemory(roleForEntry(entry));
     const priorDecisions: string[] = memory ? memory.split("\n") : [];
     if (index > 0) {
       const prevStageId = run.stageIds[index - 1]!;
-      const prevKind = stageKindOf(prevStageId);
+      const prevEntry = stageEntryFor(templateFor(idea.body).template, stageSlugOf(prevStageId));
       let handoffRaw: string | null = null;
       for (let i = 0; i < index; i++) {
         const sha = await this.stageValidatedSha(run.stageIds[i]!);
-        if (sha) priorDecisions.push(`${stageKindOf(run.stageIds[i]!)} ${run.stageIds[i]!} accepted at ${sha}`);
+        if (sha) priorDecisions.push(`${stageSlugOf(run.stageIds[i]!)} ${run.stageIds[i]!} accepted at ${sha}`);
         if (i === index - 1 && sha) {
-          handoffRaw = await this.deps.source.readFile(this.config.repoUrl, sha, handoffPathFor(kind));
+          handoffRaw = await this.deps.source.readFile(this.config.repoUrl, sha, handoffPathFor(slug));
         }
       }
-      upstream = { handoff: handoffRaw ? parseHandoffChecks(handoffRaw) : null, authoredBy: roleFor(prevKind) };
+      upstream = { handoff: handoffRaw ? parseHandoffChecks(handoffRaw) : null, authoredBy: roleForEntry(prevEntry) };
     }
 
     // the run-pinned project rules (M3, D13): absence is silence, not a warning.
@@ -471,7 +473,7 @@ export class Conductor {
     const { plan, warnings } = deriveStagePlan(
       idea,
       { projectId: this.config.projectScope, defaultPlanBudgetCents: this.config.defaultPlanBudgetCents },
-      kind,
+      slug,
       planVersion,
       {
         amendments,
@@ -686,7 +688,7 @@ export class Conductor {
       if (run.ideaItem) {
         await this.deps.substrate.comment(
           run.ideaItem,
-          `The ${stageKindOf(gateKey.stageId)} stage plan was rejected — this plan is closed. Open a new idea ticket to try a different framing.`,
+          `The ${stageSlugOf(gateKey.stageId)} stage plan was rejected — this plan is closed. Open a new idea ticket to try a different framing.`,
         );
       }
     }
@@ -1029,13 +1031,19 @@ export class Conductor {
    */
   private async recordRoleMemory(rec: EngagementRecord): Promise<void> {
     if (!rec.validatedSha) return;
-    const kind = stageKindOf(rec.stageId);
-    const role = roleFor(kind);
+    // the role comes from the persisted plan's engagement (#28: role overrides
+    // exist); a missing plan means the record predates its plan — skip rather
+    // than attribute memory to a guessed role
+    const plan = await this.deps.store.getStagePlan(rec.stageId, rec.planVersion);
+    const role = plan?.engagements.find((e) => e.engagementId === rec.engagementId)?.role;
+    if (!role) return;
     // ONE canonical phrasing shared with openStage's run-local lines — the
     // Set-dedup in openStage only works on exact strings (verify finding).
     // The 20-line cap silently drops the oldest facts; acceptable: every
-    // acceptance stays queryable in the decisions table forever.
-    const line = `${kind} ${rec.stageId} accepted at ${rec.validatedSha}`;
+    // acceptance stays queryable in the decisions table forever. The leading
+    // token is the stage SLUG (#28) — byte-identical to the kind for every
+    // pre-#28 row, so existing memory lines keep deduping.
+    const line = `${stageSlugOf(rec.stageId)} ${rec.stageId} accepted at ${rec.validatedSha}`;
     const lines = (await this.deps.store.getRoleMemory(role))?.split("\n") ?? [];
     if (lines.includes(line)) return;
     lines.push(line);

@@ -8,7 +8,7 @@
  */
 
 import type { ContractCheck, HandoffContract, StageKind, StagePlan } from "@guild/shared";
-import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageTemplate } from "./templates.js";
+import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageEntry, type StageTemplate } from "./templates.js";
 
 export interface Idea {
   /** substrate external id of the idea ticket — the plan's identity anchor */
@@ -50,8 +50,26 @@ export interface DerivedStage {
   warnings: string[];
 }
 
-/** the standard template's pipeline — the catalog is the single source (M3) */
-export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stages;
+/** the standard template's pipeline kinds — the catalog is the single source (M3) */
+export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stages.map((s) => s.kind);
+
+/**
+ * Resolve a stage entry by slug against the ACTIVE template (#28). A slug the
+ * current template no longer carries (e.g. the idea's template: directive was
+ * edited mid-run) degrades deterministically: kind falls back to the slug
+ * itself when it names a kind, else to implementation, with a 0¢ allocation —
+ * the existing 0¢ gate-body warning makes the mismatch operator-visible.
+ */
+const KINDS: ReadonlySet<string> = new Set(["analysis", "architecture", "implementation", "test", "delivery"]);
+export function stageEntryFor(template: StageTemplate, slug: string): StageEntry {
+  return (
+    template.stages.find((s) => s.slug === slug) ?? {
+      slug,
+      kind: (KINDS.has(slug) ? slug : "implementation") as StageKind,
+      budgetPct: 0,
+    }
+  );
+}
 
 const ROLE_BY_KIND: Record<StageKind, string> = {
   analysis: "analyst",
@@ -68,8 +86,14 @@ export function roleFor(kind: StageKind): string {
   return ROLE_BY_KIND[kind];
 }
 
-export function handoffPathFor(kind: StageKind): string {
-  return `guild/handoff/${kind}.checks.json`;
+/** an entry's role: explicit override, else the kind's default (#28) */
+export function roleForEntry(entry: StageEntry): string {
+  return entry.role ?? ROLE_BY_KIND[entry.kind];
+}
+
+/** handoff artifacts key on the stage SLUG (#28) — slug == kind for classic templates */
+export function handoffPathFor(slug: string): string {
+  return `guild/handoff/${slug}.checks.json`;
 }
 
 /**
@@ -110,13 +134,14 @@ export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
   return directive !== null ? Math.min(directive, MAX_PLAN_BUDGET_CENTS) : config.defaultPlanBudgetCents;
 }
 
-function stageBudgetCents(total: number, kind: StageKind, template: StageTemplate): number {
-  const floor = (k: StageKind) => Math.floor((total * (template.budgetPct[k] ?? 0)) / 100);
-  // remainder cents land on implementation where the template has one,
-  // else on its first stage — every template keeps the whole total
-  const remainderKind = template.stages.includes("implementation") ? "implementation" : template.stages[0];
-  if (kind !== remainderKind) return floor(kind);
-  const others = template.stages.filter((k) => k !== remainderKind).reduce((sum, k) => sum + floor(k), 0);
+function stageBudgetCents(total: number, slug: string, template: StageTemplate): number {
+  const floor = (e: StageEntry) => Math.floor((total * e.budgetPct) / 100);
+  const entry = stageEntryFor(template, slug);
+  // remainder cents land on the first implementation-KIND entry where the
+  // template has one, else on its first stage — every template keeps the total
+  const remainder = template.stages.find((e) => e.kind === "implementation") ?? template.stages[0]!;
+  if (entry.slug !== remainder.slug) return floor(entry);
+  const others = template.stages.filter((e) => e.slug !== remainder.slug).reduce((sum, e) => sum + floor(e), 0);
   return total - others;
 }
 
@@ -232,12 +257,18 @@ function stageDeliverable(kind: StageKind): string {
   }
 }
 
-function instructionsFor(kind: StageKind, idea: Idea, stages: readonly StageKind[]): string {
+/** an entry's mission: explicit override, else the kind's default (#28) */
+function missionFor(entry: StageEntry): string {
+  return entry.mission ?? stageMission(entry.kind);
+}
+
+function instructionsFor(entry: StageEntry, idea: Idea, template: StageTemplate): string {
   // next stage per the ACTIVE template — briefing a role to author checks for
   // a stage the template never runs would be dead instruction (#35)
-  const next = stages[stages.indexOf(kind) + 1];
+  const index = template.stages.findIndex((s) => s.slug === entry.slug);
+  const next = index >= 0 ? template.stages[index + 1] : undefined;
   const lines = [
-    stageMission(kind),
+    missionFor(entry),
     "",
     `The idea (verbatim from the operator's ticket "${idea.title}"):`,
     idea.body,
@@ -247,14 +278,14 @@ function instructionsFor(kind: StageKind, idea: Idea, stages: readonly StageKind
   if (next) {
     lines.push(
       "",
-      `Optionally author ${handoffPathFor(next)} — acceptance checks for the ${next} stage as JSON ` +
+      `Optionally author ${handoffPathFor(next.slug)} — acceptance checks for the ${next.slug} stage as JSON ` +
         `{"gherkin"?: string, "checks": [{"kind":"artifact","path":...,"mustContain"?:...} | ` +
         `{"kind":"command","run":...,"expectExitCode":...,"timeoutSeconds":...}]} ` +
         `(max 8 checks, command timeouts ≤ 600s, offline-capable commands only). ` +
-        `These checks gate the ${next} stage itself, so every check must be satisfiable by that stage's own ` +
-        `deliverable — ${stageDeliverable(next)} — never by artifacts of later stages: a check that executes ` +
-        `not-yet-written code cannot pass and forces the ${next} stage into bounce escalation. ` +
-        `Valid checks become part of the ${next} contract the operator approves.`,
+        `These checks gate the ${next.slug} stage itself, so every check must be satisfiable by that stage's own ` +
+        `deliverable — ${stageDeliverable(next.kind)} — never by artifacts of later stages: a check that executes ` +
+        `not-yet-written code cannot pass and forces the ${next.slug} stage into bounce escalation. ` +
+        `Valid checks become part of the ${next.slug} contract the operator approves.`,
     );
   }
   return lines.join("\n");
@@ -286,25 +317,29 @@ function outsideDocsReference(check: ContractCheck): string | null {
 }
 
 /**
- * Derive one stage's plan (deterministic). Amendment notes fold into the
- * objective; a `budget:` directive in a note overrides THIS stage's budget.
- * Contract = floor ∪ upstream checks; a named-but-missing upstream handoff
- * degrades to floor-only with a warning the gate body renders.
+ * Derive one stage's plan (deterministic). The stage selector is the entry
+ * SLUG (#28 — slug == kind for classic templates, so existing callers and
+ * persisted ids are untouched). Amendment notes fold into the objective; a
+ * `budget:` directive in a note overrides THIS stage's budget. Contract =
+ * floor ∪ upstream checks; a named-but-missing upstream handoff degrades to
+ * floor-only with a warning the gate body renders.
  */
 export function deriveStagePlan(
   idea: Idea,
   config: PlannerConfig,
-  kind: StageKind,
+  slug: string,
   planVersion: number,
   opts: DeriveOptions = {},
 ): DerivedStage {
   const warnings: string[] = [];
   const { template, warning: templateWarning } = templateFor(idea.body);
   if (templateWarning) warnings.push(templateWarning);
+  const entry = stageEntryFor(template, slug);
+  const kind = entry.kind;
   const amendments = opts.amendments ?? [];
   const amendedBudgetRaw = amendments.map(parseBudgetDirective).filter((b): b is number => b !== null).at(-1);
   const amendedBudget = amendedBudgetRaw !== undefined ? Math.min(amendedBudgetRaw, MAX_PLAN_BUDGET_CENTS) : undefined;
-  const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), kind, template);
+  const budgetCents = amendedBudget ?? stageBudgetCents(planBudgetCents(idea, config), slug, template);
   const ideaDirective = parseBudgetDirective(idea.body);
   const clampedRaw = amendedBudgetRaw !== undefined ? amendedBudgetRaw : ideaDirective;
   if (clampedRaw !== null && clampedRaw !== undefined && clampedRaw > MAX_PLAN_BUDGET_CENTS) {
@@ -312,7 +347,7 @@ export function deriveStagePlan(
       `The budget: directive (${clampedRaw}¢) exceeds the ${MAX_PLAN_BUDGET_CENTS}¢ sanity ceiling and was clamped — raise MAX_PLAN_BUDGET_CENTS deliberately if this was intended (#12).`,
     );
   }
-  const stageId = `stg:${idea.ideaId}:${kind}`;
+  const stageId = `stg:${idea.ideaId}:${entry.slug}`;
   const engagementId = `eng:${stageId}:v${planVersion}`;
 
   // A 0¢ stage mints a $0-cap virtual key and can never dispatch — `budget: 0`
@@ -325,7 +360,11 @@ export function deriveStagePlan(
     );
   }
 
-  let authoredBy = kind === "analysis" ? "operator" : "guild-floor";
+  // the FIRST template stage is authored by the operator (the idea is its
+  // upstream artifact) regardless of kind — under enterprise that is
+  // business-analysis, not the analysis kind per se
+  const isFirst = template.stages[0]?.slug === entry.slug;
+  let authoredBy = isFirst ? "operator" : "guild-floor";
   let checks = floorChecks(kind);
   let gherkin = floorGherkin(kind, idea);
   if (opts.upstream) {
@@ -347,7 +386,7 @@ export function deriveStagePlan(
       }
     } else {
       warnings.push(
-        `No valid upstream handoff at ${handoffPathFor(kind)} — this contract carries Guild's floor checks only.`,
+        `No valid upstream handoff at ${handoffPathFor(entry.slug)} — this contract carries Guild's floor checks only.`,
       );
     }
   }
@@ -361,10 +400,11 @@ export function deriveStagePlan(
   };
 
   const objective = [
-    `${stageMission(kind)} Idea: ${idea.title}.`,
+    `${missionFor(entry)} Idea: ${idea.title}.`,
     ...amendments.map((a) => `Amendment: ${a}`),
   ].join(" ");
 
+  const role = roleForEntry(entry);
   return {
     plan: {
       projectId: config.projectId,
@@ -376,12 +416,12 @@ export function deriveStagePlan(
       engagements: [
         {
           engagementId,
-          role: roleFor(kind),
-          title: `${kind}: ${idea.title}`,
+          role,
+          title: `${entry.slug}: ${idea.title}`,
           budgetCents,
           brief: {
-            roleContext: roleTemplateFor(roleFor(kind)).roleContext,
-            instructions: instructionsFor(kind, idea, template.stages),
+            roleContext: roleTemplateFor(role).roleContext,
+            instructions: instructionsFor(entry, idea, template),
             contract,
             priorDecisions: opts.priorDecisions ?? [],
             artifactRefs: [],
