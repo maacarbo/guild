@@ -157,18 +157,27 @@ also revoke the operator's old hand-minted daemon PAT after the cutover.
 
 ## Version pins
 
-| Component | Pin | Where |
+**`versions.env` in this directory is the single source of truth for
+third-party pins** (#14): Multica version, OpenCode version, and the LiteLLM /
+socket-proxy image digests. The compose interpolation defaults and the
+daemon-image ARG defaults mirror it, and a CI-enforced unit test
+(`packages/orchestrator/src/adapters/versions-file.test.ts`) fails the build
+on any disagreement — README, compose, and image can never silently drift.
+
+| Component | Pin lives in | Mirrored where |
 |---|---|---|
-| Multica control plane | `v0.4.15` | `.env` `MULTICA_VERSION` |
-| Multica CLI (in daemon image) | `0.4.15` | build arg `MULTICA_VERSION` |
-| OpenCode CLI (in daemon image, sole runtime — D9 as amended 2026-08-04) | `1.18.10` | build arg `OPENCODE_VERSION` |
-| LiteLLM | `v1.94.0` by digest `sha256:5287…b1e906` | `docker-compose.yml` |
+| Multica control plane + CLI (lockstep pair) | `versions.env` `MULTICA_VERSION` | compose defaults, daemon build arg |
+| OpenCode CLI (daemon image, sole runtime — D9 as amended 2026-08-04) | `versions.env` `OPENCODE_VERSION` | compose default, daemon build arg |
+| LiteLLM (by image digest) | `versions.env` `LITELLM_IMAGE_DIGEST` | `docker-compose.yml` |
+| Docker socket proxy (by image digest) | `versions.env` `SOCKET_PROXY_IMAGE_DIGEST` | `docker-compose.yml` |
 | Postgres (Multica) | `pgvector/pgvector:pg17` | upstream requirement |
 | Postgres (LiteLLM, Guild) | `postgres:17` | `docker-compose.yml` |
 
 The Multica control-plane tag and the daemon image are a **lockstep pair**:
 bump both together and run the substrate conformance suite green before either
-moves (docker/daemon/README.md).
+moves (docker/daemon/README.md). A scheduled release watcher
+(`.github/workflows/multica-release-watcher.yml`) opens the bump PR with the
+LICENSE diff and release notes attached — it never merges anything.
 
 ## Multica pin-bump procedure (license + behavior)
 
@@ -187,8 +196,11 @@ Record the outcome in the bump commit message. Last review: `v0.4.15`
 (2026-07-30) — LICENSE identical to the version frozen in
 `docs/research/multica-investigation-2026-07-29.md`.
 
-Then bump `MULTICA_VERSION` in `.env`/`.env.example`, rebuild the daemon image,
-and run the conformance suite (M1b+) before deploying.
+Then bump `MULTICA_VERSION` in `versions.env` (and its mirror locations — the
+CI versions-file test names any you miss), rebuild the daemon image, and run
+the conformance suite (M1b+) before deploying. The release watcher's PR does
+the mechanical half of this for you; the review and the conformance run remain
+yours.
 
 ## Isolation
 
