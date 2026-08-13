@@ -1167,6 +1167,75 @@ async function driveStageToAccepted(w: World, stageId: string, branch: string, s
   expect((await w.store.getEngagement(engagementId))?.state, `${stageId} accepted`).toBe("accepted");
 }
 
+describe("advisory engagements (#29: observe-and-flag riders never gate completion)", () => {
+  /** fold an advisory monitor engagement into an already-derived stage plan —
+   * the planner emits none yet (opt-in role, D13); the machinery is
+   * N-engagement-capable by design */
+  async function addAdvisory(w: World, stageId: string): Promise<string> {
+    const plan = (await w.store.getLatestStagePlan(stageId))!;
+    const advisoryId = `eng:${stageId}:monitor:v${plan.planVersion}`;
+    const worker = plan.engagements[0]!;
+    await w.store.saveStagePlan({
+      ...plan,
+      engagements: [
+        ...plan.engagements,
+        { ...worker, engagementId: advisoryId, role: "focus-monitor", title: `monitor: ${worker.title}`, advisory: true },
+      ],
+    });
+    // what ensureEngagementsGated would have produced had the advisory been in
+    // the plan at gate-post time
+    await w.store.saveEngagement({
+      engagementId: advisoryId,
+      stageId,
+      planVersion: plan.planVersion,
+      state: "gated",
+      bounceCount: 0,
+    });
+    return advisoryId;
+  }
+
+  it("a stage completes on its non-advisory acceptances alone — the working monitor never wedges the plan", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    const advisoryId = await addAdvisory(w, "stg:idea-1:analysis");
+    await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-analysis");
+    expect((await w.store.getEngagement(advisoryId))?.state).not.toBe("accepted");
+    expect(await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"), "next stage opened").toBeTruthy();
+  });
+
+  it("stage completion cancels the advisory rider through the spend-capturing termination path", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    const advisoryId = await addAdvisory(w, "stg:idea-1:analysis");
+    await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-analysis");
+    expect((await w.store.getEngagement(advisoryId))?.state).toBe("cancelled");
+    const term = (await w.store.listDecisions()).find(
+      (d) => d.kind === "termination" && d.terminated.engagementId === advisoryId,
+    );
+    expect(term && term.kind === "termination" ? term.terminated.reason : undefined).toBe("advisory_stage_end");
+    expect(w.gateway.revokes.includes(advisoryId), "advisory key revoked").toBe(true);
+  });
+
+  it("an advisory report is never judged — no contract, no verdict, no bounce", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    const advisoryId = await addAdvisory(w, "stg:idea-1:analysis");
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    const item = (await w.substrate.findWorkItem(advisoryId))!;
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "observed drift", branchHint: "agent/monitor/m1", attemptId: "m1-run1" },
+    });
+    await w.conductor.handleEvent(statusEv(item, "done"));
+    const state = (await w.store.getEngagement(advisoryId))?.state;
+    expect(state).not.toBe("validated");
+    expect(state).not.toBe("bounced");
+    expect(state).not.toBe("escalated");
+  });
+});
+
 describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () => {
   it("no downstream gate exists while analysis is in flight", async () => {
     const w = makeWorld();

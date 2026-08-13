@@ -239,6 +239,16 @@ Normative consequences:
 
 Decision trail: issue #4 (M3 scope comment, 2026-08-04). **Revisit if:** the M3 registry design pass finds the charter ticket insufficient for role parameterization, or per-project rule files grow beyond what brief composition can reasonably carry.
 
+**Amendment (2026-08-13, #29 — advisory-engagement semantics, operator-ratified):** the focus-monitor could not ship on the original mechanics — `stageComplete` required every engagement accepted, so a monitor that never completes would wedge its stage, a discretion surface larger than observe-and-flag implies.
+
+| Option | Pros | Cons |
+|---|---|---|
+| **`advisory?: true` on `EngagementPlan`** ✔ | One optional published-language field. Stage completion counts non-advisory acceptances only; completion cancels the rider (`advisory_stage_end`) through the existing spend-capturing termination path; advisory engagements are ordinary engagements to dispatch, budget sweeps, and the kill switch — zero new budget machinery, D2 metering holds | Advisory records terminate `cancelled`, never `accepted` — a state-path carve-out the docs must own; gate bodies must render the monitor so approval covers its cost |
+| Side-channel surface outside `plan.engagements` | `EngagementPlan` untouched | Duplicates the containment perimeter — invisible to hard-cap cancel-all and the kill switch until every sweep grows a second loop; two budget enforcement paths is the drift D14 unified away |
+| Conductor-side scheduled reads (no engagement) | No completion semantics at all | Conductor-owned model spend outside any engagement key violates D2's metering rule; invisible on the board (D11) |
+
+Mechanics shipped with the amendment: `stageComplete` skips advisory riders (≥ 1 non-advisory acceptance still required); the advance loop closes a completed stage's riders idempotently; `judgeReported` ignores advisory reports — no contract, no verdict, no bounce (observations are ticket comments). The planner emits no advisory engagements yet — the opt-in monitor role template arrives with charter-driven role requests; the semantics no longer block it.
+
 ### D14 — Dispatch-lock recovery is cap-at-lock, uniform across the budget halt and the kill switch (added 2026-08-05, audit #17 A1 fix)
 
 The dispatch lock (D12 watchdog + D11 kill switch) records the project hard cap in force when it is set (`capCents`); the budget sweep clears it only when the running conductor's configured hard cap is raised **above** that recorded value — a genuine raise-the-cap-and-restart. Spend below the cap never releases a lock. This closes the audit-#17 A1 finding: `guild kill` fires while spend is below the cap (the normal case), so the previous `spent < cap` release cleared the kill lock on the very next sweep tick.

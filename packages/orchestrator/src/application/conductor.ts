@@ -862,6 +862,11 @@ export class Conductor {
    * same SHA-pinned input.
    */
   private async judgeReported(record: EngagementRecord): Promise<void> {
+    // Advisory riders have no contract and are never judged (#29): their
+    // observations live as ticket comments; a "done" report neither validates
+    // nor bounces. They terminate when their stage completes (closeAdvisories).
+    const advisoryPlan = await this.deps.store.getStagePlan(record.stageId, record.planVersion);
+    if (advisoryPlan?.engagements.find((e) => e.engagementId === record.engagementId)?.advisory) return;
     let reported = record;
     const snapshot = await this.deps.substrate.getWorkItem(reported.item!);
     const resolved = await this.resolveReport(reported, snapshot);
@@ -1061,7 +1066,10 @@ export class Conductor {
     await this.advancePlanRuns();
   }
 
-  private async cancelEngagement(record: EngagementRecord, reason: "operator" | "budget_hard_cap"): Promise<void> {
+  private async cancelEngagement(
+    record: EngagementRecord,
+    reason: "operator" | "budget_hard_cap" | "advisory_stage_end",
+  ): Promise<void> {
     const cancelled = await this.applyTransition(record, { kind: "cancelled", reason }, `cancelled: ${reason}`);
     if (!cancelled) return;
     if (cancelled.item) await this.deps.substrate.cancel(cancelled.item, reason);
@@ -1104,6 +1112,7 @@ export class Conductor {
           advanced = true;
           break;
         }
+        await this.closeAdvisories(plan);
       }
       if (!advanced) {
         // Retire the roles THIS run hired (M3): trail-derived, so a restart
@@ -1145,11 +1154,28 @@ export class Conductor {
   }
 
   private async stageComplete(plan: StagePlan): Promise<boolean> {
+    let required = 0;
     for (const ep of plan.engagements) {
+      if (ep.advisory) continue; // observe-and-flag riders never gate completion (#29)
+      required++;
       const rec = await this.deps.store.getEngagement(ep.engagementId);
       if (rec?.state !== "accepted") return false;
     }
-    return plan.engagements.length > 0;
+    return required > 0;
+  }
+
+  /**
+   * A completed stage's advisory riders end here (#29): cancelled with the
+   * `advisory_stage_end` cause through the spend-capturing termination path.
+   * Idempotent — terminal records are skipped, and the transition CAS makes a
+   * concurrent double-cancel a no-op — so the every-tick advance loop is safe.
+   */
+  private async closeAdvisories(plan: StagePlan): Promise<void> {
+    for (const ep of plan.engagements) {
+      if (!ep.advisory) continue;
+      const rec = await this.deps.store.getEngagement(ep.engagementId);
+      if (rec && !TERMINAL_STATES.has(rec.state)) await this.cancelEngagement(rec, "advisory_stage_end");
+    }
   }
 
   private async runContaining(stageId: string): Promise<PlanRunRecord | null> {
