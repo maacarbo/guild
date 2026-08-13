@@ -14,7 +14,7 @@
 
 import { strict as assert } from "node:assert";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -156,6 +156,27 @@ Given("the live stack, the four role agents, and a clean governance database", a
     if (snap.lane === "cancelled" || snap.lane === "done") continue;
     if (snap.markerId || snap.createdBy !== "operator") continue;
     await operatorMovesTicket(snap.item.externalId, "cancelled");
+  }
+
+  // #35: the scratch repo is stateful across runs — analysis would validate at
+  // a pre-existing SHA and re-gate architecture with a PREVIOUS run's handoff
+  // checks (observed live 2026-08-13: the stale pre-fix handoff kept failing
+  // every rerun). Every run starts from a clean baseline on main.
+  {
+    const dir = mkdtempSync(join(tmpdir(), "guild-m2b-reset-"));
+    try {
+      await exec("git", ["init", "--quiet", "-b", "main", dir], { timeout: 30_000 });
+      writeFileSync(join(dir, "README.md"), "# guild-scratch — m2b smoke baseline\n");
+      await exec("git", ["-C", dir, "add", "README.md"], { timeout: 30_000 });
+      await exec(
+        "git",
+        ["-C", dir, "-c", "user.name=guild-smoke", "-c", "user.email=smoke@guild.local", "commit", "--quiet", "-m", "m2b smoke baseline"],
+        { timeout: 30_000 },
+      );
+      await exec("git", ["-C", dir, "push", "--quiet", "--force", SCRATCH_REPO, "main"], { timeout: 120_000 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   // the validator sandbox needs node for the demo floor checks
