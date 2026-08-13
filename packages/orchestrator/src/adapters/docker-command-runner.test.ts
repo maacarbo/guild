@@ -29,6 +29,14 @@ describe("docker run argument construction (Tier 1 sandbox invariants)", () => {
     expect(args[args.indexOf("--cap-drop") + 1]).toBe("ALL");
   });
 
+  it("host mode runs the sandbox as the conductor's own uid — capless container-root cannot traverse the 0700 clone dir (#35)", () => {
+    // mkdtemp creates the clone dir 0700; --cap-drop ALL removes DAC_OVERRIDE,
+    // so container-root cannot read it (verified live 2026-08-13: every host-mode
+    // command check failed "Cannot find module" while compose mode passed)
+    const args = buildRunArgs({ image: "node:22-alpine" }, "/tmp/wr/validate-abc", "node --test", "n1");
+    expect(args[args.indexOf("--user") + 1]).toBe(`${process.getuid!()}:${process.getgid!()}`);
+  });
+
   it("host mode honors a repo-relative cwd", () => {
     const args = buildRunArgs({ image: "i" }, "/tmp/wr/validate-abc", "ls", "n1", "packages/app");
     expect(args[args.indexOf("-w") + 1]).toBe("/work/packages/app");

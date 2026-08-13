@@ -75,9 +75,16 @@ export function buildRunArgs(
     // Containerized mode: the conductor's `node` user (uid 1000, per
     // docker/conductor/Dockerfile) creates the clone on the shared named volume,
     // so the sandbox runs non-root as that same uid — it can read/write its own
-    // clone yet carries no host-root identity. Host mode's clone owner is the
-    // host conductor's uid (unknown here), so a fixed uid is not forced there.
-    ...(config.workVolume ? ["--user", "1000:1000"] : []),
+    // clone yet carries no host-root identity. Host mode runs as the conductor
+    // process's OWN uid for the same reason: the mkdtemp clone dir is 0700, and
+    // container-root under --cap-drop ALL has no DAC_OVERRIDE, so it cannot
+    // even traverse the mount — every command check fails "Cannot find module"
+    // (verified live 2026-08-13, #35).
+    ...(config.workVolume
+      ? ["--user", "1000:1000"]
+      : process.getuid
+        ? ["--user", `${process.getuid()}:${process.getgid!()}`]
+        : []),
     "-v",
     mount,
     "-w",
