@@ -233,11 +233,14 @@ class FakeValidator {
 }
 
 class FakeSource {
+  /** when true, resolveRemoteSha throws — an unreachable remote (git outage) */
+  failResolves = false;
   shas = new Map<string, string>();
   /** file content keyed `${sha}:${path}` — the upstream handoff surface (D12) */
   files = new Map<string, string>();
   ffs: Array<{ targetBranch: string; sha: string }> = [];
   async resolveRemoteSha(_repoUrl: string, branch: string): Promise<string | null> {
+    if (this.failResolves) throw new Error("Command failed: git ls-remote");
     return this.shas.get(branch) ?? null;
   }
   async fastForward(_repoUrl: string, targetBranch: string, sha: string): Promise<void> {
@@ -586,6 +589,13 @@ describe("project rules layer briefs at one pinned SHA (M3, D13)", () => {
     expect(body).toContain("AGENTS.md @ sha-rule");
     const plan = await w.store.getLatestStagePlan("stg:idea-1:analysis");
     expect(plan?.engagements[0]?.brief.constraints.some((c) => c.includes("Never commit secrets."))).toBe(true);
+  });
+
+  it("an unreachable rules remote never blocks adoption — the pin degrades to absent", async () => {
+    const w = makeWorld();
+    w.source.failResolves = true;
+    const { run } = await adoptIdea(w); // must adopt despite the git outage
+    expect(run.rulesSha).toBeUndefined();
   });
 
   it("a repo without AGENTS.md briefs the global layer only — silence, not a warning", async () => {

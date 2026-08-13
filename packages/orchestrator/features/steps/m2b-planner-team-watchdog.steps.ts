@@ -215,7 +215,10 @@ When("the operator posts the demo idea as a board ticket", async () => {
       "only argument; zero runtime dependencies; tests runnable offline with",
       "`node --test`.",
       "",
-      "budget: 3.00",
+      // $5: headroom for a bounce-rework cycle per stage on the cheap tier —
+      // a 2026-08-12 run hit a genuine bounce and the 15% architecture split
+      // of $3 (45c) capped out mid-rework (the budget doing its job)
+      "budget: 10.00",
     ].join("\n"),
   });
   assert.ok(res.ok, `idea ticket → ${res.status}`);
@@ -234,14 +237,16 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
     "the analysis v1 gate in waiting-for-feedback",
     3 * 60 * 1000,
   );
-  // the plan allocated 15% of the idea's 100¢
+  // the plan allocated 15% of the idea's $5 directive
   const plan = await world.store!.getStagePlan(stageIdOf(world.ideaId, "analysis"), 1);
-  assert.equal(plan?.budgetCents, 45, "analysis v1 carries the mechanical allocation (15% of 300¢)");
+  assert.equal(plan?.budgetCents, 150, "analysis v1 carries the mechanical allocation (15% of 1000¢)");
 });
 
 When("the operator amends the analysis plan with a budget directive", async () => {
   const res = await operatorApi("POST", `/api/issues/${world.gateV1!.externalId}/comments`, {
-    content: "amend: sharpen the spec toward CLI ergonomics. budget: 0.60",
+    // C4 grammar (#12): a budget: directive must be its own line — prose
+    // trailing into "budget: X" deliberately never reprices
+    content: "amend: sharpen the spec toward CLI ergonomics.\nbudget: 0.60",
   });
   assert.ok(res.ok, `amend comment → ${res.status}`);
 });
