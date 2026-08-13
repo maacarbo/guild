@@ -1,30 +1,86 @@
 /**
- * Named fixed stage templates (D12 amendment, M3): the catalog is DATA — the
- * planner stays deterministic, the choice is the operator's one-word
- * `template:` directive in the idea body (same line-anchored parse discipline
- * as `budget:`), default `standard`. `enterprise` is deliberately absent —
- * deferred with its StageKind design question (#28).
+ * Named fixed stage templates (D12 amendment, M3; slug/kind split #28): the
+ * catalog is DATA — the planner stays deterministic, the choice is the
+ * operator's one-word `template:` directive in the idea body (same
+ * line-anchored parse discipline as `budget:`), default `standard`.
+ *
+ * A stage entry separates IDENTITY from BEHAVIOR (#28, operator-ratified
+ * 2026-08-13): `slug` is the stage's identity within a plan (stage ids, gate
+ * markers, and handoff paths derive from it), `kind` is the behavior class
+ * (floor checks, mission, deliverable, default role). Two same-kind stages
+ * coexist under distinct slugs — what the enterprise shape needs. The classic
+ * templates keep slug == kind, so every existing stage id, gate marker, and
+ * handoff path stays byte-identical: no migration.
  */
 
 import type { StageKind } from "@guild/shared";
 
+export interface StageEntry {
+  /** stage identity within the plan — unique per template, [a-z0-9-] */
+  slug: string;
+  /** behavior class: selects floor checks, mission, deliverable, default role */
+  kind: StageKind;
+  /** integer percent of the plan budget (a template's entries sum to 100) */
+  budgetPct: number;
+  /** optional mission override (e.g. the security-extended architecture flavor) */
+  mission?: string;
+  /** optional role override; default is the kind's role */
+  role?: string;
+}
+
 export interface StageTemplate {
   name: string;
-  stages: readonly StageKind[];
-  /** integer percent per stage — covers exactly `stages`, sums to 100 */
-  budgetPct: Readonly<Partial<Record<StageKind, number>>>;
+  stages: readonly StageEntry[];
 }
 
 export const TEMPLATE_CATALOG: Record<string, StageTemplate> = {
   standard: {
     name: "standard",
-    stages: ["analysis", "architecture", "implementation", "test", "delivery"],
-    budgetPct: { analysis: 15, architecture: 15, implementation: 40, test: 20, delivery: 10 },
+    stages: [
+      { slug: "analysis", kind: "analysis", budgetPct: 15 },
+      { slug: "architecture", kind: "architecture", budgetPct: 15 },
+      { slug: "implementation", kind: "implementation", budgetPct: 40 },
+      { slug: "test", kind: "test", budgetPct: 20 },
+      { slug: "delivery", kind: "delivery", budgetPct: 10 },
+    ],
   },
   "quick-fix": {
     name: "quick-fix",
-    stages: ["implementation", "test"],
-    budgetPct: { implementation: 70, test: 30 },
+    stages: [
+      { slug: "implementation", kind: "implementation", budgetPct: 70 },
+      { slug: "test", kind: "test", budgetPct: 30 },
+    ],
+  },
+  // the documented enterprise shape (D12 amendment 2026-08-04), expressible
+  // since #28: two analysis-kind stages and a security-flavored architecture
+  enterprise: {
+    name: "enterprise",
+    stages: [
+      {
+        slug: "business-analysis",
+        kind: "analysis",
+        budgetPct: 10,
+        mission:
+          "Analyse the business problem and write the business half of the specification: docs/SPEC.md with a `## Acceptance criteria` section capturing user-visible outcomes, constraints, and success measures — no technical design.",
+      },
+      {
+        slug: "technical-analysis",
+        kind: "analysis",
+        budgetPct: 10,
+        mission:
+          "Refine docs/SPEC.md with the technical half: sharpen the `## Acceptance criteria` into concrete, testable criteria and record technical constraints and interfaces the design must honor.",
+      },
+      {
+        slug: "architecture-security",
+        kind: "architecture",
+        budgetPct: 15,
+        mission:
+          "Design the solution: docs/DESIGN.md with a `## Modules` section describing each module and its responsibility, plus a `## Security` section covering trust boundaries, secrets handling, and abuse cases. Keep the design as small as the idea allows.",
+      },
+      { slug: "implementation", kind: "implementation", budgetPct: 35 },
+      { slug: "test", kind: "test", budgetPct: 20 },
+      { slug: "delivery", kind: "delivery", budgetPct: 10 },
+    ],
   },
 };
 

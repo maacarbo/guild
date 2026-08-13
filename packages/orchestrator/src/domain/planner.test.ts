@@ -288,6 +288,34 @@ describe("stage-inappropriate upstream checks warn in the gate body (#35, D12 re
   });
 });
 
+describe("enterprise template derivation (#28: slug carries identity, kind carries behavior)", () => {
+  const enterprise = { ...idea, body: "A big idea.\ntemplate: enterprise\nbudget: 10.00" };
+
+  it("two analysis-kind stages coexist under distinct slugs with distinct stage ids and handoff paths", () => {
+    const biz = deriveStagePlan(enterprise, config, "business-analysis", 1).plan;
+    const tech = deriveStagePlan(enterprise, config, "technical-analysis", 1).plan;
+    expect(biz.stageId).toBe(`stg:${idea.ideaId}:business-analysis`);
+    expect(tech.stageId).toBe(`stg:${idea.ideaId}:technical-analysis`);
+    expect(biz.kind).toBe("analysis");
+    expect(tech.kind).toBe("analysis");
+    // business-analysis briefs the NEXT stage's handoff by SLUG
+    expect(biz.engagements[0]!.brief.instructions).toContain("guild/handoff/technical-analysis.checks.json");
+  });
+
+  it("a mission override flows into the objective and instructions; floor checks stay kind-derived", () => {
+    const { plan } = deriveStagePlan(enterprise, config, "architecture-security", 1);
+    expect(plan.objective).toMatch(/## Security/);
+    expect(plan.engagements[0]!.brief.instructions).toMatch(/trust boundaries/);
+    expect(plan.engagements[0]!.brief.contract.checks.some((c) => c.kind === "artifact" && c.path === "docs/DESIGN.md")).toBe(true);
+  });
+
+  it("the FIRST template stage is operator-authored regardless of slug; budget splits by entry percent", () => {
+    const { plan } = deriveStagePlan(enterprise, config, "business-analysis", 1);
+    expect(plan.engagements[0]!.brief.contract.authoredBy).toBe("operator");
+    expect(plan.budgetCents).toBe(100); // 10% of $10.00
+  });
+});
+
 describe("project rules fold into briefs (M3, D13)", () => {
   it("rules constraint carries provenance and content verbatim", () => {
     const { plan } = deriveStagePlan(idea, config, "test", 1, {
