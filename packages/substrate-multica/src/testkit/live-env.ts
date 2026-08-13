@@ -152,6 +152,19 @@ export async function acquireMemberToken(
 }
 
 /**
+ * Suppress Multica's stock first-login onboarding for a Guild-provisioned
+ * account (#16): the daemon container IS the agent connection and `guild init`
+ * creates the team, so every onboarding prompt asks for something Guild
+ * already does. POST /api/me/onboarding/complete is what the UI's skip path
+ * calls and the only route that sets `onboarded_at` (probed live 2026-08-13:
+ * the PATCH questionnaire route never does). Idempotent on an already
+ * onboarded account.
+ */
+export async function markOnboarded(baseUrl: string, token: string): Promise<void> {
+  await api(baseUrl, "POST", "/api/me/onboarding/complete", { token });
+}
+
+/**
  * Idempotently make `member` a workspace member with the given role
  * (live-proven 2026-08-02: POST /api/workspaces/{id}/members mints a pending
  * invitation; the invitee accepts via POST /api/invitations/{id}/accept; a

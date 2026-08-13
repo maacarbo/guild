@@ -10,7 +10,7 @@
  * tooling shares the test bootstrap, deliberately.
  */
 
-import { acquireMemberToken, ensureAgent, ensureWorkspaceMember } from "@guild/substrate-multica/testkit";
+import { acquireMemberToken, ensureAgent, ensureWorkspaceMember, markOnboarded } from "@guild/substrate-multica/testkit";
 import { readEnv } from "./env.js";
 
 const ROLES = ["analyst", "architect", "implementer", "tester"] as const;
@@ -44,6 +44,23 @@ async function main(): Promise<void> {
     email: "daemon@guild.local",
     role: "admin",
   });
+
+  // #16: Multica's stock onboarding is misleading under Guild (the daemon IS
+  // the agent connection; init creates the team) — pre-mark every provisioned
+  // account onboarded. Best-effort: a failure here degrades to the documented
+  // "skip it all" note, never blocks provisioning.
+  for (const [name, token] of [
+    ["operator", operator.token],
+    ["conductor", conductor.token],
+    ["daemon", daemon.token],
+  ] as const) {
+    try {
+      await markOnboarded(env.GUILD_MULTICA_URL, token);
+      console.error(`  ✓ ${name} onboarding pre-marked`);
+    } catch (e) {
+      console.error(`  ! could not pre-mark ${name} onboarded (non-fatal): ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   const roleAgents: Record<string, { agentId: string; agentName: string }> = {};
   for (const role of ROLES) {
