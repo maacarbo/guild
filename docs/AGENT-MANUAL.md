@@ -33,18 +33,20 @@ waiting-for-feedback = `blocked`, done = `done`, cancelled = `cancelled`.
 <!-- howto: provision | covered-by: deploy/compose/doctor/doctor.sh, packages/orchestrator/features/steps/m2b-planner-team-watchdog.steps.ts -->
 
 Bring up the compose stack, then run `guild init` (package
-`@guild/orchestrator`, bin `guild-init`) with `GUILD_MULTICA_URL`,
-`GUILD_OPERATOR_EMAIL`, `GUILD_WORKSPACE_ID`, and optionally
-`GUILD_AGENT_MODEL` set. It mints the three member identities (operator,
+`@guild/orchestrator`, bin `guild-init`) with `GUILD_WORKSPACE_ID` and
+`MULTICA_DEV_VERIFICATION_CODE` set (both required — the dev-code auth flow
+mints every identity); `GUILD_MULTICA_URL`, `GUILD_OPERATOR_EMAIL`, and
+`GUILD_AGENT_MODEL` carry sensible defaults. It mints the three member identities (operator,
 conductor, daemon — distinct by construction), creates the four starter role
 agents (`guild-analyst/architect/implementer/tester`), pre-marks all three
 accounts past Multica's stock onboarding (#16), and prints the conductor/.env
 values to your terminal (never to a file). Full quickstart:
 `deploy/compose/README.md`.
 
-Expected outcome: `guild-init` exits 0 and prints `GUILD_MULTICA_TOKEN`,
-`GUILD_ROLE_AGENTS`, member-id allowlist lines to paste into
-`deploy/compose/.env`.
+Expected outcome: `guild-init` exits 0 and prints the `.env` lines to paste —
+the conductor section (`GUILD_MULTICA_TOKEN`, `GUILD_ROLE_AGENTS`, the
+member-id allowlist) **and** the daemon section (`MULTICA_DAEMON_TOKEN`);
+paste all of them or doctor's daemon checks go red.
 
 ## To check the deployment is healthy
 
@@ -56,10 +58,10 @@ From `deploy/compose`:
 docker compose -p guild-dev -f docker-compose.yml -f docker-compose.dev.yml run --rm doctor
 ```
 
-Expected outcome: `doctor: all checks green` (7 checks: env, model route,
-control plane, gateway completion, daemon credentials + identity split,
-daemon runtime + role-agent bindings, git PAT). Any `[FAIL]` line names the
-fix and the service to restart.
+Expected outcome: `doctor: all checks green` (7 checks, in order: env,
+Multica control plane, LiteLLM gateway liveliness, model route + completion,
+daemon credentials + identity split, daemon runtime + role-agent bindings,
+git PAT). Any `[FAIL]` line names the fix and the service to restart.
 
 ## To submit an idea
 
@@ -87,9 +89,12 @@ Directives are **own-line** grammar (prose that merely ends in
   gate-body warning.
 
 Expected outcome: within a reconcile tick the conductor comments a plan
-reference on your ticket and posts the first stage's **gate ticket** (marker
-`gate:stg:<ideaId>:<stageKind>:v1`) in the waiting-for-feedback lane. Nothing
-spends before you approve.
+reference on your ticket and posts the first stage's **gate ticket** in the
+waiting-for-feedback lane. Every Guild-authored ticket carries the same
+HTML-comment marker key in its description — `<!-- guild:engagement=… -->`;
+the gate's marker value is `gate:stg:<ideaId>:<stageKind>:v<n>`, an
+engagement's is `eng:stg:<ideaId>:<stageKind>:v<n>`. Nothing spends before
+you approve.
 
 ## To approve a stage gate
 
@@ -139,8 +144,8 @@ ticket to `cancelled` — a new idea is a new ticket.
 
 <!-- howto: read-verdict | covered-by: packages/orchestrator/features/steps/m2b-planner-team-watchdog.steps.ts -->
 
-The engagement ticket (its description carries the marker
-`guild:engagement=eng:stg:<ideaId>:<kind>:v<n>`) is the progress surface: the
+The engagement ticket (marker value `eng:stg:<ideaId>:<kind>:v<n>`, same
+`guild:engagement=` key as every Guild ticket) is the progress surface: the
 agent's report lands as a comment; the conductor validates the pushed branch
 against the contract in the Tier 1 sandbox and comments the verdict.
 Validation failure posts "Contract validation failed — rework requested" with
@@ -168,15 +173,18 @@ curl -X PUT http://127.0.0.1:8080/api/issues/<engagement-ticket-id> \
 
 Expected outcome: Guild fast-forward-merges the validated SHA (merges are
 Guild-mediated — agents never merge), captures final spend, revokes the
-engagement key, records role memory, retires a hired-at-dispatch agent, and
-posts the next stage's gate. When the final stage is accepted the idea ticket
-itself moves to Done.
+engagement key, records role memory, and posts the next stage's gate. When
+the **final** stage is accepted, hired-at-dispatch agents are retired
+(archived — never restored) and the idea ticket itself moves to Done; until
+then a hired agent stays bound, its key already revoked.
 
 ## To halt everything (emergency stop)
 
 <!-- howto: emergency-stop | covered-by: packages/orchestrator/src/application/conductor.test.ts, packages/orchestrator/features/m2b-planner-team-watchdog.feature -->
 
-Run `guild kill` (bin `guild-kill`, same env as the conductor). It locks
+Run `guild kill` (bin `guild-kill`; its compose service wires a deliberately
+smaller env than the conductor's — exactly what halting needs, nothing that
+could fail first). It locks
 dispatch FIRST (nothing new can spend even if a later step fails), then
 cancels every spending engagement — the substrate cancel kills the agent
 process and the engagement key is revoked.
@@ -203,8 +211,8 @@ last green 2026-08-13).
 <!-- howto: budget-reference | covered-by: packages/orchestrator/src/domain/planner.test.ts, packages/orchestrator/src/application/conductor.test.ts -->
 
 - Plan budget = idea `budget:` directive (or configured default); stages
-  split it by the template's fixed integer-cent ratios; remainder cents land
-  on implementation.
+  split it by the template's fixed integer percentages (floored to whole
+  cents per stage); remainder cents land on implementation.
 - Each engagement mints a **virtual key hard-capped at its stage budget** —
   the gateway itself enforces it; provider keys never leave the gateway.
 - A 0¢ stage (starved by a tiny plan budget) warns in the gate body — it can
