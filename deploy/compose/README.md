@@ -35,7 +35,10 @@ plane up):
   as `GUILD_WORKSPACE_ID`. **First login shows Multica's own onboarding —
   tutorials, a questionnaire, "connect local agents" prompts. Skip it all:
   none of it applies under Guild** (the daemon container *is* the agent
-  connection, and `guild init` creates the team — issue #16).
+  connection, and `guild init` creates the team — issue #16). This only
+  happens on the visit *before* `guild init`: init pre-marks the operator,
+  conductor, and daemon accounts onboarded, so later logins go straight to
+  the board.
 - LiteLLM admin UI at http://localhost:4000/ui — log in with
   `LITELLM_MASTER_KEY`, create a virtual key **with a `max_budget`** → paste
   into `.env` as `GUILD_DAEMON_VIRTUAL_KEY`.
