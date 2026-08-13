@@ -237,6 +237,57 @@ describe("upstream-authored augmentation (D6 applied — parseHandoffChecks boun
   });
 });
 
+describe("stage-inappropriate upstream checks warn in the gate body (#35, D12 refinement)", () => {
+  const upstreamOf = (checks: ContractCheck[]) => ({
+    upstream: { handoff: { checks }, authoredBy: "analyst" },
+  });
+
+  it("an architecture-stage command check executing files outside docs/ warns — and still merges", () => {
+    const { plan, warnings } = deriveStagePlan(idea, config, "architecture", 1, {
+      ...upstreamOf([{ kind: "command", run: "node bin/wc.mjs --help", expectExitCode: 0, timeoutSeconds: 60 }]),
+    });
+    expect(warnings.some((w) => w.includes("bin/wc.mjs") && w.includes("outside docs/"))).toBe(true);
+    expect(plan.engagements[0].brief.contract.checks.some((c) => c.kind === "command" && c.run.includes("bin/wc.mjs"))).toBe(true);
+  });
+
+  it("an architecture-stage artifact check outside docs/ warns", () => {
+    const { warnings } = deriveStagePlan(idea, config, "architecture", 1, {
+      ...upstreamOf([{ kind: "artifact", path: "src/wc.mjs" }]),
+    });
+    expect(warnings.some((w) => w.includes("src/wc.mjs") && w.includes("outside docs/"))).toBe(true);
+  });
+
+  it("a docs/-prefixed traversal does not slip the warning (docs/../src)", () => {
+    const { warnings } = deriveStagePlan(idea, config, "architecture", 1, {
+      ...upstreamOf([
+        { kind: "artifact", path: "docs/../src/wc.mjs" },
+        { kind: "command", run: "node docs/../bin/wc.mjs", expectExitCode: 0, timeoutSeconds: 60 },
+      ]),
+    });
+    expect(warnings.filter((w) => w.includes("outside docs/")).length).toBe(2);
+  });
+
+  it("architecture checks against docs/ raise no warning", () => {
+    const { warnings } = deriveStagePlan(idea, config, "architecture", 1, {
+      ...upstreamOf([
+        { kind: "artifact", path: "docs/DESIGN.md", mustContain: "## Modules" },
+        { kind: "command", run: "grep -q '## Modules' docs/DESIGN.md", expectExitCode: 0, timeoutSeconds: 60 },
+      ]),
+    });
+    expect(warnings.some((w) => w.includes("outside docs/"))).toBe(false);
+  });
+
+  it("implementation-stage checks executing code are stage-appropriate — no warning", () => {
+    const { warnings } = deriveStagePlan(idea, config, "implementation", 1, {
+      upstream: {
+        handoff: { checks: [{ kind: "command", run: "node bin/wc.mjs README.md", expectExitCode: 0, timeoutSeconds: 60 }] },
+        authoredBy: "architect",
+      },
+    });
+    expect(warnings.some((w) => w.includes("outside docs/"))).toBe(false);
+  });
+});
+
 describe("project rules fold into briefs (M3, D13)", () => {
   it("rules constraint carries provenance and content verbatim", () => {
     const { plan } = deriveStagePlan(idea, config, "test", 1, {
@@ -261,6 +312,28 @@ describe("briefs carry what fresh context needs (D6/M2b: priorDecisions ride exp
       if (next) expect(instructions).toContain(handoffPathFor(next));
       else expect(instructions).not.toContain("guild/handoff/");
     }
+  });
+
+  it("handoff authoring demands checks satisfiable by the NEXT stage's own deliverable (#35)", () => {
+    const deliverableAnchor: Record<string, string> = {
+      architecture: "docs/DESIGN.md",
+      implementation: "package.json",
+      test: "tests/acceptance.test.mjs",
+      delivery: "README.md",
+    };
+    for (const [i, kind] of STAGE_ORDER.entries()) {
+      const next = STAGE_ORDER[i + 1];
+      if (!next) continue;
+      const instructions = deriveStagePlan(idea, config, kind, 1).plan.engagements[0].brief.instructions;
+      expect(instructions).toContain(deliverableAnchor[next]);
+      expect(instructions).toMatch(/never by artifacts of later stages/);
+    }
+  });
+
+  it("the quick-fix tester is not told to author checks for a stage the template does not run (#35)", () => {
+    const quickFix = { ...idea, body: "template: quick-fix\nA tiny fix." };
+    const instructions = deriveStagePlan(quickFix, config, "test", 1).plan.engagements[0].brief.instructions;
+    expect(instructions).not.toContain("guild/handoff/");
   });
 
   it("constraints pin the offline floor: zero-dependency Node, node --test", () => {
