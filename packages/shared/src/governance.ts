@@ -76,7 +76,9 @@ export type CancellationReason =
   | "bounce_limit"
   | "stage_rejected"
   /** superseded pre-dispatch by an amendment's re-gate (D12) — never spent a cent */
-  | "plan_amended";
+  | "plan_amended"
+  /** the stage its advisory rider observed completed — normal end of a monitor (#29) */
+  | "advisory_stage_end";
 
 /**
  * Termination protocol (normative): entering any terminal state revokes the

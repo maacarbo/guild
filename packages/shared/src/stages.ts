@@ -67,6 +67,13 @@ export interface EngagementPlan {
   brief: EngagementBrief;
   /** enforced cap: minted into the engagement's gateway virtual key as max_budget at dispatch */
   budgetCents: number;
+  /**
+   * observe-and-flag rider (#29, D13's focus-monitor): dispatched, budgeted,
+   * and swept like any engagement, but it never gates stage completion, its
+   * reports are never contract-judged, and stage completion cancels it
+   * (`advisory_stage_end`) through the spend-capturing termination path.
+   */
+  advisory?: true;
 }
 
 export interface StagePlan {
