@@ -1,0 +1,101 @@
+# Multica release watcher (#14, operator decision 2026-08-04): automate
+# everything about a Multica pin bump EXCEPT the judgment. On a new upstream
+# release it opens a PR bumping the one versions file plus its mirror
+# locations, with the LICENSE diff (old pinned tag -> new tag) and the release
+# notes in the body. NEVER auto-merges: the human LICENSE review (D8
+# clean-and-legal) and a local substrate-conformance run gate the merge.
+# Nothing else auto-bumps — LiteLLM digest and CLI pins move deliberately.
+name: multica-release-watcher
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned vs latest upstream release
+        id: cmp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pinned=$(grep -oP '^MULTICA_VERSION=\K.*' deploy/compose/versions.env)
+          latest=$(gh api repos/multica-ai/multica/releases/latest --jq .tag_name)
+          # the upstream tag is untrusted input later used in shell and sed —
+          # refuse anything that is not a plain vX.Y.Z before it goes anywhere
+          [[ "$pinned" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected pinned shape: $pinned"; exit 1; }
+          [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unexpected upstream tag shape — refusing"; exit 1; }
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "bump=$([ "$pinned" = "$latest" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when a bump PR for this release already exists
+        id: existing
+        if: steps.cmp.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.cmp.outputs.latest }}
+        run: |
+          n=$(gh pr list --head "multica-bump/$LATEST" --state all --json number --jq length)
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+
+      - name: Open the LICENSE-gated bump PR
+        if: steps.cmp.outputs.bump == 'true' && steps.existing.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED: ${{ steps.cmp.outputs.pinned }}
+          LATEST: ${{ steps.cmp.outputs.latest }}
+        run: |
+          set -euo pipefail
+          pinned="$PINNED"
+          latest="$LATEST"
+          branch="multica-bump/$latest"
+          git checkout -b "$branch"
+
+          # one mechanical rewrite per mirror location; the versions-file unit
+          # test (CI) fails the PR if a location is ever missed
+          sed -i "s|^MULTICA_VERSION=.*|MULTICA_VERSION=$latest|" deploy/compose/versions.env
+          sed -i "s|\${MULTICA_VERSION:-$pinned}|\${MULTICA_VERSION:-$latest}|g" deploy/compose/docker-compose.yml
+          sed -i "s|^ARG MULTICA_VERSION=.*|ARG MULTICA_VERSION=$latest|" docker/daemon/Dockerfile
+
+          gh api "repos/multica-ai/multica/contents/LICENSE?ref=$pinned" --jq .content | base64 -d > /tmp/license-old
+          gh api "repos/multica-ai/multica/contents/LICENSE?ref=$latest" --jq .content | base64 -d > /tmp/license-new
+          if diff -u /tmp/license-old /tmp/license-new > /tmp/license.diff; then
+            license_note="byte-identical between $pinned and $latest"
+          else
+            license_note="CHANGED — review the diff before merging"
+          fi
+          notes=$(gh api "repos/multica-ai/multica/releases/tags/$latest" --jq '.body // ""' | head -c 4000)
+
+          git config user.name "multica-release-watcher"
+          git config user.email "watcher@users.noreply.github.com"
+          git add -A
+          git commit -m "Bump Multica pin $pinned -> $latest (release watcher, #14)"
+          git push -u origin "$branch"
+
+          {
+            echo "Automated Multica pin bump: \`$pinned\` → \`$latest\`. **Never auto-merged** — the human LICENSE review is the gate (operator decision 2026-08-04, #14)."
+            echo
+            echo "## Merge checklist"
+            echo "- [ ] LICENSE diff reviewed and recorded (clean-and-legal, D8)"
+            echo "- [ ] \`substrate-conformance\` suite green against a live stack running \`$latest\` (local step — CI has no compose stack)"
+            echo "- [ ] Rebuild + recreate the affected compose services after merge (stack mirrors main)"
+            echo
+            echo "## LICENSE ($license_note)"
+            echo '```diff'
+            cat /tmp/license.diff || true
+            echo '```'
+            echo
+            echo "## Release notes for $latest"
+            echo "$notes"
+          } > /tmp/body.md
+          gh pr create --title "Bump Multica pin $pinned -> $latest (LICENSE-gated)" --body-file /tmp/body.md
