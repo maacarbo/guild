@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { markOnboarded } from "./live-env.js";
+import { markOnboarded } from "./multica-provisioning.js";
 
 describe("markOnboarded (#16)", () => {
   afterEach(() => vi.unstubAllGlobals());

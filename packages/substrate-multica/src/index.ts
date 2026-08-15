@@ -11,6 +11,14 @@ export type { FetchMulticaApiConfig } from "./adapters/fetch-multica-api.js";
 export { MulticaSubstrate } from "./application/multica-substrate.js";
 export { FetchMulticaApi } from "./adapters/fetch-multica-api.js";
 export { SubstrateFault } from "./application/substrate-fault.js";
+// provisioning adapter (shared by `guild init` and the live-test harness)
+export {
+  acquireMemberToken,
+  ensureAgent,
+  ensureWorkspaceMember,
+  markOnboarded,
+  type AgentSpec,
+} from "./adapters/multica-provisioning.js";
 
 export function createMulticaSubstrate(
   api: FetchMulticaApiConfig,
