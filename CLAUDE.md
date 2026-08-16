@@ -21,6 +21,8 @@ src/
   application/   use cases; depends on domain + ports only
   ports/         interfaces owned by the inside (driving and driven)
   adapters/      infrastructure bindings: Postgres, LiteLLM, Multica REST/WS, HTTP
+  bin/           composition roots (CLI entrypoints): env-read → wire → call → print, no policy
+  testkit/       live-stack test support; depcruise-fenced — production code never imports it
 ```
 
 **The dependency rule is absolute: `adapters → application → domain`, never outward-in.**
@@ -40,6 +42,8 @@ src/
 | Governance | `orchestrator` | Plan, Stage, Engagement, HandoffContract, BudgetLedger, decision trail |
 | — (substrate boundary) | `substrate-multica` | anti-corruption adapter for the `ExecutionSubstrate` port |
 | — (published language) | `shared` | stage/contract types, substrate port + events |
+| — (port conformance) | `substrate-conformance` | executable `ExecutionSubstrate` contract suite (D8) — every substrate adapter must pass it |
+| — (repo hygiene) | `tools/checks` | repo-level executable checks (pin mirrors, doc drift gates, image scripts) — deliberately outside every context |
 
 The CLI is a driving adapter of the Governance context, not a context.
 
@@ -51,6 +55,7 @@ The CLI is a driving adapter of the Governance context, not a context.
 
 - **Red → green → refactor. No production code without a failing test first.** This includes "trivial" code.
 - Unit tests colocated as `*.test.ts`, targeting `domain/` and `application/` — pure and fast, no infrastructure, no mocking of infrastructure (there is none to mock at those layers).
+- Tests that assert on repo-root artifacts (version-pin mirrors, doc drift gates, image scripts) live in `tools/checks` — never inside a package's `adapters/`, which keeps its one-test-per-adapter reading.
 - Don't mock what you don't own: wrap third-party things in a port and fake the port.
 - **Port contract tests**: every driven port gets one reusable test suite that all its adapters must pass. This is load-bearing for D8 — `substrate-multica` passes the `ExecutionSubstrate` suite, and any future substrate adapter (the D8 fallback path) must pass the same one.
 - Adapter integration tests run against real infrastructure via docker-compose (a local Multica instance, Postgres) — not against mocks of it.
@@ -71,12 +76,14 @@ The CLI is a driving adapter of the Governance context, not a context.
 - Branch per task, PR into `main`, CI green before merge. Single-writer discipline (D6) binds humans and agents alike: one writer per branch.
 - Commits: imperative summary line, body explains why, reference the milestone/issue.
 - Docs are normative. A behavior change updates `ARCHITECTURE.md` / `PRODUCT.md` / `ROADMAP.md` in the same MR. A decision change gets a D-record with an alternatives table — no silent reversals.
-- Version pins are deliberate (LiteLLM digest, Claude Agent SDK — see D2/D3): never bump inside an unrelated MR.
+- Version pins are deliberate (LiteLLM digest, Claude Agent SDK — see D2/D3): never bump inside an unrelated MR. Every third-party pin lives in `deploy/compose/versions.env` (#14, one versions file); mirror locations are CI-checked by `tools/checks/versions-file.test.ts`.
+- Comments state why, never what — refactor unclear code instead of annotating it; keep the rationale of non-obvious choices, drop narration.
 - **The live dev stack mirrors `main`** (operator directive 2026-08-04): after merging anything that changes image inputs (`docker/daemon/`, `docker/conductor/`, compose build args) or conductor code, rebuild and recreate the affected compose services (`docker compose … build guild-daemon guild-conductor && docker compose … up -d guild-daemon guild-conductor` — explicit `build` first: one-shot `up -d --build` has been observed to skip the conductor's root-context build) — never leave the running stack on stale images.
 
 ## Guardrails
 
 - Provider credentials exist only in the LiteLLM gateway's config (D2). The daemon container holds only its Multica token and git credentials. Never put keys in agent workspaces, code, tests, or fixtures. `.env` files are local-only and gitignored.
+- Secrets are referenced by NAME, never value (D17 name-indirection): tracked files, docs, and logs carry env-var names only — values live in local `.env` and the operator's terminal.
 - Outward-facing effects (merges, deploys) are Guild-mediated (D6): agents report, Guild validates and acts — do not add side channels.
 - **License guardrail (D8):** never host Multica for third parties, embed it in anything sold, or rebrand its UI. Pin the Multica version; review its LICENSE diff on every upgrade before bumping.
 - CI runs on GitHub Actions (`.github/workflows/ci.yml`).

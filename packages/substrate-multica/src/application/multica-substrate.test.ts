@@ -124,9 +124,9 @@ class FakeMulticaApi implements MulticaApi {
   async updateAgentEnv(agentId: string, env: Record<string, string>): Promise<void> {
     this.agentEnvs.set(agentId, env);
   }
-  // eslint-disable-next-line require-yield
+  frames: MulticaWsFrame[] = [];
   async *watchWorkspace(): AsyncIterable<MulticaWsFrame> {
-    return;
+    yield* this.frames;
   }
 }
 
@@ -329,6 +329,37 @@ describe("cancel semantics (P4)", () => {
     await substrate.cancel(ref, "operator");
     await substrate.cancel(ref, "operator");
     expect(api.cancelled).toEqual([]);
+  });
+});
+
+describe("watch event synthesis (injected clock and nonce — hexagonal, audit hex-8)", () => {
+  it("stamps events from the injected now and nonce sources, deterministically", async () => {
+    const api = new FakeMulticaApi();
+    api.frames = [
+      {
+        type: "task:queued",
+        payload: { agent_id: "agent-1", issue_id: "iss-1", status: "queued", task_id: "t-1" },
+      },
+    ];
+    const substrate = new MulticaSubstrate(api, {
+      projectScope: "ws-1",
+      roleAgents: { worker: { agentId: "agent-1", agentName: "worker-agent" } },
+      selfMemberId: "member-self",
+      operatorMemberIds: [],
+      now: () => new Date("2026-08-16T12:00:00Z"),
+      nonce: () => "n0nce",
+    });
+    const events = [];
+    for await (const e of substrate.watch("ws-1")) events.push(e);
+    expect(events).toEqual([
+      {
+        kind: "status",
+        item: { substrate: "multica", externalId: "iss-1" },
+        status: "queued",
+        at: "2026-08-16T12:00:00.000Z",
+        eventId: "ws-1-n0nce:1",
+      },
+    ]);
   });
 });
 

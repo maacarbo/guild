@@ -163,7 +163,7 @@ version, OpenCode version, and the LiteLLM / socket-proxy image digests.
 Base and database images are pinned directly where they are used — the table
 below lists all of them. The compose interpolation defaults and the
 daemon-image ARG defaults mirror it, and a CI-enforced unit test
-(`packages/orchestrator/src/adapters/versions-file.test.ts`) fails the build
+(`tools/checks/versions-file.test.ts`) fails the build
 on any disagreement — README, compose, and image can never silently drift.
 
 | Component | Pin lives in | Mirrored where |

@@ -67,6 +67,10 @@ export interface MulticaSubstrateConfig {
    * the daemon identity (an empty list would fail-closed and deadlock board approvals).
    */
   operatorMemberIds: readonly string[];
+  /** injectable clock for event timestamps (audit hex-8) — defaults to the system clock */
+  now?: () => Date;
+  /** injectable per-stream uniqueness source for eventId synthesis — defaults to hrtime */
+  nonce?: () => string;
 }
 
 export class MulticaSubstrate implements ExecutionSubstrate {
@@ -74,11 +78,15 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   private readonly agentNames = new Map<string, string>();
   /** role → agent binding; seeded from config, mutated ONLY by hire/retire (M3) */
   private readonly roleBindings = new Map<string, RoleBinding>();
+  private readonly now: () => Date;
+  private readonly nonce: () => string;
 
   constructor(
     private readonly api: MulticaApi,
     private readonly config: MulticaSubstrateConfig,
   ) {
+    this.now = config.now ?? (() => new Date());
+    this.nonce = config.nonce ?? (() => process.hrtime.bigint().toString(36));
     for (const [role, binding] of Object.entries(config.roleAgents)) {
       this.roleBindings.set(role, binding);
       this.agentNames.set(binding.agentId, binding.agentName);
@@ -402,13 +410,13 @@ export class MulticaSubstrate implements ExecutionSubstrate {
   async *watch(projectScope: string, opts?: { signal?: AbortSignal }): AsyncIterable<SubstrateEvent> {
     this.assertScope(projectScope);
     // eventId synthesis: per-stream nonce + sequence (the substrate carries no ids)
-    const nonce = `${projectScope.slice(0, 8)}-${process.hrtime.bigint().toString(36)}`;
+    const nonce = `${projectScope.slice(0, 8)}-${this.nonce()}`;
     let seq = 0;
     for await (const frame of this.api.watchWorkspace(opts?.signal)) {
       const raw = substrateEventFromFrame(
         this.name,
         frame,
-        new Date().toISOString(),
+        this.now().toISOString(),
         this.config.selfMemberId,
         this.config.operatorMemberIds,
       );

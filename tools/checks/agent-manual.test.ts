@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repoRoot = join(import.meta.dirname, "..", "..", "..", "..");
+const repoRoot = join(import.meta.dirname, "..", "..");
 const manualPath = join(repoRoot, "docs", "AGENT-MANUAL.md");
 
 const MARKER = /<!--\s*howto:\s*([a-z0-9-]+)\s*\|\s*covered-by:\s*([^>]+?)\s*-->/g;

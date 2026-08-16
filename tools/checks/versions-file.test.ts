@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repoRoot = join(import.meta.dirname, "..", "..", "..", "..");
+const repoRoot = join(import.meta.dirname, "..", "..");
 const read = (...p: string[]) => readFileSync(join(repoRoot, ...p), "utf8");
 
 function versionsEnv(): Record<string, string> {
