@@ -10,3 +10,14 @@ services:
   guild-postgres:
     ports:
       - "127.0.0.1:5442:5432"
+    # Publishing needs a non-internal attachment (#57): the base file keeps
+    # this DB on guild-data alone. The publish rides a dev-only harness
+    # network — NEVER guild-dev, which would hand the daemon its DB route
+    # back (live-proven 2026-08-16: dual-homing onto guild-dev made
+    # guild-postgres daemon-reachable again).
+    networks: [guild-data, guild-harness]
+
+networks:
+  # loopback-publish carrier for the host harness; no other service joins it
+  guild-harness:
+    name: guild-harness
