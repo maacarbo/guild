@@ -40,15 +40,30 @@ describe("intEnv", () => {
 });
 
 describe("envNameEnv (audit clean-4: GUILD_GIT_CRED_NAME must be a name the daemon helper will expand)", () => {
-  it("accepts exactly the helper's shape — [A-Z_][A-Z0-9_]*", () => {
+  it("accepts exactly the helper's allowlist — GUILD_GIT_TOKEN_ plus a non-empty [A-Z0-9_] suffix", () => {
     expect(envNameEnv({ N: "GUILD_GIT_TOKEN_ACME" }, "N")).toBe("GUILD_GIT_TOKEN_ACME");
-    expect(envNameEnv({ N: "_PRIVATE" }, "N")).toBe("_PRIVATE");
+    expect(envNameEnv({ N: "GUILD_GIT_TOKEN_2ND_REPO" }, "N")).toBe("GUILD_GIT_TOKEN_2ND_REPO");
     expect(envNameEnv({}, "N")).toBeUndefined();
   });
 
-  it("rejects atomically what the helper would silently fall through on — lowercase, dashes, leading digits", () => {
+  it("an explicit empty value means unset — `GUILD_GIT_CRED_NAME=` in .env must not brick startup (verify pkg-3)", () => {
+    expect(envNameEnv({ N: "" }, "N")).toBeUndefined();
+  });
+
+  it("rejects atomically what the helper would silently fall through on — off-shape and non-token names alike", () => {
     const spy = exitSpy();
-    for (const bad of ["guild_git_token", "GUILD-TOKEN", "1TOKEN", "A B", "$(x)"]) {
+    for (const bad of [
+      "guild_git_token",
+      "GUILD-TOKEN",
+      "1TOKEN",
+      "A B",
+      "$(x)",
+      // on-shape but outside the allowlisted prefix — the helper will never expand these (verify sh-0)
+      "PATH",
+      "MULTICA_DAEMON_TOKEN",
+      "_PRIVATE",
+      "GUILD_GIT_TOKEN_",
+    ]) {
       expect(() => envNameEnv({ N: bad }, "N")).toThrow("process.exit called");
     }
     expect(spy).toHaveBeenCalledWith(1);

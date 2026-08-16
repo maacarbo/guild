@@ -215,10 +215,12 @@ git access to exactly its repos (#6):
    daemon service's environment via a compose override file (value in `.env`,
    name in the override — never in tracked files).
 3. **Point the conductor at the name**: set `GUILD_GIT_CRED_NAME=GUILD_GIT_TOKEN_MYPROJ`
-   in the conductor's env. The name must be a valid env var NAME
-   (`[A-Z_][A-Z0-9_]*` — uppercase, no dashes, no leading digit); the
-   conductor refuses anything else at startup, because the daemon's helper
-   would otherwise silently fall back to the ambient PAT. Every engagement's
+   in the conductor's env. The name must live in the `GUILD_GIT_TOKEN_`
+   namespace with a non-empty `[A-Z0-9_]` suffix — the daemon's helper
+   allowlists exactly that prefix (a well-shaped name outside it, like
+   `PATH`, is agent-nameable and must never be expanded), and the conductor
+   refuses anything else at startup because the helper would otherwise
+   silently fall back to the ambient PAT. Every engagement's
    `custom_env` then carries `GUILD_GIT_CRED=<that name>`, and the daemon
    image's credential helper (`docker/daemon/guild-git-cred.sh` — get-only,
    spec in `tools/checks/guild-git-cred.test.ts`) resolves it at git time

@@ -32,19 +32,22 @@ export function readEnv(specs: EnvSpec[]): Record<string, string> {
 }
 
 /**
- * An optional variable whose VALUE must be an env var NAME, in exactly the
- * shape the daemon's credential helper expands — [A-Z_][A-Z0-9_]* (mirrors
- * docker/daemon/guild-git-cred.sh). Anything else would make the helper fall
- * through to the ambient PAT silently, defeating the D17 isolation the
- * operator configured — refuse at startup instead (audit clean-4).
+ * An optional variable whose VALUE must be an env var NAME the daemon's
+ * credential helper will actually expand — GUILD_GIT_TOKEN_ plus a non-empty
+ * [A-Z0-9_] suffix (mirrors docker/daemon/guild-git-cred.sh, which
+ * allowlists that prefix so an agent naming PATH or MULTICA_DAEMON_TOKEN can
+ * never exfiltrate it). Anything else would make the helper fall through to
+ * the ambient PAT silently, defeating the D17 isolation the operator
+ * configured — refuse at startup instead (audit clean-4). An explicit empty
+ * value (`NAME=` in .env) means unset.
  */
 export function envNameEnv(values: Record<string, string>, name: string): string | undefined {
   const value = values[name];
-  if (value === undefined) return undefined;
-  if (!/^[A-Z_][A-Z0-9_]*$/.test(value)) {
+  if (value === undefined || value === "") return undefined;
+  if (!/^GUILD_GIT_TOKEN_[A-Z0-9_]+$/.test(value)) {
     console.error(
-      `${name} must be an env var NAME ([A-Z_][A-Z0-9_]*), got "${value}" — ` +
-        "the daemon's credential helper would silently fall back to the ambient PAT (D17).",
+      `${name} must name a daemon env var as GUILD_GIT_TOKEN_<SUFFIX> ([A-Z0-9_], non-empty suffix), got "${value}" — ` +
+        "the daemon's credential helper only expands that namespace and would silently fall back to the ambient PAT (D17).",
     );
     process.exit(1);
   }

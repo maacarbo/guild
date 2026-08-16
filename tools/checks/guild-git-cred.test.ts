@@ -14,25 +14,29 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 const helper = join(import.meta.dirname, "..", "..", "docker", "daemon", "guild-git-cred.sh");
+// two ambient entries so a fallthrough answer proves stdin's host= actually
+// reached credential-store (an empty request would return a sole entry anyway)
 const AMBIENT_LINE = "https://x-access-token:AMBIENT_PAT@github.com";
+const OTHER_LINE = "https://x-access-token:OTHER_PAT@gitlab.com";
 const GET_REQUEST = "protocol=https\nhost=github.com\n\n";
 
 let home: string;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "guild-cred-"));
-  writeFileSync(join(home, ".git-credentials"), `${AMBIENT_LINE}\n`, { mode: 0o600 });
+  writeFileSync(join(home, ".git-credentials"), `${AMBIENT_LINE}\n${OTHER_LINE}\n`, { mode: 0o600 });
 });
 
 function run(op: string, env: Record<string, string> = {}, input = GET_REQUEST): string {
   return execFileSync("sh", [helper, op], {
     env: { PATH: process.env.PATH!, HOME: home, ...env },
+    cwd: home,
     input,
     encoding: "utf8",
   });
@@ -69,6 +73,35 @@ describe("get: name-indirection (#6, D17)", () => {
       "password=AMBIENT_PAT",
     );
   });
+
+  it("the fallthrough answers per-host — stdin's request really reaches the ambient store", () => {
+    expect(run("get", {}, "protocol=https\nhost=gitlab.com\n\n")).toContain("password=OTHER_PAT");
+  });
+
+  it("rejects a token value carrying a newline — credential-protocol injection, not a token (verify sh-2)", () => {
+    const out = run("get", {
+      GUILD_GIT_CRED: "GUILD_GIT_TOKEN_ACME",
+      GUILD_GIT_TOKEN_ACME: "realtoken\npassword=INJECTED\nhost=evil.example.com",
+    });
+    expect(out).not.toContain("INJECTED");
+    expect(out).not.toContain("evil.example.com");
+    expect(out).toContain("password=AMBIENT_PAT");
+  });
+});
+
+describe("only GUILD_GIT_TOKEN_* is ever expanded — an on-shape name is not a safe name (verify sh-0)", () => {
+  it.each([
+    ["PATH", "PATH"],
+    ["HOME", "HOME"],
+    ["the daemon's own control-plane token", "MULTICA_DAEMON_TOKEN"],
+    ["bare underscore", "_"],
+    ["the bare prefix", "GUILD_GIT_TOKEN_"],
+  ])("%s falls through to the ambient store, never exfiltrated", (_label, name) => {
+    const out = run("get", { GUILD_GIT_CRED: name, MULTICA_DAEMON_TOKEN: "mul_secret_1" });
+    expect(out).toContain("password=AMBIENT_PAT");
+    expect(out).not.toContain("mul_secret_1");
+    expect(out).not.toContain(home); // HOME's value must never surface as a credential
+  });
 });
 
 describe("the name is hostile input — never expanded off-shape", () => {
@@ -83,6 +116,8 @@ describe("the name is hostile input — never expanded off-shape", () => {
     const out = run("get", { GUILD_GIT_CRED: name, GUILD_GIT_TOKEN_ACME: "proj-tok-1" });
     expect(out).toContain("password=AMBIENT_PAT");
     expect(out).not.toContain("proj-tok-1");
+    // the injection payloads name `touch pwned` — prove nothing executed (verify pkg-1)
+    expect(existsSync(join(home, "pwned"))).toBe(false);
   });
 });
 
@@ -90,11 +125,11 @@ describe("get-only (audit clean-0): the ambient store is entrypoint-seeded, neve
   it("store succeeds as a no-op — a per-project token never lands in the shared file", () => {
     run("store", { GUILD_GIT_CRED: "GUILD_GIT_TOKEN_ACME", GUILD_GIT_TOKEN_ACME: "proj-tok-1" },
       "protocol=https\nhost=gitlab.com\nusername=x\npassword=proj-tok-1\n\n");
-    expect(ambientFile()).toBe(`${AMBIENT_LINE}\n`);
+    expect(ambientFile()).toBe(`${AMBIENT_LINE}\n${OTHER_LINE}\n`);
   });
 
   it("erase succeeds as a no-op — a 401 on a stale token cannot delete the bootstrap entry", () => {
     run("erase", {}, "protocol=https\nhost=github.com\nusername=x-access-token\npassword=AMBIENT_PAT\n\n");
-    expect(ambientFile()).toBe(`${AMBIENT_LINE}\n`);
+    expect(ambientFile()).toBe(`${AMBIENT_LINE}\n${OTHER_LINE}\n`);
   });
 });
