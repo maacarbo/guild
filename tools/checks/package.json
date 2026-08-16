@@ -1,0 +1,16 @@
+{
+  "name": "@guild/checks",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Repo-level checks that belong to no bounded context: deployment/image artifacts exercised as executable tests.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^5.6.0",
+    "vitest": "4.1.10"
+  }
+}

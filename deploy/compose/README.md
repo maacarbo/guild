@@ -215,12 +215,16 @@ git access to exactly its repos (#6):
    daemon service's environment via a compose override file (value in `.env`,
    name in the override — never in tracked files).
 3. **Point the conductor at the name**: set `GUILD_GIT_CRED_NAME=GUILD_GIT_TOKEN_MYPROJ`
-   in the conductor's env. Every engagement's `custom_env` then carries
-   `GUILD_GIT_CRED=<that name>`, and the daemon image's env-first credential
-   helper resolves it at git time (falling back to the ambient store when
-   unset — unconfigured projects keep working). For GitLab set
-   `GUILD_GIT_CRED_USERNAME` on the daemon if your setup needs a specific
-   username; the default `x-access-token` suits GitHub.
+   in the conductor's env. The name must be a valid env var NAME
+   (`[A-Z_][A-Z0-9_]*` — uppercase, no dashes, no leading digit); the
+   conductor refuses anything else at startup, because the daemon's helper
+   would otherwise silently fall back to the ambient PAT. Every engagement's
+   `custom_env` then carries `GUILD_GIT_CRED=<that name>`, and the daemon
+   image's credential helper (`docker/daemon/guild-git-cred.sh` — get-only,
+   spec in `tools/checks/guild-git-cred.test.ts`) resolves it at git time
+   (falling back to the ambient store when unset — unconfigured projects keep
+   working). For GitLab set `GUILD_GIT_CRED_USERNAME` on the daemon if your
+   setup needs a specific username; the default `x-access-token` suits GitHub.
 4. **Revoke** = revoke on the host + drop the env var; other projects are
    untouched. Note the honest boundary (ARCHITECTURE.md D17): projects
    sharing one daemon container share its env — intra-daemon isolation needs

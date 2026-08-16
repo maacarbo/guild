@@ -25,7 +25,8 @@ RUN set -eux; \
     multica --version
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 755 /usr/local/bin/entrypoint.sh \
+COPY guild-git-cred.sh /usr/local/bin/guild-git-cred
+RUN chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/guild-git-cred \
     && useradd -m -u 1001 agent
 
 # OpenCode: LiteLLM declared as a custom provider; virtual key arrives at

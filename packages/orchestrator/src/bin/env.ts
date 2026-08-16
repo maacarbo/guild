@@ -31,6 +31,26 @@ export function readEnv(specs: EnvSpec[]): Record<string, string> {
   return values;
 }
 
+/**
+ * An optional variable whose VALUE must be an env var NAME, in exactly the
+ * shape the daemon's credential helper expands — [A-Z_][A-Z0-9_]* (mirrors
+ * docker/daemon/guild-git-cred.sh). Anything else would make the helper fall
+ * through to the ambient PAT silently, defeating the D17 isolation the
+ * operator configured — refuse at startup instead (audit clean-4).
+ */
+export function envNameEnv(values: Record<string, string>, name: string): string | undefined {
+  const value = values[name];
+  if (value === undefined) return undefined;
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(value)) {
+    console.error(
+      `${name} must be an env var NAME ([A-Z_][A-Z0-9_]*), got "${value}" — ` +
+        "the daemon's credential helper would silently fall back to the ambient PAT (D17).",
+    );
+    process.exit(1);
+  }
+  return value;
+}
+
 export function intEnv(values: Record<string, string>, name: string, opts?: { min?: number }): number {
   const min = opts?.min ?? 0;
   const n = Number.parseInt(values[name]!, 10);

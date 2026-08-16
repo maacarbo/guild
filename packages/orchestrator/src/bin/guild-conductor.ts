@@ -13,7 +13,7 @@ import { LiteLlmModelGateway } from "../adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../adapters/pg-governance-store.js";
 import { createContractValidator } from "../index.js";
 import { redactUrlCredentials } from "../domain/redact.js";
-import { intEnv, readEnv } from "./env.js";
+import { envNameEnv, intEnv, readEnv } from "./env.js";
 
 const env = readEnv([
   { name: "GUILD_MULTICA_URL", source: "compose service URL, e.g. http://multica-backend:8080" },
@@ -41,6 +41,7 @@ const env = readEnv([
   { name: "GUILD_RECONCILE_SECONDS", source: "reconciliation cadence", fallback: "300" },
 ]);
 
+const gitCredName = envNameEnv(env, "GUILD_GIT_CRED_NAME");
 const soft = env.GUILD_PROJECT_SOFT_CAP_CENTS ? intEnv(env, "GUILD_PROJECT_SOFT_CAP_CENTS") : undefined;
 const hard = env.GUILD_PROJECT_HARD_CAP_CENTS ? intEnv(env, "GUILD_PROJECT_HARD_CAP_CENTS") : undefined;
 if ((soft === undefined) !== (hard === undefined)) {
@@ -101,7 +102,7 @@ async function main(): Promise<void> {
       roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,
       selfMemberId,
       operatorMemberIds,
-      ...(env.GUILD_GIT_CRED_NAME ? { engagementEnv: { GUILD_GIT_CRED: env.GUILD_GIT_CRED_NAME } } : {}),
+      ...(gitCredName ? { engagementEnv: { GUILD_GIT_CRED: gitCredName } } : {}),
     },
   );
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);

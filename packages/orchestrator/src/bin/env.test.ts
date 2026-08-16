@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { intEnv } from "./env.js";
+import { envNameEnv, intEnv } from "./env.js";
 
 function exitSpy() {
   return vi.spyOn(process, "exit").mockImplementation(() => {
@@ -36,5 +36,21 @@ describe("intEnv", () => {
     expect(() => intEnv({ N: "0" }, "N", { min: 1 })).toThrow("process.exit called");
     expect(spy).toHaveBeenCalledWith(1);
     expect(intEnv({ N: "1" }, "N", { min: 1 })).toBe(1);
+  });
+});
+
+describe("envNameEnv (audit clean-4: GUILD_GIT_CRED_NAME must be a name the daemon helper will expand)", () => {
+  it("accepts exactly the helper's shape — [A-Z_][A-Z0-9_]*", () => {
+    expect(envNameEnv({ N: "GUILD_GIT_TOKEN_ACME" }, "N")).toBe("GUILD_GIT_TOKEN_ACME");
+    expect(envNameEnv({ N: "_PRIVATE" }, "N")).toBe("_PRIVATE");
+    expect(envNameEnv({}, "N")).toBeUndefined();
+  });
+
+  it("rejects atomically what the helper would silently fall through on — lowercase, dashes, leading digits", () => {
+    const spy = exitSpy();
+    for (const bad of ["guild_git_token", "GUILD-TOKEN", "1TOKEN", "A B", "$(x)"]) {
+      expect(() => envNameEnv({ N: bad }, "N")).toThrow("process.exit called");
+    }
+    expect(spy).toHaveBeenCalledWith(1);
   });
 });
