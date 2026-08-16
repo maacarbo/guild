@@ -367,27 +367,36 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
   });
 });
 
-describe("floor gherkin is pinned verbatim — the human-readable half of every contract (audit bdd-3)", () => {
-  it("classic template: byte-identical to the pre-#28 kind/role text", () => {
+describe("floor gherkin derives from the floor checks — concrete criteria, never a self-report (audit bdd-4, D6)", () => {
+  it("classic implementation: the Then-steps state the artifact and command floor verbatim", () => {
     const { plan } = deriveStagePlan(idea, config, "implementation", 1);
     expect(plan.engagements[0]!.brief.contract.gherkin).toBe(
       [
         'Feature: implementation stage of "Idea: word-count utility"',
-        "  Scenario: the implementer hands off implementation work that satisfies the contract checks",
+        "  Scenario: the implementer hands off implementation work that meets the acceptance floor",
         '    Given the approved stage plan for "Idea: word-count utility"',
-        "    When the implementer reports done",
-        "    Then every contract check passes against the pushed engagement branch",
+        "    Then the engagement branch carries package.json",
+        "    And `node --test` exits 0 against the engagement branch",
       ].join("\n"),
     );
   });
 
-  it("enterprise: the slug and the entry's role name the stage — two analysis-kind floors read distinctly", () => {
+  it("never pivots on the implementer's self-report — that is what D6 forbids a contract to do", () => {
+    for (const slug of ["analysis", "implementation", "delivery"] as const) {
+      expect(deriveStagePlan(idea, config, slug, 1).plan.engagements[0]!.brief.contract.gherkin).not.toContain(
+        "reports done",
+      );
+    }
+  });
+
+  it("enterprise: two analysis-kind floors read distinctly, each stating its own criteria", () => {
     const enterprise = { ...idea, body: "A big idea.\ntemplate: enterprise" };
     const biz = deriveStagePlan(enterprise, config, "business-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
     const tech = deriveStagePlan(enterprise, config, "technical-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
     expect(biz).toContain('Feature: business-analysis stage of "Idea: word-count utility"');
-    expect(biz).toContain("Scenario: the analyst hands off business-analysis work that satisfies the contract checks");
+    expect(biz).toContain('Then the engagement branch carries docs/SPEC.md containing "## Acceptance criteria"');
     expect(tech).toContain('Feature: technical-analysis stage of "Idea: word-count utility"');
+    expect(tech).toContain('And the engagement branch carries docs/SPEC.md containing "## Technical constraints"');
     expect(biz).not.toBe(tech);
   });
 });

@@ -226,16 +226,28 @@ function floorChecksFor(entry: StageEntry): ContractCheck[] {
   return entry.floor.map((f) => ({ kind: "artifact", path: f.path, mustContain: f.mustContain }));
 }
 
+function checkAsThenStep(check: ContractCheck): string {
+  if (check.kind === "artifact") {
+    return check.mustContain !== undefined
+      ? `the engagement branch carries ${check.path} containing "${check.mustContain}"`
+      : `the engagement branch carries ${check.path}`;
+  }
+  return `\`${check.run}\` exits ${check.expectExitCode} against the engagement branch`;
+}
+
 function floorGherkin(entry: StageEntry, idea: Idea): string {
-  // slug and entry role (#28) — byte-identical to the old kind/role text for
-  // classic templates, distinct per stage for enterprise
+  // The Then-steps ARE the floor checks rendered (audit bdd-4): the gherkin
+  // states concrete acceptance criteria, and D6 forbids the two things the
+  // old text did — restating Guild's validation mechanism and pivoting on
+  // the role's self-report ("When the <role> reports done").
   const role = roleForEntry(entry);
+  const [first, ...rest] = floorChecksFor(entry).map(checkAsThenStep);
   return [
     `Feature: ${entry.slug} stage of "${idea.title}"`,
-    `  Scenario: the ${role} hands off ${entry.slug} work that satisfies the contract checks`,
+    `  Scenario: the ${role} hands off ${entry.slug} work that meets the acceptance floor`,
     `    Given the approved stage plan for "${idea.title}"`,
-    `    When the ${role} reports done`,
-    `    Then every contract check passes against the pushed engagement branch`,
+    `    Then ${first}`,
+    ...rest.map((step) => `    And ${step}`),
   ].join("\n");
 }
 
