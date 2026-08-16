@@ -303,9 +303,11 @@ export interface ExecutionSubstrate {
    * Route the role's subsequent work through the given gateway credential —
    * the per-engagement virtual key (D2). Delivery is runtime-env injection,
    * proven end-to-end at M1 (per-engagement spend attribution). Wholesale
-   * replacement is safe because one agent holds at most one open engagement
-   * (CLAUDE.md invariant); call BEFORE createWorkItem — assignment dispatches
-   * immediately (P6), so a late bind leaks spend onto the previous credential.
+   * replacement leans on the one-open-engagement-per-agent invariant, guarded
+   * at the gate: a plan repeating a role never posts unwarned (orchestrator
+   * domain/stage.ts `duplicateOpenRole`). Call BEFORE createWorkItem —
+   * assignment dispatches immediately (P6), so a late bind leaks spend onto
+   * the previous credential.
    */
   bindEngagementKey(role: string, key: string): Promise<void>;
   /**

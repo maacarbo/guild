@@ -37,6 +37,16 @@ import type {
 import { MAX_BOUNCES } from "@guild/shared";
 import { applyGateDecision } from "../domain/gate.js";
 import { laneFor } from "../domain/lane.js";
+import {
+  acceptanceLine,
+  advisoryRiders,
+  duplicateOpenRole,
+  gateMarker,
+  isAdvisory,
+  stageComplete,
+  stageIdFor,
+  stageSlugOf,
+} from "../domain/stage.js";
 import { templateFor } from "../domain/templates.js";
 import {
   deriveStagePlan,
@@ -79,8 +89,8 @@ export interface ConductorConfig {
   projectBudget?: ProjectBudget;
   /** engagement soft-cap warning threshold as a fraction of budgetCents (D12 default 0.8) */
   softCapRatio?: number;
-  /** the model route hires bind to (M3) — defaults to the gateway's cheap tier */
-  agentModel?: string;
+  /** the model route hires bind to (M3) — required: composition roots own the default (audit hexagonal-6) */
+  agentModel: string;
 }
 
 const TERMINAL_WORK: ReadonlySet<string> = new Set(["done", "failed", "cancelled"]);
@@ -92,10 +102,6 @@ const ROLE_MEMORY_MAX_LINES = 20;
 /** the per-project rules file (M3, D13) — read at the run's pinned SHA */
 const RULES_PATH = "AGENTS.md";
 
-/** stage ids are conductor-minted as `stg:<ideaId>:<slug>` (#28 — slug == kind for classic templates) */
-function stageSlugOf(stageId: string): string {
-  return stageId.slice(stageId.lastIndexOf(":") + 1);
-}
 
 export class Conductor {
   private readonly now: () => string;
@@ -406,7 +412,7 @@ export class Conductor {
       planId: idea.ideaId,
       ideaItem: snap.item,
       ...(rulesSha ? { rulesSha } : {}),
-      stageIds: template.stages.map((s) => `stg:${idea.ideaId}:${s.slug}`),
+      stageIds: template.stages.map((s) => stageIdFor(idea.ideaId, s.slug)),
       status: "active",
     };
     await this.deps.store.savePlanRun(run);
@@ -452,7 +458,7 @@ export class Conductor {
       let handoffRaw: string | null = null;
       for (let i = 0; i < index; i++) {
         const sha = await this.stageValidatedSha(run.stageIds[i]!);
-        if (sha) priorDecisions.push(`${stageSlugOf(run.stageIds[i]!)} ${run.stageIds[i]!} accepted at ${sha}`);
+        if (sha) priorDecisions.push(acceptanceLine(run.stageIds[i]!, sha));
         if (i === index - 1 && sha) {
           handoffRaw = await this.deps.source.readFile(this.config.repoUrl, sha, handoffPathFor(slug));
         }
@@ -513,10 +519,6 @@ export class Conductor {
 
   // ---------------------------------------------------------------- gate
 
-  private gateMarker(stageId: string, planVersion: number): string {
-    return `gate:${stageId}:v${planVersion}`;
-  }
-
   /** whether this gate was fully posted (recorded only after its resting-lane set) */
   private async gatePosted(stageId: string, planVersion: number): Promise<boolean> {
     const decisions = await this.deps.store.listDecisions();
@@ -531,9 +533,19 @@ export class Conductor {
    * calls and restarts: the marker is the dedup key on the substrate itself.
    */
   private async postGate(plan: StagePlan, warnings: string[], notes: string[] = []): Promise<WorkItemRef> {
+    // one open engagement per agent (D6): approval is the only dispatch
+    // trigger, so warning here IS the pre-dispatch guard
+    const dup = duplicateOpenRole(plan);
+    if (dup !== null) {
+      warnings = [
+        ...warnings,
+        `Role "${dup}" appears on multiple engagements of this plan — one open engagement per agent (D6): ` +
+          `the role-keyed engagement-key binding would cross-meter their spend. Amend before approving.`,
+      ];
+    }
     const existing =
       (await this.deps.store.getGateTicket(plan.stageId, plan.planVersion)) ??
-      (await this.deps.substrate.findWorkItem(this.gateMarker(plan.stageId, plan.planVersion)));
+      (await this.deps.substrate.findWorkItem(gateMarker(plan.stageId, plan.planVersion)));
     if (existing) {
       await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, existing);
       await this.ensureEngagementsGated(plan);
@@ -560,10 +572,10 @@ export class Conductor {
     }
 
     const ticket = await this.deps.substrate.createTicket({
-      markerId: this.gateMarker(plan.stageId, plan.planVersion),
+      markerId: gateMarker(plan.stageId, plan.planVersion),
       // the SLUG names the stage (#28) — two same-kind enterprise stages must
       // never post identically-titled approval tickets
-      title: `Plan approval: ${stageSlugOf(plan.stageId)} stage (v${plan.planVersion})`,
+      title: `Plan approval: ${plan.slug ?? stageSlugOf(plan.stageId)} stage (v${plan.planVersion})`,
       body: this.renderPlanBody(plan, warnings, notes),
     });
     await this.deps.substrate.setLane(ticket, "waiting_for_feedback");
@@ -800,13 +812,14 @@ export class Conductor {
     // Idempotent for held roles; the per-run agent name makes a crashed hire
     // adopt its own registration on re-drive (and recovers bindings after a
     // conductor restart). Runs before any spend: no key is minted for a role
-    // that cannot exist.
-    const stageId = ep.engagementId.replace(/^eng:/, "").replace(/:v\d+$/, "");
-    const run = await this.runContaining(stageId);
+    // that cannot exist. The record's own stageId locates the run (audit
+    // ddd-0: id surgery broke for any second engagement in a stage, silently
+    // skipping the hire decision and degrading the agent name).
+    const run = await this.runContaining(rec.stageId);
     const hire = await this.deps.substrate.hireAgent({
       role: ep.role,
       agentName: `guild-${ep.role}-${run ? run.planId.slice(0, 8) : "adhoc"}`,
-      model: this.config.agentModel ?? "litellm/or-deepseek-v3-2",
+      model: this.config.agentModel,
     });
     if (hire.hired && run) {
       await this.deps.store.appendDecision({
@@ -869,8 +882,8 @@ export class Conductor {
     // Advisory riders have no contract and are never judged (#29): their
     // observations live as ticket comments; a "done" report neither validates
     // nor bounces. They terminate when their stage completes (closeAdvisories).
-    const advisoryPlan = await this.deps.store.getStagePlan(record.stageId, record.planVersion);
-    if (advisoryPlan?.engagements.find((e) => e.engagementId === record.engagementId)?.advisory) return;
+    const reportedPlan = await this.deps.store.getStagePlan(record.stageId, record.planVersion);
+    if (reportedPlan && isAdvisory(reportedPlan, record.engagementId)) return;
     let reported = record;
     const snapshot = await this.deps.substrate.getWorkItem(reported.item!);
     const resolved = await this.resolveReport(reported, snapshot);
@@ -1033,19 +1046,18 @@ export class Conductor {
    */
   private async recordRoleMemory(rec: EngagementRecord): Promise<void> {
     if (!rec.validatedSha) return;
-    // the role comes from the persisted plan's engagement (#28: role overrides
-    // exist); a missing plan means the record predates its plan — skip rather
-    // than attribute memory to a guessed role
+    // the role comes from the persisted plan's engagement — required, not a
+    // nicety: ROLE_BY_KIND knows nothing of enterprise slugs, so only the plan
+    // can attribute memory (#28). A missing plan means the record predates its
+    // plan — skip rather than guess.
     const plan = await this.deps.store.getStagePlan(rec.stageId, rec.planVersion);
     const role = plan?.engagements.find((e) => e.engagementId === rec.engagementId)?.role;
     if (!role) return;
-    // ONE canonical phrasing shared with openStage's run-local lines — the
-    // Set-dedup in openStage only works on exact strings (verify finding).
+    // acceptanceLine is the ONE canonical phrasing (domain/stage.ts) — the
+    // Set-dedup here and openStage's run-local lines depend on byte identity.
     // The 20-line cap silently drops the oldest facts; acceptable: every
-    // acceptance stays queryable in the decisions table forever. The leading
-    // token is the stage SLUG (#28) — byte-identical to the kind for every
-    // pre-#28 row, so existing memory lines keep deduping.
-    const line = `${stageSlugOf(rec.stageId)} ${rec.stageId} accepted at ${rec.validatedSha}`;
+    // acceptance stays queryable in the decisions table forever.
+    const line = acceptanceLine(rec.stageId, rec.validatedSha);
     const lines = (await this.deps.store.getRoleMemory(role))?.split("\n") ?? [];
     if (lines.includes(line)) return;
     lines.push(line);
@@ -1118,7 +1130,7 @@ export class Conductor {
           advanced = true;
           break;
         }
-        if (!(await this.stageComplete(plan))) {
+        if (!(await this.stageCompleteNow(plan))) {
           advanced = true;
           break;
         }
@@ -1163,19 +1175,14 @@ export class Conductor {
     }
   }
 
-  private async stageComplete(plan: StagePlan): Promise<boolean> {
-    let required = 0;
+  /** the domain's completion rule (domain/stage.ts) over current engagement states */
+  private async stageCompleteNow(plan: StagePlan): Promise<boolean> {
+    const states = new Map<string, EngagementState>();
     for (const ep of plan.engagements) {
-      if (ep.advisory) continue; // observe-and-flag riders never gate completion (#29)
-      required++;
       const rec = await this.deps.store.getEngagement(ep.engagementId);
-      if (rec?.state !== "accepted") return false;
+      if (rec) states.set(ep.engagementId, rec.state);
     }
-    // required === 0 (empty stage, or all-advisory) never completes — the same
-    // fail-safe wedge the empty stage always had: a stage that can produce no
-    // acceptable work must stall visibly, never advance silently. A planner
-    // that emits advisory riders must emit ≥ 1 non-advisory engagement too.
-    return required > 0;
+    return stageComplete(plan, (id) => states.get(id));
   }
 
   /**
@@ -1185,8 +1192,7 @@ export class Conductor {
    * concurrent double-cancel a no-op — so the every-tick advance loop is safe.
    */
   private async closeAdvisories(plan: StagePlan): Promise<void> {
-    for (const ep of plan.engagements) {
-      if (!ep.advisory) continue;
+    for (const ep of advisoryRiders(plan)) {
       const rec = await this.deps.store.getEngagement(ep.engagementId);
       if (rec && !TERMINAL_STATES.has(rec.state)) await this.cancelEngagement(rec, "advisory_stage_end");
     }
@@ -1268,7 +1274,7 @@ export class Conductor {
             if (run.ideaItem) await this.openStage(run, index, 1);
             break;
           }
-          if (await this.stageComplete(plan)) continue;
+          if (await this.stageCompleteNow(plan)) continue;
           // #12 review: a crash inside the amend tail leaves the amended
           // decision recorded at the (still-)latest version with no successor
           // plan — first-writer-wins then blocks every comment replay. Detect
@@ -1528,7 +1534,7 @@ export class Conductor {
 
   private renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
     const lines = [
-      `## Stage plan — ${stageSlugOf(plan.stageId)}`,
+      `## Stage plan — ${plan.slug ?? stageSlugOf(plan.stageId)}`,
       "",
       plan.objective,
       "",

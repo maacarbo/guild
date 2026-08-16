@@ -7,10 +7,11 @@ import {
   parseBudgetDirective,
   parseHandoffChecks,
   planBudgetCents,
-  roleFor,
+  roleForEntry,
   type Idea,
   type PlannerConfig,
 } from "./planner.js";
+import { TEMPLATE_CATALOG } from "./templates.js";
 
 const idea: Idea = {
   ideaId: "94440df3",
@@ -25,7 +26,13 @@ describe("the fixed pipeline (D12)", () => {
   });
 
   it("maps the four-role starter team; delivery runs on the implementer", () => {
-    expect(STAGE_ORDER.map(roleFor)).toEqual(["analyst", "architect", "implementer", "tester", "implementer"]);
+    expect(TEMPLATE_CATALOG.standard.stages.map(roleForEntry)).toEqual([
+      "analyst",
+      "architect",
+      "implementer",
+      "tester",
+      "implementer",
+    ]);
   });
 });
 

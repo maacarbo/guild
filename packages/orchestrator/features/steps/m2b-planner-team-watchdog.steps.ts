@@ -218,6 +218,7 @@ Given("the live stack, the four role agents, and a clean governance database", a
       repoUrl: SCRATCH_REPO,
       targetBranch: "main",
       defaultPlanBudgetCents: 100,
+      agentModel: AGENT_MODEL,
     },
   );
   // reconnect on stream drop, mirroring the production bin: a single run()
@@ -478,6 +479,7 @@ When("the budget watchdog sweeps under a one-cent project hard cap", async () =>
       repoUrl: SCRATCH_REPO,
       targetBranch: "main",
       defaultPlanBudgetCents: 100,
+      agentModel: AGENT_MODEL,
       projectBudget: { projectId: world.workspaceId, softCapCents: 1, hardCapCents: 1 },
     },
   );
