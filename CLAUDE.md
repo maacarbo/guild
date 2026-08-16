@@ -1,14 +1,15 @@
 # Guild — Development Guidelines
 
-Guild is an open-source autonomous-SDLC governance layer driving a self-hosted Multica execution substrate (stages, approval gates, handoff contracts, budget enforcement). Read these before writing code; they are normative. Architecture rationale lives in `docs/ARCHITECTURE.md` (decision records D1–D15); this file operationalizes it.
+Guild is an open-source autonomous-SDLC governance layer driving a self-hosted Multica execution substrate (stages, approval gates, handoff contracts, budget enforcement). Read these before writing code; they are normative. Architecture rationale lives in `docs/ARCHITECTURE.md` (decision records, D1 onward); this file operationalizes it.
 
 | Doc | Contents |
 |---|---|
 | `docs/PRODUCT.md` | Vision, flows, MVP cut |
-| `docs/ARCHITECTURE.md` | Decision records D1–D15, engagement lifecycle, deployment topology |
+| `docs/ARCHITECTURE.md` | Decision records (D1 onward), engagement lifecycle, deployment topology |
+| `docs/AGENT-MANUAL.md` | Agent-facing how-tos with CI-checked coverage markers |
 | `docs/OVERVIEW.md` | Component map and data/event flows (derived; read for cross-package context) |
 | `docs/ROADMAP.md` | Milestones M0–M4 with acceptance criteria |
-| `docs/VALIDATION-*.md`, `docs/research/` | Historical evidence records — never edit |
+| `docs/VALIDATION-*.md`, `docs/research/` | Historical evidence records — append dated addenda only; never revise existing text |
 
 ## Architecture: hexagonal (ports & adapters) — D7
 

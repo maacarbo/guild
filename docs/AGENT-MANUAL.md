@@ -3,9 +3,11 @@
 The canonical, machine-readable how-to for operating Guild. Guild's users are
 partly agents by design: hand this file to any agent (or human) and it can
 drive the product end to end — submit ideas, govern gates, read verdicts,
-halt spend. Every how-to below is **backed by an executed test or check**,
-named in an HTML marker; CI fails if a how-to names a covering file that does
-not exist or is not executed (`packages/orchestrator/src/adapters/agent-manual.test.ts`).
+halt spend. Every how-to below **names its covering test or check** in an
+HTML marker; CI verifies each named file exists and is an executed artifact
+(`packages/orchestrator/src/adapters/agent-manual.test.ts`) — live-stack
+covers (`*.feature`, `*.steps.ts`, `doctor.sh`) run under `pnpm smoke`, not
+in CI.
 
 Vocabulary (normative, from `docs/PRODUCT.md` / `docs/ARCHITECTURE.md`): an
 **idea** becomes a staged **plan**; each **stage** posts a **gate** the
@@ -148,7 +150,7 @@ ticket to `cancelled` — a new idea is a new ticket.
 
 <!-- howto: read-verdict | covered-by: packages/orchestrator/features/steps/m2b-planner-team-watchdog.steps.ts -->
 
-The engagement ticket (marker value `eng:stg:<ideaId>:<kind>:v<n>`, same
+The engagement ticket (marker value `eng:stg:<ideaId>:<stageSlug>:v<n>`, same
 `guild:engagement=` key as every Guild ticket) is the progress surface: the
 agent's report lands as a comment; the conductor validates the pushed branch
 against the contract in the Tier 1 sandbox and comments the verdict.
