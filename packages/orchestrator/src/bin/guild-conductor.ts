@@ -13,7 +13,7 @@ import { LiteLlmModelGateway } from "../adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../adapters/pg-governance-store.js";
 import { createContractValidator } from "../index.js";
 import { redactUrlCredentials } from "../domain/redact.js";
-import { envNameEnv, intEnv, readEnv } from "./env.js";
+import { envNameEnv, hostEnv, intEnv, readEnv } from "./env.js";
 
 const env = readEnv([
   { name: "GUILD_MULTICA_URL", source: "compose service URL, e.g. http://multica-backend:8080" },
@@ -32,6 +32,8 @@ const env = readEnv([
   // #6 (D17): the NAME of the daemon-env var holding this project's git token —
   // name-indirection: the value lives only in the daemon container's env
   { name: "GUILD_GIT_CRED_NAME", source: "per-project git credential env NAME in the daemon (D17)", optional: true },
+  // audit clean-1: pins that token to one request host in the daemon's helper
+  { name: "GUILD_GIT_CRED_HOST", source: "host the per-project token is scoped to (D17, optional)", optional: true },
   { name: "GUILD_PROJECT_SOFT_CAP_CENTS", source: "project soft cap (watchdog warn)", optional: true },
   { name: "GUILD_PROJECT_HARD_CAP_CENTS", source: "project hard cap (watchdog halt)", optional: true },
   { name: "GUILD_VALIDATOR_IMAGE", source: "sandbox image for contract checks", fallback: "node:22-alpine" },
@@ -42,6 +44,11 @@ const env = readEnv([
 ]);
 
 const gitCredName = envNameEnv(env, "GUILD_GIT_CRED_NAME");
+const gitCredHost = hostEnv(env, "GUILD_GIT_CRED_HOST");
+if (gitCredHost && !gitCredName) {
+  console.error("GUILD_GIT_CRED_HOST is set but GUILD_GIT_CRED_NAME is not — a host scope without a token name scopes nothing (D17).");
+  process.exit(1);
+}
 const soft = env.GUILD_PROJECT_SOFT_CAP_CENTS ? intEnv(env, "GUILD_PROJECT_SOFT_CAP_CENTS") : undefined;
 const hard = env.GUILD_PROJECT_HARD_CAP_CENTS ? intEnv(env, "GUILD_PROJECT_HARD_CAP_CENTS") : undefined;
 if ((soft === undefined) !== (hard === undefined)) {
@@ -102,7 +109,9 @@ async function main(): Promise<void> {
       roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,
       selfMemberId,
       operatorMemberIds,
-      ...(gitCredName ? { engagementEnv: { GUILD_GIT_CRED: gitCredName } } : {}),
+      ...(gitCredName
+        ? { engagementEnv: { GUILD_GIT_CRED: gitCredName, ...(gitCredHost ? { GUILD_GIT_CRED_HOST: gitCredHost } : {}) } }
+        : {}),
     },
   );
   const store = await PgGovernanceStore.connect(env.GUILD_POSTGRES_URL);
