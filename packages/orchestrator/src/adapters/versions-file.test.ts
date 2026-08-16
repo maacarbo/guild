@@ -40,6 +40,9 @@ describe("one versions file (#14)", () => {
       expect(m[1]).toBe(v.MULTICA_VERSION);
     }
     expect([...compose.matchAll(/\$\{MULTICA_VERSION:-([^}]+)\}/g)].length).toBeGreaterThanOrEqual(3);
+    // presence guard (audit tdd-5): a loop over zero matches asserts nothing —
+    // removing or renaming the interpolation must go red, not vacuously green
+    expect([...compose.matchAll(/\$\{OPENCODE_VERSION:-([^}]+)\}/g)].length).toBeGreaterThanOrEqual(1);
     for (const m of compose.matchAll(/\$\{OPENCODE_VERSION:-([^}]+)\}/g)) {
       expect(m[1]).toBe(v.OPENCODE_VERSION);
     }

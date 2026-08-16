@@ -121,8 +121,15 @@ After(async () => {
   await world.store?.close().catch(() => undefined);
   // #27: with the smoke on its own database, the compose conductor has no
   // plan-run row for the demo idea — a live leftover would be re-adopted as a
-  // fresh idea on the next reconcile; cancel it board-side
-  if (world.ideaId) await operatorMovesTicket(world.ideaId, "cancelled").catch(() => undefined);
+  // fresh idea on the next reconcile; cancel it board-side. Best-effort but
+  // never invisible (audit clean-11): the operator must know to cancel by hand.
+  if (world.ideaId) {
+    await operatorMovesTicket(world.ideaId, "cancelled").catch((e) =>
+      console.error(
+        `! smoke cleanup: could not cancel idea ${world.ideaId} — cancel it board-side or the next reconcile re-adopts it: ${e instanceof Error ? e.message : e}`,
+      ),
+    );
+  }
 });
 
 Given("the live stack, the four role agents, and a clean governance database", async () => {
