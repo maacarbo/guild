@@ -34,6 +34,12 @@ describe("the fixed pipeline (D12)", () => {
       "implementer",
     ]);
   });
+
+  it("an entry's explicit role override wins over the kind default (#28 catalog data)", () => {
+    expect(roleForEntry({ slug: "compliance-review", kind: "analysis", budgetPct: 10, role: "security-reviewer" })).toBe(
+      "security-reviewer",
+    );
+  });
 });
 
 describe("budget allocation is mechanical (D12)", () => {
@@ -320,6 +326,31 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
     const { plan } = deriveStagePlan(enterprise, config, "business-analysis", 1);
     expect(plan.engagements[0]!.brief.contract.authoredBy).toBe("operator");
     expect(plan.budgetCents).toBe(100); // 10% of $10.00
+  });
+});
+
+describe("floor gherkin is pinned verbatim — the human-readable half of every contract (audit bdd-3)", () => {
+  it("classic template: byte-identical to the pre-#28 kind/role text", () => {
+    const { plan } = deriveStagePlan(idea, config, "implementation", 1);
+    expect(plan.engagements[0]!.brief.contract.gherkin).toBe(
+      [
+        'Feature: implementation stage of "Idea: word-count utility"',
+        "  Scenario: the implementer hands off implementation work that satisfies the contract checks",
+        '    Given the approved stage plan for "Idea: word-count utility"',
+        "    When the implementer reports done",
+        "    Then every contract check passes against the pushed engagement branch",
+      ].join("\n"),
+    );
+  });
+
+  it("enterprise: the slug and the entry's role name the stage — two analysis-kind floors read distinctly", () => {
+    const enterprise = { ...idea, body: "A big idea.\ntemplate: enterprise" };
+    const biz = deriveStagePlan(enterprise, config, "business-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
+    const tech = deriveStagePlan(enterprise, config, "technical-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
+    expect(biz).toContain('Feature: business-analysis stage of "Idea: word-count utility"');
+    expect(biz).toContain("Scenario: the analyst hands off business-analysis work that satisfies the contract checks");
+    expect(tech).toContain('Feature: technical-analysis stage of "Idea: word-count utility"');
+    expect(biz).not.toBe(tech);
   });
 });
 

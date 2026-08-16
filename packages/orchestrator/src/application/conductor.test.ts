@@ -715,6 +715,38 @@ describe("template: directive shapes the plan run (M3, D12 amendment)", () => {
     expect(run?.stageIds).toEqual(["stg:idea-qf:implementation", "stg:idea-qf:test"]);
     expect(await w.substrate.findWorkItem("gate:stg:idea-qf:implementation:v1"), "first gate is implementation").toBeTruthy();
   });
+
+  it("an enterprise idea runs six slug-identified stages: distinct same-kind gate titles, slugged role memory (audit tdd-1/tdd-2)", async () => {
+    const w = makeWorld();
+    const body = "Big delivery.\ntemplate: enterprise";
+    const idea = seedIdea(w, "idea-ent", "Idea: big delivery", body);
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: big delivery", body));
+    expect((await w.store.getPlanRun("idea-ent"))?.stageIds).toEqual([
+      "stg:idea-ent:business-analysis",
+      "stg:idea-ent:technical-analysis",
+      "stg:idea-ent:architecture-security",
+      "stg:idea-ent:implementation",
+      "stg:idea-ent:test",
+      "stg:idea-ent:delivery",
+    ]);
+    const gate1 = (await w.substrate.findWorkItem("gate:stg:idea-ent:business-analysis:v1"))!;
+    const title1 = (await w.substrate.getWorkItem(gate1)).title;
+    expect(title1).toBe("Plan approval: business-analysis stage (v1)");
+
+    await driveStageToAccepted(w, "stg:idea-ent:business-analysis", "agent/analyst/ba1", "sha-ba");
+
+    // the second analysis-KIND stage must never post an identically-titled gate (#28)
+    const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-ent:technical-analysis:v1"))!;
+    const title2 = (await w.substrate.getWorkItem(gate2)).title;
+    expect(title2).toBe("Plan approval: technical-analysis stage (v1)");
+    expect(title2).not.toBe(title1);
+
+    // role memory and prior decisions key on the SLUG, attributed via the plan's role
+    const line = "business-analysis stg:idea-ent:business-analysis accepted at sha-ba";
+    expect(await w.store.getRoleMemory("analyst")).toBe(line);
+    const ta = (await w.store.getLatestStagePlan("stg:idea-ent:technical-analysis"))!;
+    expect(ta.engagements[0]!.brief.priorDecisions).toContain(line);
+  });
 });
 
 describe("amend-while-down recovery (#12: reconcile consults gate comments)", () => {
@@ -1252,10 +1284,13 @@ describe("advisory engagements (#29: observe-and-flag riders never gate completi
       report: { summary: "observed drift", branchHint: "agent/monitor/m1", attemptId: "m1-run1" },
     });
     await w.conductor.handleEvent(statusEv(item, "done"));
-    const state = (await w.store.getEngagement(advisoryId))?.state;
-    expect(state).not.toBe("validated");
-    expect(state).not.toBe("bounced");
-    expect(state).not.toBe("escalated");
+    // positive assertions (audit tdd-6): the report LANDED (reported, not a
+    // silent no-op) and the decision trail carries no verdict for the rider
+    expect((await w.store.getEngagement(advisoryId))?.state).toBe("reported");
+    const verdicts = (await w.store.listDecisions()).filter(
+      (d) => d.kind === "verdict" && d.engagementId === advisoryId,
+    );
+    expect(verdicts).toHaveLength(0);
   });
 
   it("a second engagement in a stage hires with full provenance — run from the record, never id surgery (audit ddd-0)", async () => {
@@ -1327,8 +1362,10 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
     expect(arch.engagements[0]!.brief.contract.authoredBy).toBe("guild-floor");
     const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
     expect((await w.substrate.getWorkItem(gate2)).title).toContain("architecture");
-    const body = w.substrate.items.get(gate2.externalId);
-    expect(body).toBeTruthy();
+    // the warning must actually render in the gate body (audit tdd-3: the old
+    // assertion re-checked an item already proven non-null — it could not fail)
+    const body = w.substrate.ticketBodies.get(gate2.externalId) ?? "";
+    expect(body).toContain("No valid upstream handoff at guild/handoff/architecture.checks.json");
   });
 
   it("rejecting a stage gate closes the whole run with an explanation on the idea ticket", async () => {
@@ -1879,9 +1916,6 @@ describe("the gate body renders the WHOLE contract (D12: approval covers content
     );
     await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-a");
     const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
-    const stored = w.substrate.items.get(gate2.externalId);
-    expect(stored).toBeTruthy();
-    // the fake keeps only title; assert via the createTicket capture instead
     const body = w.substrate.ticketBodies.get(gate2.externalId) ?? "";
     expect(body).toContain("sneaky upstream criteria");
   });
