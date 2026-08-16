@@ -15,7 +15,7 @@
  */
 
 import { acquireMemberToken, ensureAgent, ensureWorkspaceMember, markOnboarded } from "@guild/substrate-multica";
-import { provisionTeam, STARTER_ROLES } from "../application/provision-team.js";
+import { IdentityCollapseError, provisionTeam, STARTER_ROLES } from "../application/provision-team.js";
 import type { TeamProvisioner } from "../ports/team-provisioner.js";
 import { readEnv } from "./env.js";
 
@@ -65,6 +65,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error(e);
+  // the D15 refusal is an operator diagnostic, not a crash — no stack trace
+  if (e instanceof IdentityCollapseError) console.error(`\n✗ ${e.message} — aborting`);
+  else console.error(e);
   process.exit(1);
 });

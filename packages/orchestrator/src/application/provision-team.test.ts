@@ -102,6 +102,7 @@ describe("provisionTeam (D15 identity partition + D16 starter team)", () => {
     port.identities.set("daemon@guild.local", shared);
 
     await expect(provisionTeam(port, input)).rejects.toThrow(IdentityCollapseError);
+    expect(port.memberCalls).toEqual([]);
     expect(port.onboardedTokens).toEqual([]);
     expect(port.agentCalls).toEqual([]);
   });

@@ -44,20 +44,21 @@ export interface ProvisionedTeam {
 export async function provisionTeam(port: TeamProvisioner, input: ProvisionTeamInput): Promise<ProvisionedTeam> {
   const operator = await port.acquireMemberToken(input.operatorEmail, "guild-operator-token.json");
   const conductor = await port.acquireMemberToken("conductor@guild.local", "guild-conductor-token.json");
+  const daemon = await port.acquireMemberToken("daemon@guild.local", "guild-daemon-token.json");
+
+  const ids = { operator: operator.memberId, conductor: conductor.memberId, daemon: daemon.memberId };
+  if (new Set(Object.values(ids)).size !== 3) throw new IdentityCollapseError(ids);
+
   await port.ensureWorkspaceMember(operator.token, input.workspaceId, {
     token: conductor.token,
     email: "conductor@guild.local",
     role: "admin",
   });
-  const daemon = await port.acquireMemberToken("daemon@guild.local", "guild-daemon-token.json");
   await port.ensureWorkspaceMember(operator.token, input.workspaceId, {
     token: daemon.token,
     email: "daemon@guild.local",
     role: "admin",
   });
-
-  const ids = { operator: operator.memberId, conductor: conductor.memberId, daemon: daemon.memberId };
-  if (new Set(Object.values(ids)).size !== 3) throw new IdentityCollapseError(ids);
 
   const onboarding: ProvisionedTeam["onboarding"] = [];
   for (const [identity, token] of [
