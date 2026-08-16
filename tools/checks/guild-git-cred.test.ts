@@ -34,10 +34,15 @@ beforeEach(() => {
 });
 
 function run(op: string, env: Record<string, string> = {}, input = GET_REQUEST): string {
-  return execFileSync("sh", [helper, op], {
-    env: { PATH: process.env.PATH!, HOME: home, ...env },
+  // stdin arrives through a shell pipeline, the way git itself feeds a
+  // credential helper: the helper legitimately exits without reading stdin on
+  // its short-circuit paths, and writing `input` directly from the test
+  // process raced that exit into flaky spawnSync EPIPE failures — in the
+  // pipeline, SIGPIPE quietly ends printf and the pipeline's status is the
+  // helper's own.
+  return execFileSync("sh", ["-c", 'printf %s "$GUILD_TEST_STDIN" | sh "$1" "$2"', "sh", helper, op], {
+    env: { PATH: process.env.PATH!, HOME: home, GUILD_TEST_STDIN: input, ...env },
     cwd: home,
-    input,
     encoding: "utf8",
   });
 }
