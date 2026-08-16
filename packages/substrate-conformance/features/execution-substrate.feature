@@ -1,6 +1,8 @@
 # Scenarios for the ExecutionSubstrate port contract (D8). Executed by the
 # conformance suite in src/index.ts (vitest, against the live Tier 1 stack);
-# each scenario name maps 1:1 to a suite test. Traces to ROADMAP M1b.
+# every suite test is named by a scenario (a scenario may cover several
+# closely-related tests). Traces to ROADMAP M1b; the team-evolution and
+# engagement-key scenarios trace to ROADMAP M3's conformance-suite extension.
 
 Feature: Execution substrate conformance
   Guild's conductor drives any execution substrate through one port. An
@@ -64,3 +66,25 @@ Feature: Execution substrate conformance
     When the conductor moves a ticket to the waiting-for-feedback lane
     Then a lane_moved event arrives over the watch stream
     And it is attributed to the conductor, never to the operator
+
+  Scenario: Idea-detection reads surface content, creator, and marker
+    When the conductor snapshots a work item
+    Then the snapshot carries the body content, the creator attribution, and the marker surface
+
+  Scenario: Item creation surfaces as an item_created event with creator attribution
+    When a work item is created in the project scope
+    Then an item_created event arrives over the watch stream naming its creator
+
+  Scenario: Hiring makes a role dispatchable and retiring withdraws it one-way
+    When the conductor hires an agent for a role the plan demands and later retires it
+    Then the role is dispatchable between hire and retire and refused after
+    And the agent's history survives retirement
+
+  Scenario: Retirement converges across a conductor restart
+    When a fresh conductor process retires the role using only the governance-trail hint
+    Then the retirement lands exactly once, and a crash re-drive still reports it
+
+  Scenario: An engagement key binds a role's work to a gateway credential
+    When the conductor binds an engagement key for a hired role
+    Then re-binding the same key is a no-op, never an error
+    And binding a key for an unbound role classifies as an unsupported capability

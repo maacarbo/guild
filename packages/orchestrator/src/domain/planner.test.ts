@@ -327,6 +327,21 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
     expect(plan.engagements[0]!.brief.contract.authoredBy).toBe("operator");
     expect(plan.budgetCents).toBe(100); // 10% of $10.00
   });
+
+  it("enterprise floors discriminate same-kind stages — a stage's contract must be satisfiable only by ITS work (audit bdd-0)", () => {
+    const checksOf = (slug: string) =>
+      deriveStagePlan(enterprise, config, slug, 1).plan.engagements[0]!.brief.contract.checks;
+    const biz = checksOf("business-analysis");
+    const tech = checksOf("technical-analysis");
+    const arch = checksOf("architecture-security");
+    // technical-analysis requires a section business-analysis cannot have
+    // written — without it, acceptance fast-forward makes its floor
+    // auto-satisfied by the previous stage's SPEC.md
+    expect(tech).toContainEqual({ kind: "artifact", path: "docs/SPEC.md", mustContain: "## Technical constraints" });
+    expect(tech).not.toEqual(biz);
+    // the security flavor's mission mandates ## Security — the floor verifies it
+    expect(arch).toContainEqual({ kind: "artifact", path: "docs/DESIGN.md", mustContain: "## Security" });
+  });
 });
 
 describe("floor gherkin is pinned verbatim — the human-readable half of every contract (audit bdd-3)", () => {

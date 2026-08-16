@@ -38,6 +38,8 @@ describe("the template catalog is fixed data (D12 amendment; #28 slug/kind split
     expect(Object.isFrozen(TEMPLATE_CATALOG.standard)).toBe(true);
     expect(Object.isFrozen(TEMPLATE_CATALOG.standard.stages)).toBe(true);
     expect(Object.isFrozen(TEMPLATE_CATALOG.enterprise.stages[0])).toBe(true);
+    expect(Object.isFrozen(TEMPLATE_CATALOG.enterprise.stages[1]!.floor)).toBe(true);
+    expect(Object.isFrozen(TEMPLATE_CATALOG.enterprise.stages[1]!.floor![0])).toBe(true);
     expect(Object.isFrozen(ROLE_TEMPLATES)).toBe(true);
   });
 

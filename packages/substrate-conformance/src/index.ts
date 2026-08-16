@@ -363,6 +363,26 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
       });
     });
 
+    it("bindEngagementKey routes a role through the given credential — idempotent; an unbound role classifies (D2, audit tdd-4)", async () => {
+      const e = await env();
+      // a disposable hire of its own: binding must never touch the shared
+      // worker agent's env — the completion scenario still needs a WORKING key
+      const agentName = `conf-bind-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      await e.substrate.hireAgent({ role: e.hirableRole, agentName, model: e.hireModel });
+      await e.substrate.bindEngagementKey(e.hirableRole, "conf-key-bind-1");
+      // re-bind of the same key is a no-op, never an error (dispatch-saga re-drive)
+      await e.substrate.bindEngagementKey(e.hirableRole, "conf-key-bind-1");
+      try {
+        await e.substrate.bindEngagementKey(e.unknownRole, "conf-key-bind-2");
+        expect.unreachable("binding an unbound role must classify, not succeed");
+      } catch (err) {
+        expect(isSubstrateError(err), "a classified SubstrateError").toBe(true);
+        if (isSubstrateError(err)) expect(err.category).toBe("unsupported_capability");
+      }
+      // leave the environment as found
+      await e.substrate.retireAgent(e.hirableRole, {});
+    });
+
     it("an agent completes a work item: status events over watch, done snapshot, work report", async () => {
       const e = await env();
       const events: SubstrateEvent[] = [];

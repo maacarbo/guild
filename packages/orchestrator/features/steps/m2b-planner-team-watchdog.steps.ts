@@ -132,7 +132,7 @@ After(async () => {
   }
 });
 
-Given("the live stack, the four role agents, and a clean governance database", async () => {
+Given("the live stack, the four role agents, a clean governance database, and an empty product repository", async () => {
   const health = await (await fetch(`${MULTICA_URL}/healthz`)).json();
   assert.equal(health.status, "ok", "multica backend healthy");
 

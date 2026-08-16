@@ -215,6 +215,17 @@ function floorChecks(kind: StageKind): ContractCheck[] {
   }
 }
 
+/**
+ * An entry's acceptance floor: the catalog's per-entry override, else the
+ * kind's floor (#28 catalog data; audit bdd-0 — same-kind stages need
+ * discriminating floors or acceptance fast-forward auto-satisfies the later
+ * stage's contract with the earlier stage's artifact).
+ */
+function floorChecksFor(entry: StageEntry): ContractCheck[] {
+  if (!entry.floor) return floorChecks(entry.kind);
+  return entry.floor.map((f) => ({ kind: "artifact", path: f.path, mustContain: f.mustContain }));
+}
+
 function floorGherkin(entry: StageEntry, idea: Idea): string {
   // slug and entry role (#28) — byte-identical to the old kind/role text for
   // classic templates, distinct per stage for enterprise
@@ -367,7 +378,7 @@ export function deriveStagePlan(
   // business-analysis, not the analysis kind per se
   const isFirst = template.stages[0]?.slug === entry.slug;
   let authoredBy = isFirst ? "operator" : "guild-floor";
-  let checks = floorChecks(kind);
+  let checks = floorChecksFor(entry);
   let gherkin = floorGherkin(entry, idea);
   if (opts.upstream) {
     if (opts.upstream.handoff) {
