@@ -1,16 +1,21 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { markOnboarded } from "./multica-provisioning.js";
 
-describe("markOnboarded (#16)", () => {
-  afterEach(() => vi.unstubAllGlobals());
+// the transport is injected, never a stubbed global (audit tdd-9): the fake
+// below is ours to shape, and production callers omit it to get real fetch
+function fakeFetch(status: number, body = "{}") {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const impl = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    return new Response(body, { status });
+  }) as typeof fetch;
+  return { calls, impl };
+}
 
+describe("markOnboarded (#16)", () => {
   it("POSTs the onboarding completion route with the account's bearer token", async () => {
-    const calls: { url: string; init: RequestInit }[] = [];
-    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
-      return new Response("{}", { status: 200 });
-    });
-    await markOnboarded("http://multica.local:8080", "mul_token_1");
+    const { calls, impl } = fakeFetch(200);
+    await markOnboarded("http://multica.local:8080", "mul_token_1", impl);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe("http://multica.local:8080/api/me/onboarding/complete");
     expect(calls[0]!.init.method).toBe("POST");
@@ -18,7 +23,7 @@ describe("markOnboarded (#16)", () => {
   });
 
   it("propagates an API failure — the caller decides whether it is fatal", async () => {
-    vi.stubGlobal("fetch", async () => new Response("nope", { status: 500 }));
-    await expect(markOnboarded("http://multica.local:8080", "t")).rejects.toThrow(/500/);
+    const { impl } = fakeFetch(500, "nope");
+    await expect(markOnboarded("http://multica.local:8080", "t", impl)).rejects.toThrow(/500/);
   });
 });

@@ -42,6 +42,7 @@ describe("the fixed pipeline (D12)", () => {
   });
 });
 
+// howto: budget-reference — the manual's budget-directive syntax is what this parses
 describe("budget allocation is mechanical (D12)", () => {
   it("uses the configured default when the idea names no budget", () => {
     expect(planBudgetCents(idea, config)).toBe(1000);

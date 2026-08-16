@@ -6,9 +6,12 @@
  *
  *   <!-- howto: <kebab-id> | covered-by: <repo-relative path>[, <path>…] -->
  *
- * CI fails when a how-to names no covering file, names one that does not
- * exist, or names one that is not an executed test/check — so the manual
- * cannot drift from behavior without a red build.
+ * CI fails when a how-to names a covering file that does not exist, names
+ * one that is not an executed test/check, or names only files that never
+ * mention the how-to's id (audit tdd-7: existence alone proved nothing —
+ * the id token is the bidirectional link, so renaming or deleting the
+ * backing goes red) — the manual cannot drift from behavior without a red
+ * build.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -20,7 +23,7 @@ const manualPath = join(repoRoot, "docs", "AGENT-MANUAL.md");
 
 const MARKER = /<!--\s*howto:\s*([a-z0-9-]+)\s*\|\s*covered-by:\s*([^>]+?)\s*-->/g;
 /** an executed test or check: vitest specs, cucumber step definitions + features, doctor */
-const EXECUTED = /\.(test\.ts|live\.test\.ts|steps\.ts|feature)$|(^|\/)doctor\.sh$/;
+const EXECUTED = /\.(test\.ts|steps\.ts|feature)$|(^|\/)doctor\.sh$/;
 
 function markers(): { id: string; coveredBy: string[] }[] {
   const text = readFileSync(manualPath, "utf8");
@@ -43,11 +46,20 @@ describe("agent manual drift gate (#7)", () => {
 
   it("every how-to names at least one existing, executed covering file", () => {
     for (const { id, coveredBy } of markers()) {
-      expect(coveredBy.length, `howto ${id} names no covering file`).toBeGreaterThan(0);
       for (const rel of coveredBy) {
         expect(existsSync(join(repoRoot, rel)), `howto ${id}: ${rel} does not exist`).toBe(true);
         expect(EXECUTED.test(rel), `howto ${id}: ${rel} is not an executed test/check`).toBe(true);
       }
+    }
+  });
+
+  it("every how-to's id appears as a literal token in a covering file — existence alone is not coverage", () => {
+    for (const { id, coveredBy } of markers()) {
+      const mentioned = coveredBy.some((rel) => {
+        const p = join(repoRoot, rel);
+        return existsSync(p) && readFileSync(p, "utf8").includes(id);
+      });
+      expect(mentioned, `howto ${id}: no covering file mentions "${id}"`).toBe(true);
     }
   });
 

@@ -243,6 +243,7 @@ Given("the live stack, the four role agents, a clean governance database, and an
   })();
 });
 
+// howto: submit-idea — posting an idea ticket is the operator entry point
 When("the operator posts the demo idea as a board ticket", async () => {
   const res = await operatorApi("POST", "/api/issues", {
     title: "Demo: word-count CLI",
@@ -281,6 +282,7 @@ Then("the conductor answers with an analysis plan gate awaiting feedback", async
   assert.equal(plan?.budgetCents, 150, "analysis v1 carries the mechanical allocation (15% of 1000¢)");
 });
 
+// howto: amend-gate — a fresh operator comment on the open gate supersedes the plan
 When("the operator amends the analysis plan with a budget directive", async () => {
   const res = await operatorApi("POST", `/api/issues/${world.gateV1!.externalId}/comments`, {
     // C4 grammar (#12): a budget: directive must be its own line — prose
@@ -306,6 +308,7 @@ Then("a version-2 analysis gate supersedes the first", async () => {
   assert.equal((await world.substrate!.getWorkItem(world.gateV1!)).lane, "cancelled", "v1 gate off-board");
 });
 
+// howto: approve-gate + howto: accept-stage — the two operator board moves that advance a stage
 When(
   "the operator approves each stage gate and accepts each validated stage",
   { timeout: 60 * 60 * 1000 },
@@ -374,6 +377,7 @@ Then(
   },
 );
 
+// howto: read-verdict — validation verdicts are what the decision trail exposes to the operator
 Then("the decision trail records five gated stages with zero un-contracted advances", async () => {
   const ds = await world.store!.listDecisions();
   const stageIds = STAGE_ORDER.map((kind) => stageIdOf(world.ideaId, kind));

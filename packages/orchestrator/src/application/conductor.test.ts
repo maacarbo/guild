@@ -1852,6 +1852,7 @@ describe("gate decisions are exclusive — losers of the race act on what actual
   });
 });
 
+// howto: emergency-stop — `guild kill` is the operator's hard stop
 describe("emergency stop (guild kill — D11 scope)", () => {
   it("locks dispatch FIRST, then cancels every spending engagement", async () => {
     const w = makeWorld();
