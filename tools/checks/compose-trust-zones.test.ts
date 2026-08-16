@@ -61,8 +61,16 @@ describe("compose network trust zones (#57)", () => {
   it("the override's publish rides a dev-only harness network — NEVER guild-dev, which would hand the daemon its route back (live-proven 2026-08-16)", () => {
     expect(devCompose).toMatch(/guild-postgres:\n(?:.*\n)*?    networks: \[guild-data, guild-harness\]/);
     expect(devCompose).not.toMatch(/networks: \[[^\]]*guild-dev[^\]]*\]/);
-    // the harness net exists, is not internal, and only guild-postgres joins it
+    // the harness net exists and is not internal (it exists to publish)
     expect(devCompose).toMatch(/^networks:\n(?:.*\n)*?  guild-harness:/m);
     expect(devCompose).not.toMatch(/guild-harness:\n(?:    .*\n)*?    internal: true/);
+  });
+
+  it("guild-postgres is the ONLY service on guild-harness — an override-added leg is a route back to the DB (verify #57: compose UNIONS override network lists, so the base assertions cannot see it)", () => {
+    const joins = [...devCompose.matchAll(/^    networks: \[([^\]]*)\]/gm)].filter((m) => m[1]!.includes("guild-harness"));
+    expect(joins).toHaveLength(1);
+    // exactly one service-level networks list exists in the override at all —
+    // any second service stanza acquiring networks here deserves a human look
+    expect([...devCompose.matchAll(/^    networks: /gm)]).toHaveLength(1);
   });
 });

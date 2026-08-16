@@ -118,8 +118,10 @@ services:
       POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:?set in .env}
     # No host port, and guild-data only (#57): databases are stack-internal
     # (security floor). The host-side dev harness (pnpm smoke / live tests)
-    # adds a loopback port via docker-compose.dev.yml, which dual-homes this
-    # service onto guild-dev because an internal network cannot publish.
+    # adds a loopback port via docker-compose.dev.yml, dual-homing this
+    # service onto the dev-only guild-harness network (an internal network
+    # cannot publish) — NEVER onto guild-dev, which would hand the daemon
+    # its DB route back.
     volumes:
       - guild_pgdata:/var/lib/postgresql/data
     networks: [guild-data]
