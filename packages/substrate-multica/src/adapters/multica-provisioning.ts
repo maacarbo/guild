@@ -52,9 +52,9 @@ export async function api<T>(
   baseUrl: string,
   method: string,
   path: string,
-  opts: { token?: string; workspaceId?: string; body?: unknown } = {},
+  opts: { token?: string; workspaceId?: string; body?: unknown; fetchImpl?: typeof fetch } = {},
 ): Promise<T> {
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await (opts.fetchImpl ?? fetch)(`${baseUrl}${path}`, {
     method,
     headers: {
       ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
@@ -77,11 +77,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * requesting another code"), so we try verify-code against a possibly-still-
  * valid code row first, and wait out the cooldown only as a last resort.
  */
-export async function acquireTokenAt(baseUrl: string, email: string, cachePath: string): Promise<string> {
+export async function acquireTokenAt(
+  baseUrl: string,
+  email: string,
+  cachePath: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
   try {
     const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { baseUrl: string; token: string };
     if (cached.baseUrl === baseUrl && cached.token) {
-      const me = await fetch(`${baseUrl}/api/me`, { headers: { authorization: `Bearer ${cached.token}` } });
+      const me = await fetchImpl(`${baseUrl}/api/me`, { headers: { authorization: `Bearer ${cached.token}` } });
       if (me.ok) return cached.token;
     }
   } catch {
@@ -90,7 +95,7 @@ export async function acquireTokenAt(baseUrl: string, email: string, cachePath: 
 
   const code = devVerificationCode();
   const tryVerify = () =>
-    api<{ token: string }>(baseUrl, "POST", "/auth/verify-code", { body: { email, code } }).then(
+    api<{ token: string }>(baseUrl, "POST", "/auth/verify-code", { body: { email, code }, fetchImpl }).then(
       (r) => r.token,
       () => null,
     );
@@ -99,7 +104,7 @@ export async function acquireTokenAt(baseUrl: string, email: string, cachePath: 
   if (!jwt) {
     const deadline = Date.now() + 90_000;
     for (;;) {
-      const res = await fetch(`${baseUrl}/auth/send-code`, {
+      const res = await fetchImpl(`${baseUrl}/auth/send-code`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email }),
@@ -117,6 +122,7 @@ export async function acquireTokenAt(baseUrl: string, email: string, cachePath: 
   const { token } = await api<{ token: string }>(baseUrl, "POST", "/api/tokens", {
     token: jwt,
     body: { name: `guild-live-${new Date().toISOString().slice(0, 19)}` },
+    fetchImpl,
   });
   mkdirSync(dirname(cachePath), { recursive: true });
   writeFileSync(cachePath, JSON.stringify({ baseUrl, token }), { mode: 0o600 });
@@ -132,9 +138,10 @@ export async function acquireMemberToken(
   baseUrl: string,
   email: string,
   cacheName: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ token: string; memberId: string }> {
-  const token = await acquireTokenAt(baseUrl, email, join(repoRoot(), ".cache", cacheName));
-  const { id } = await api<{ id: string }>(baseUrl, "GET", "/api/me", { token });
+  const token = await acquireTokenAt(baseUrl, email, join(repoRoot(), ".cache", cacheName), fetchImpl);
+  const { id } = await api<{ id: string }>(baseUrl, "GET", "/api/me", { token, fetchImpl });
   return { token, memberId: id };
 }
 
@@ -147,8 +154,8 @@ export async function acquireMemberToken(
  * the PATCH questionnaire route never does). Idempotent on an already
  * onboarded account.
  */
-export async function markOnboarded(baseUrl: string, token: string): Promise<void> {
-  await api(baseUrl, "POST", "/api/me/onboarding/complete", { token });
+export async function markOnboarded(baseUrl: string, token: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  await api(baseUrl, "POST", "/api/me/onboarding/complete", { token, fetchImpl });
 }
 
 /**

@@ -1,3 +1,4 @@
+# howto: run-demo — this feature is the demo run the manual describes
 Feature: M2b — the planner, the four-role team, and the budget watchdog
 
   The full application (M2 acceptance, ROADMAP): an operator idea posted as a

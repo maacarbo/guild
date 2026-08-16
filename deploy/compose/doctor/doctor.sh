@@ -3,6 +3,9 @@
 # broken prerequisite, the fix, and the owning secret group (deploy/README.md
 # normative names). Exit 0 = all green; exit 1 = at least one failure.
 # Never prints secret values.
+# Manual coverage (docs/AGENT-MANUAL.md drift gate): howto: provision — a
+# doctor-green stack is the provisioned prerequisite; howto: check-health —
+# this walk IS the health check.
 set -u
 
 MULTICA=${DOCTOR_MULTICA_URL:-http://multica-backend:8080}

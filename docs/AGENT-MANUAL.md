@@ -4,7 +4,8 @@ The canonical, machine-readable how-to for operating Guild. Guild's users are
 partly agents by design: hand this file to any agent (or human) and it can
 drive the product end to end — submit ideas, govern gates, read verdicts,
 halt spend. Every how-to below **names its covering test or check** in an
-HTML marker; CI verifies each named file exists and is an executed artifact
+HTML marker; CI verifies each named file exists, is an executed artifact,
+and that at least one covering file mentions the how-to's id
 (`tools/checks/agent-manual.test.ts`) — live-stack
 covers (`*.feature`, `*.steps.ts`, `doctor.sh`) run under `pnpm smoke`, not
 in CI.

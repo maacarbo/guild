@@ -55,6 +55,13 @@ describe("one versions file (#14)", () => {
     expect(compose).toContain(`tecnativa/docker-socket-proxy@${v.SOCKET_PROXY_IMAGE_DIGEST}`);
   });
 
+  it("every GUILD_IMAGE_TAG interpolation default agrees — five sites, one tag (audit docs-8)", () => {
+    const compose = read("deploy", "compose", "docker-compose.yml") + read("deploy", "compose", "docker-compose.dev.yml");
+    const defaults = [...compose.matchAll(/\$\{GUILD_IMAGE_TAG:-([^}]+)\}/g)].map((m) => m[1]);
+    expect(defaults.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(defaults).size).toBe(1);
+  });
+
   it("daemon-image ARG defaults mirror versions.env", () => {
     const v = versionsEnv();
     const dockerfile = read("docker", "daemon", "Dockerfile");

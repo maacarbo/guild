@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { envNameEnv, intEnv } from "./env.js";
+import { envNameEnv, intEnv, readEnv } from "./env.js";
 
 function exitSpy() {
   return vi.spyOn(process, "exit").mockImplementation(() => {
@@ -16,6 +16,40 @@ function exitSpy() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+describe("readEnv (atomic startup validation — M1b standing rule, audit tdd-8)", () => {
+  it("reads set variables and applies fallbacks only when unset", () => {
+    vi.stubEnv("GUILD_T_SET", "from-env");
+    expect(readEnv([
+      { name: "GUILD_T_SET", source: "s", fallback: "unused-fallback" },
+      { name: "GUILD_T_UNSET_WITH_FALLBACK", source: "s", fallback: "the-fallback" },
+    ])).toEqual({ GUILD_T_SET: "from-env", GUILD_T_UNSET_WITH_FALLBACK: "the-fallback" });
+  });
+
+  it("omits a missing optional variable without failing", () => {
+    expect(readEnv([{ name: "GUILD_T_ABSENT", source: "s", optional: true }])).toEqual({});
+  });
+
+  it("lists EVERY missing variable with its owning source in one refusal — never one-error-at-a-time", () => {
+    const exit = exitSpy();
+    const lines: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((msg: string) => void lines.push(String(msg)));
+    expect(() =>
+      readEnv([
+        { name: "GUILD_T_MISSING_A", source: "owner of A" },
+        { name: "GUILD_T_PRESENT", source: "s", fallback: "x" },
+        { name: "GUILD_T_MISSING_B", source: "owner of B" },
+      ]),
+    ).toThrow("process.exit called");
+    const listing = lines.join("\n");
+    expect(listing).toContain("GUILD_T_MISSING_A");
+    expect(listing).toContain("owner of A");
+    expect(listing).toContain("GUILD_T_MISSING_B");
+    expect(listing).toContain("owner of B");
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+  });
 });
 
 describe("intEnv", () => {
