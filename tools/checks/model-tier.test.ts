@@ -38,8 +38,9 @@ function defaultsAtEverySite(): { site: string; value: string }[] {
 describe("cheap-tier default mirror", () => {
   it("every site names the same default model route", () => {
     const sites = defaultsAtEverySite();
-    // presence guard: a refactor that moves a site must relocate the check, not blank it
-    expect(sites.length).toBeGreaterThanOrEqual(8);
+    // exact site count: a refactor that reshapes ANY seam must update this
+    // check consciously — a >= bound let one seam drop out silently
+    expect(sites.length).toBe(9);
     expect(new Set(sites.map((s) => s.value)).size, JSON.stringify(sites)).toBe(1);
   });
 
