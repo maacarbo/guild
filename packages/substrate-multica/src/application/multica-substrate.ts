@@ -257,7 +257,8 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       );
     }
     try {
-      // wholesale replacement is safe: one agent = at most one open engagement.
+      // wholesale replacement leans on one open engagement per agent — guarded
+      // at the gate (domain/stage.ts duplicateOpenRole flags role repeats).
       // GUILD_DAEMON_VIRTUAL_KEY is the daemon image's gateway-credential hook
       // (proven end-to-end at M1: per-engagement spend attribution); the
       // configured engagementEnv rides along (#6) and never outranks the key.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEMPLATE_CATALOG, parseTemplateDirective, roleTemplateFor, templateFor } from "./templates.js";
+import { ROLE_TEMPLATES, TEMPLATE_CATALOG, parseTemplateDirective, roleTemplateFor, templateFor } from "./templates.js";
 import { STAGE_ORDER } from "./planner.js";
 
 describe("the template catalog is fixed data (D12 amendment; #28 slug/kind split)", () => {
@@ -31,6 +31,14 @@ describe("the template catalog is fixed data (D12 amendment; #28 slug/kind split
     // the security flavor carries a mission override; the identity-bearing
     // slug is what makes two analysis-kind stages coexist
     expect(e.stages[2]!.mission).toMatch(/security/i);
+  });
+
+  it("the catalog is FIXED data — deep-frozen, so the planner's determinism is structural (audit hexagonal-7)", () => {
+    expect(Object.isFrozen(TEMPLATE_CATALOG)).toBe(true);
+    expect(Object.isFrozen(TEMPLATE_CATALOG.standard)).toBe(true);
+    expect(Object.isFrozen(TEMPLATE_CATALOG.standard.stages)).toBe(true);
+    expect(Object.isFrozen(TEMPLATE_CATALOG.enterprise.stages[0])).toBe(true);
+    expect(Object.isFrozen(ROLE_TEMPLATES)).toBe(true);
   });
 
   it("every template: slugs unique, budget percentages sum to 100", () => {

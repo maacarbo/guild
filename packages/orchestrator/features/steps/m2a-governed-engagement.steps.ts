@@ -128,6 +128,7 @@ function makeConductor(store: PgGovernanceStore): Conductor {
       repoUrl: SCRATCH_REPO,
       targetBranch: "main",
       defaultPlanBudgetCents: 50,
+      agentModel: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v3-2",
     },
   );
 }

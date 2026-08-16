@@ -1,8 +1,10 @@
 /**
  * Governance-context published language: stages, plans, engagements, briefs.
  * Vocabulary per CLAUDE.md ubiquitous language; lifecycle per ARCHITECTURE.md.
- * All identifiers are opaque strings; all timestamps ISO-8601 UTC; all money is
- * integer cents (never floating-point currency).
+ * All identifiers are opaque strings to consumers — the Governance domain that
+ * mints them owns their grammar (orchestrator domain/stage.ts) and is the only
+ * sanctioned parser. All timestamps ISO-8601 UTC; all money is integer cents
+ * (never floating-point currency).
  */
 
 import type { HandoffContract } from "./contract.js";
@@ -61,7 +63,12 @@ export interface EngagementBrief {
 export interface EngagementPlan {
   /** single owner of the engagement identity */
   engagementId: string;
-  /** invariant: one open engagement per agent — enforced by the planner before dispatch */
+  /**
+   * invariant: one open engagement per agent — a plan repeating a role is
+   * flagged at its gate before anything can dispatch (orchestrator
+   * domain/stage.ts `duplicateOpenRole`; the planner emits one engagement
+   * per stage today, so a repeat can only arrive by hand)
+   */
   role: string;
   title: string;
   brief: EngagementBrief;
@@ -79,6 +86,12 @@ export interface EngagementPlan {
 export interface StagePlan {
   projectId: string;
   stageId: string;
+  /**
+   * the stage's identity word within its plan (#28: slug, not kind, names a
+   * stage). Optional for plans persisted before 2026-08-16; consumers fall
+   * back to the domain's stageSlugOf(stageId).
+   */
+  slug?: string;
   /**
    * bumped on every amendment; a gate approves exactly (stageId, planVersion) —
    * amending re-gates. Mirrors the contract-immutability rule of D6.

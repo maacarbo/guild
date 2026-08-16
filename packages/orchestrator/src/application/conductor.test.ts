@@ -297,6 +297,7 @@ function makeWorld(configOver: Partial<ConstructorParameters<typeof Conductor>[1
       repoUrl: "git@example.com:owner/product.git",
       targetBranch: "main",
       defaultPlanBudgetCents: 1000,
+      agentModel: "litellm/or-deepseek-v3-2",
       ...configOver,
     },
   );
@@ -1256,6 +1257,38 @@ describe("advisory engagements (#29: observe-and-flag riders never gate completi
     expect(state).not.toBe("bounced");
     expect(state).not.toBe("escalated");
   });
+
+  it("a second engagement in a stage hires with full provenance — run from the record, never id surgery (audit ddd-0)", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    await addAdvisory(w, "stg:idea-1:analysis");
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    // the hire decision lands in the append-only trail with the run's planId,
+    // and the agent name carries the run id — never the "adhoc" degrade
+    const hire = (await w.store.listDecisions()).find((d) => d.kind === "hire" && d.role === "focus-monitor");
+    expect(hire, "rider hire recorded").toBeTruthy();
+    expect(hire!.kind === "hire" && hire.planId).toBe("idea-1");
+    expect(hire!.kind === "hire" && hire.agentId).toBe("hired:guild-focus-monitor-idea-1");
+  });
+});
+
+describe("one open engagement per agent (audit ddd-1; D6)", () => {
+  it("a plan repeating a role warns at the gate before anything can dispatch", async () => {
+    const w = makeWorld();
+    const dup: StagePlan = {
+      ...plan,
+      engagements: [
+        plan.engagements[0]!,
+        { ...plan.engagements[0]!, engagementId: "eng-1b", title: "second same-role engagement" },
+      ],
+    };
+    await w.conductor.adoptStagePlan(dup);
+    const gate = await w.conductor.postStageForApproval(dup.stageId);
+    const body = w.substrate.ticketBodies.get(gate.externalId) ?? "";
+    expect(body).toContain('Role "implementer" appears on multiple engagements');
+    expect(body).toContain("one open engagement per agent (D6)");
+  });
 });
 
 describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () => {
@@ -1824,6 +1857,7 @@ describe("emergency stop (guild kill — D11 scope)", () => {
         repoUrl: "git@example.com:owner/product.git",
         targetBranch: "main",
         defaultPlanBudgetCents: 1000,
+        agentModel: "litellm/or-deepseek-v3-2",
         projectBudget: { projectId: "ws-1", softCapCents: 600, hardCapCents: 5000 },
       },
     );

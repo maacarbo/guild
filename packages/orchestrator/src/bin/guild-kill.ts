@@ -60,6 +60,8 @@ async function main(): Promise<void> {
       repoUrl: "unused://guild-kill",
       targetBranch: "main",
       defaultPlanBudgetCents: 0,
+      // the kill path never dispatches, so it never hires (same convention as repoUrl)
+      agentModel: "unused://guild-kill",
       // No projectBudget here: emergencyStop stamps the lock's cap from the
       // store's persisted enforced cap (the RUNNING conductor's authoritative
       // frozen value), never this process's env — that decoupling is the A1 fix.

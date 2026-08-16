@@ -8,6 +8,7 @@
  */
 
 import type { ContractCheck, HandoffContract, StageKind, StagePlan } from "@guild/shared";
+import { engagementIdFor, stageIdFor } from "./stage.js";
 import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageEntry, type StageTemplate } from "./templates.js";
 
 export interface Idea {
@@ -53,6 +54,17 @@ export interface DerivedStage {
 /** the standard template's pipeline kinds — the catalog is the single source (M3) */
 export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stages.map((s) => s.kind);
 
+const ROLE_BY_KIND: Record<StageKind, string> = {
+  analysis: "analyst",
+  architecture: "architect",
+  implementation: "implementer",
+  test: "tester",
+  delivery: "implementer",
+};
+
+/** derived from the published language's own exhaustive map — adding a StageKind cannot leave the degrade path behind */
+const KINDS: ReadonlySet<string> = new Set(Object.keys(ROLE_BY_KIND));
+
 /**
  * Resolve a stage entry by slug against the ACTIVE template (#28). A slug the
  * current template no longer carries (e.g. the idea's template: directive was
@@ -60,7 +72,6 @@ export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stage
  * itself when it names a kind, else to implementation, with a 0¢ allocation —
  * the existing 0¢ gate-body warning makes the mismatch operator-visible.
  */
-const KINDS: ReadonlySet<string> = new Set(["analysis", "architecture", "implementation", "test", "delivery"]);
 export function stageEntryFor(template: StageTemplate, slug: string): StageEntry {
   return (
     template.stages.find((s) => s.slug === slug) ?? {
@@ -71,20 +82,8 @@ export function stageEntryFor(template: StageTemplate, slug: string): StageEntry
   );
 }
 
-const ROLE_BY_KIND: Record<StageKind, string> = {
-  analysis: "analyst",
-  architecture: "architect",
-  implementation: "implementer",
-  test: "tester",
-  delivery: "implementer",
-};
-
 const MAX_UPSTREAM_CHECKS = 8;
 const MAX_CHECK_TIMEOUT_SECONDS = 600;
-
-export function roleFor(kind: StageKind): string {
-  return ROLE_BY_KIND[kind];
-}
 
 /** an entry's role: explicit override, else the kind's default (#28) */
 export function roleForEntry(entry: StageEntry): string {
@@ -350,8 +349,8 @@ export function deriveStagePlan(
       `The budget: directive (${clampedRaw}¢) exceeds the ${MAX_PLAN_BUDGET_CENTS}¢ sanity ceiling and was clamped — raise MAX_PLAN_BUDGET_CENTS deliberately if this was intended (#12).`,
     );
   }
-  const stageId = `stg:${idea.ideaId}:${entry.slug}`;
-  const engagementId = `eng:${stageId}:v${planVersion}`;
+  const stageId = stageIdFor(idea.ideaId, entry.slug);
+  const engagementId = engagementIdFor(stageId, planVersion);
 
   // A 0¢ stage mints a $0-cap virtual key and can never dispatch — `budget: 0`
   // zeroes every stage, and a sub-~10¢ plan total floors small stages to 0¢.
@@ -412,6 +411,7 @@ export function deriveStagePlan(
     plan: {
       projectId: config.projectId,
       stageId,
+      slug: entry.slug,
       planVersion,
       kind,
       objective,

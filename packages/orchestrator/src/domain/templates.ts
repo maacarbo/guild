@@ -33,7 +33,25 @@ export interface StageTemplate {
   stages: readonly StageEntry[];
 }
 
-export const TEMPLATE_CATALOG: Record<string, StageTemplate> = {
+/**
+ * Freeze catalog data at exactly the levels it has — catalog, entries, and
+ * each stages array with its elements (all leaf fields are primitives today;
+ * a future nested object field needs its own freeze). Makes the D12
+ * determinism claim structural, not conventional (audit hexagonal-7).
+ */
+function frozen<T extends Record<string, object>>(catalog: T): Readonly<T> {
+  for (const entry of Object.values(catalog)) {
+    const stages = (entry as { stages?: readonly unknown[] }).stages;
+    if (stages) {
+      for (const stage of stages) Object.freeze(stage);
+      Object.freeze(stages);
+    }
+    Object.freeze(entry);
+  }
+  return Object.freeze(catalog);
+}
+
+export const TEMPLATE_CATALOG: Readonly<Record<string, StageTemplate>> = frozen({
   standard: {
     name: "standard",
     stages: [
@@ -82,7 +100,7 @@ export const TEMPLATE_CATALOG: Record<string, StageTemplate> = {
       { slug: "delivery", kind: "delivery", budgetPct: 10 },
     ],
   },
-};
+});
 
 export interface RoleTemplate {
   role: string;
@@ -98,8 +116,13 @@ const governedContext = (role: string) =>
  * their context can diverge as the catalog grows; an unknown role gets the
  * same governed context by construction — hiring must never brief blind.
  */
-export const ROLE_TEMPLATES: Record<string, RoleTemplate> = Object.fromEntries(
-  ["analyst", "architect", "implementer", "tester"].map((role) => [role, { role, roleContext: governedContext(role) }]),
+export const ROLE_TEMPLATES: Readonly<Record<string, RoleTemplate>> = frozen(
+  Object.fromEntries(
+    ["analyst", "architect", "implementer", "tester"].map((role) => [
+      role,
+      { role, roleContext: governedContext(role) },
+    ]),
+  ),
 );
 
 export function roleTemplateFor(role: string): RoleTemplate {
