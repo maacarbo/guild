@@ -209,7 +209,7 @@ sequenceDiagram
     C->>R: resolve branch head ONCE → commitSha
     C->>V: spawn ephemeral sandbox — K8s Job or docker run (daemon image, zero Guild creds)
     V->>R: detached checkout at commitSha
-    V->>V: run checks — Gherkin + commands, per-check timeouts
+    V->>V: run the contract's checks — artifacts + commands, per-check timeouts (the gherkin renders these same criteria for humans)
     V-->>C: exit codes + captured evidence
     C->>G: conductor writes the verdict (validator can fail work, never sign for Guild)
     alt contract passes
