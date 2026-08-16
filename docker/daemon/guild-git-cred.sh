@@ -18,10 +18,11 @@
 # bootstrap entry for every later engagement. Both succeed as no-ops.
 #
 # Host scoping (audit clean-1): GUILD_GIT_CRED_HOST, when set beside the
-# token name, pins the token to exactly that request host (as git sends it —
+# token name, pins the token to exactly that request host (case-insensitive;
 # include the port for non-default ports); any other host falls through to
 # the ambient store, so a GitLab-minted token is never offered to github.com.
 # Unset means unscoped — single-host deployments keep working unchanged.
+# Boundary: bracketed IPv6 literal remotes cannot be scoped (leave unset).
 #
 # Username per host: GUILD_GIT_CRED_USERNAME (default x-access-token works
 # for GitHub tokens; GitLab project access tokens accept any non-empty name).
@@ -45,7 +46,11 @@ if [ -n "${GUILD_GIT_CRED:-}" ]; then
         GUILD_GIT_TOKEN_?*)    # allowlisted prefix + non-empty suffix, clean chars proven above
             tok=$(eval "printf %s \"\${$GUILD_GIT_CRED:-}\"")
             case "$tok" in *"$nl"*) tok="" ;; esac # a newline is protocol injection, not a token
-            if [ -n "${GUILD_GIT_CRED_HOST:-}" ] && [ "$host" != "$GUILD_GIT_CRED_HOST" ]; then
+            # case-insensitive: DNS names are, and git forwards the remote
+            # URL's casing verbatim (verified against git 2.43) — a literal
+            # compare would silently disable a case-mismatched scope
+            if [ -n "${GUILD_GIT_CRED_HOST:-}" ] &&
+                [ "$(printf %s "$host" | tr 'A-Z' 'a-z')" != "$(printf %s "$GUILD_GIT_CRED_HOST" | tr 'A-Z' 'a-z')" ]; then
                 tok="" # scoped token, foreign host — the ambient store answers instead
             fi
             if [ -n "$tok" ]; then

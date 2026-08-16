@@ -122,6 +122,12 @@ describe("host scoping (audit clean-1/sh-1): a token minted for one host is neve
     const out = run("get", { GUILD_GIT_CRED: "GUILD_GIT_TOKEN_ACME", GUILD_GIT_TOKEN_ACME: "proj-tok-1" });
     expect(out).toContain("password=proj-tok-1");
   });
+
+  it("host matching is case-insensitive — DNS names are, and git sends the remote URL's casing verbatim (verify #56)", () => {
+    expect(run("get", { ...scoped, GUILD_GIT_CRED_HOST: "GitLab.com" }, "protocol=https\nhost=gitlab.com\n\n"))
+      .toContain("password=proj-tok-1");
+    expect(run("get", scoped, "protocol=https\nhost=GitLab.COM\n\n")).toContain("password=proj-tok-1");
+  });
 });
 
 describe("only GUILD_GIT_TOKEN_* is ever expanded — an on-shape name is not a safe name (verify sh-0)", () => {

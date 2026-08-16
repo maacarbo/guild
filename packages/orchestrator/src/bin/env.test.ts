@@ -80,6 +80,10 @@ describe("hostEnv (audit clean-1: GUILD_GIT_CRED_HOST must be a host the helper 
     expect(hostEnv({}, "H")).toBeUndefined();
   });
 
+  it("accepts any casing — DNS names are case-insensitive and the helper matches accordingly", () => {
+    expect(hostEnv({ H: "GitHub.com" }, "H")).toBe("GitHub.com");
+  });
+
   it("an explicit empty value means unset — the .env idiom must not brick startup", () => {
     expect(hostEnv({ H: "" }, "H")).toBeUndefined();
   });

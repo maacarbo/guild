@@ -58,10 +58,11 @@ export function envNameEnv(values: Record<string, string>, name: string): string
  * An optional variable whose VALUE must be a request host exactly as git
  * sends it in a credential request's `host=` line (hostname, optional
  * :port) — the daemon's helper compares it literally to scope the named
- * token to one host (D17 host scoping, audit clean-1). A scheme, path, or
- * whitespace would never match a real request, silently disabling the token
- * everywhere — refuse at startup instead. An explicit empty value means
- * unset.
+ * token to one host, case-insensitively (D17 host scoping, audit clean-1).
+ * A scheme, path, or whitespace would never match a real request, silently
+ * disabling the token everywhere — refuse at startup instead. Boundary:
+ * bracketed IPv6 literal hosts are not scopable (leave the scope unset).
+ * An explicit empty value means unset.
  */
 export function hostEnv(values: Record<string, string>, name: string): string | undefined {
   const value = values[name];
