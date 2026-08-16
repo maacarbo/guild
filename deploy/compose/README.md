@@ -157,9 +157,11 @@ also revoke the operator's old hand-minted daemon PAT after the cutover.
 
 ## Version pins
 
-**`versions.env` in this directory is the single source of truth for
-third-party pins** (#14): Multica version, OpenCode version, and the LiteLLM /
-socket-proxy image digests. The compose interpolation defaults and the
+**`versions.env` in this directory is the single source of truth for the
+pins the release watcher and the bump procedure touch** (#14): Multica
+version, OpenCode version, and the LiteLLM / socket-proxy image digests.
+Base and database images are pinned directly where they are used — the table
+below lists all of them. The compose interpolation defaults and the
 daemon-image ARG defaults mirror it, and a CI-enforced unit test
 (`packages/orchestrator/src/adapters/versions-file.test.ts`) fails the build
 on any disagreement — README, compose, and image can never silently drift.
@@ -172,6 +174,9 @@ on any disagreement — README, compose, and image can never silently drift.
 | Docker socket proxy (by image digest) | `versions.env` `SOCKET_PROXY_IMAGE_DIGEST` | `docker-compose.yml` |
 | Postgres (Multica) | `pgvector/pgvector:pg17` | upstream requirement |
 | Postgres (LiteLLM, Guild) | `postgres:17` | `docker-compose.yml` |
+| Validator sandbox (`GUILD_VALIDATOR_IMAGE`) | `node:22-alpine` default | `docker-compose.yml`, `.env.example`, conductor fallback |
+| Daemon / conductor base images | `node:22-bookworm-slim` / `node:22-alpine` | `docker/daemon/Dockerfile`, `docker/conductor/Dockerfile` |
+| Doctor base image | `alpine:3.22` | `deploy/compose/doctor/Dockerfile` |
 
 The Multica control-plane tag and the daemon image are a **lockstep pair**:
 bump both together and run the substrate conformance suite green before either

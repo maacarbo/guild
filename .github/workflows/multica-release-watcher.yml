@@ -62,7 +62,9 @@ jobs:
           git checkout -b "$branch"
 
           # one mechanical rewrite per mirror location; the versions-file unit
-          # test (CI) fails the PR if a location is ever missed
+          # test fails the PR if a location is ever missed — once the PR's
+          # workflow runs are approved (GITHUB_TOKEN-authored PRs start
+          # approval-required; the checklist below carries that step)
           sed -i "s|^MULTICA_VERSION=.*|MULTICA_VERSION=$latest|" deploy/compose/versions.env
           sed -i "s|\${MULTICA_VERSION:-$pinned}|\${MULTICA_VERSION:-$latest}|g" deploy/compose/docker-compose.yml
           sed -i "s|^ARG MULTICA_VERSION=.*|ARG MULTICA_VERSION=$latest|" docker/daemon/Dockerfile
@@ -86,6 +88,7 @@ jobs:
             echo "Automated Multica pin bump: \`$pinned\` → \`$latest\`. **Never auto-merged** — the human LICENSE review is the gate (operator decision 2026-08-04, #14)."
             echo
             echo "## Merge checklist"
+            echo "- [ ] Approve the workflow runs on this PR (GITHUB_TOKEN-authored PRs start approval-required) and confirm CI green"
             echo "- [ ] LICENSE diff reviewed and recorded (clean-and-legal, D8)"
             echo "- [ ] \`substrate-conformance\` suite green against a live stack running \`$latest\` (local step — CI has no compose stack)"
             echo "- [ ] Rebuild + recreate the affected compose services after merge (stack mirrors main)"

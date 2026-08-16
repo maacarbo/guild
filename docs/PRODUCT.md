@@ -28,7 +28,7 @@ Built personal-use-first: one operator-owner who submits ideas, approves plans, 
 ## Core Flows
 
 ### 1. Idea → staged plan
-The operator writes the idea as a ticket on the board — tickets are the single interaction surface; there is no idea CLI verb (ARCHITECTURE.md D11, operator decision 2026-08-02). Guild detects the operator-authored ticket and its planner decomposes the idea into SDLC stages (analysis → architecture → implementation → test → delivery), each with roles, scoped work items, and budget allocation.
+The operator writes the idea as a ticket on the board — tickets are the single interaction surface; there is no idea CLI verb (ARCHITECTURE.md D11, operator decision 2026-08-02). Guild detects the operator-authored ticket and its planner decomposes the idea into SDLC stages per the idea's `template:` directive (default `standard`: analysis → architecture → implementation → test → delivery; `quick-fix` and `enterprise` shapes ship in the catalog — D12 amendments), each with roles, scoped work items, and budget allocation.
 
 ### 2. Plan approval gate
 Before any stage spends tokens, its plan is posted as a board ticket in the Waiting-for-feedback lane; the operator's lane move to Ready-to-work **is** the approval (D11). **Approval is explicit — and today it is the only path**: the designed bounded auto-approve timer (a per-project opt-in for runs you're actively supervising, never the default) is **not yet implemented** — the `auto_approved` decision type and its read paths shipped ahead of any producer (#23 E2). Either way, a flawed, expensive plan can't approve itself while you sleep. Specification defects are the largest measured failure source in multi-agent systems; the gate catches them at their cheapest point.
@@ -46,7 +46,7 @@ Agents raise blockers as Multica comments; Guild moves the blocked ticket to the
 Agent CLIs inside the daemon image route through a LiteLLM gateway; spend is attributed per engagement via a virtual key minted at dispatch — a mechanism M1 proves end-to-end. Enforcement is layered: each engagement key carries a **hard `max_budget`** the gateway enforces automatically from M1a (the model simply stops serving at cap), and the M2b watchdog adds soft-cap warnings plus the **project-level ceiling** whose breach cancels running work via the Multica API and locks dispatch. Multica records cost; Guild *enforces* it.
 
 ### 7. Team evolution (M3)
-Guild hires by demand: creating/configuring Multica agents and squads for roles the plan requires, composing role context files and role-memory artifacts per engagement. (Pending verification of Multica's agent-management API surface — see open questions.)
+Guild hires by demand: creating/configuring Multica agents for roles the plan requires, composing role context files and role-memory artifacts per engagement (API-backed hiring ratified by ARCHITECTURE.md D16, 2026-08-11).
 
 ## MVP Cut
 

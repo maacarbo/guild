@@ -1,6 +1,6 @@
 # Guild — Component & Flow Overview
 
-One page that shows every component and every data/event flow between them. Decisions and rationale live in [ARCHITECTURE.md](ARCHITECTURE.md) (D1–D9); this page is the map. Topology shown is the **isolated dev stack** — running as **Docker Compose services through M1–M3** (same components, same trust boundaries; the namespace groupings drawn here are the Kubernetes form the optional M4 lift would move into). Zero pre-existing services either way; the lift changes where things run, not how they talk.
+One page that shows every component and every data/event flow between them. Decisions and rationale live in [ARCHITECTURE.md](ARCHITECTURE.md) (decision records, D1 onward); this page is the map. Topology shown is the **isolated dev stack** — running as **Docker Compose services through M1–M3** (same components, same trust boundaries; the namespace groupings drawn here are the Kubernetes form the optional M4 lift would move into). Zero pre-existing services either way; the lift changes where things run, not how they talk.
 
 ## Components
 
