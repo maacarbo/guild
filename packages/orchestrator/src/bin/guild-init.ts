@@ -23,7 +23,7 @@ const env = readEnv([
   { name: "GUILD_MULTICA_URL", source: "Multica backend URL", fallback: "http://127.0.0.1:8080" },
   { name: "GUILD_OPERATOR_EMAIL", source: "the operator's login email", fallback: "operator@guild.local" },
   { name: "GUILD_WORKSPACE_ID", source: "the project workspace id (create it in the Multica UI first)" },
-  { name: "GUILD_AGENT_MODEL", source: "role-agent model (cheap tier default)", fallback: "litellm/or-deepseek-v3-2" },
+  { name: "GUILD_AGENT_MODEL", source: "role-agent model (cheap tier default)", fallback: "litellm/or-qwen3-coder-30b" },
 ]);
 
 const baseUrl = env.GUILD_MULTICA_URL;

@@ -82,7 +82,7 @@ When("the conductor dispatches the engagement through the substrate port", async
   // deepseek-v3-2 is the cheapest model that reliably executes the flow
   const live = await bootstrapLiveEnv({
     name: "smoke-worker",
-    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v3-2",
+    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-qwen3-coder-30b",
     customEnv: { GUILD_DAEMON_VIRTUAL_KEY: world.key!.key },
   });
   world.scope = live.workspaceId;

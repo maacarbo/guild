@@ -28,7 +28,7 @@ const env = readEnv([
   { name: "GUILD_REPO_URL", source: "product repository (HTTPS with the scoped git PAT embedded)" },
   { name: "GUILD_TARGET_BRANCH", source: "acceptance fast-forward target", fallback: "main" },
   { name: "GUILD_PLAN_BUDGET_CENTS", source: "default plan budget when the idea names none", fallback: "300" },
-  { name: "GUILD_AGENT_MODEL", source: "model route hired agents bind to (M3) — cheap tier by default", fallback: "litellm/or-deepseek-v3-2" },
+  { name: "GUILD_AGENT_MODEL", source: "model route hired agents bind to (M3) — cheap tier by default", fallback: "litellm/or-qwen3-coder-30b" },
   // #6 (D17): the NAME of the daemon-env var holding this project's git token —
   // name-indirection: the value lives only in the daemon container's env
   { name: "GUILD_GIT_CRED_NAME", source: "per-project git credential env NAME in the daemon (D17)", optional: true },
