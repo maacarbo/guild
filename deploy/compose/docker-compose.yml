@@ -26,7 +26,7 @@ services:
       POSTGRES_PASSWORD: ${MULTICA_POSTGRES_PASSWORD:?set in .env}
     volumes:
       - multica_pgdata:/var/lib/postgresql/data
-    networks: [guild-dev]
+    networks: [guild-data]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U multica -d multica"]
@@ -57,7 +57,7 @@ services:
       ALLOW_SIGNUP: ${MULTICA_ALLOW_SIGNUP:-true}
       MULTICA_VCS_INTEGRATION_ENABLED: "true"
       MULTICA_VCS_SECRET_KEY: ${MULTICA_VCS_SECRET_KEY:-}
-    networks: [guild-dev]
+    networks: [guild-dev, guild-data]
     restart: unless-stopped
 
   multica-frontend:
@@ -80,7 +80,7 @@ services:
       POSTGRES_PASSWORD: ${LITELLM_POSTGRES_PASSWORD:?set in .env}
     volumes:
       - litellm_pgdata:/var/lib/postgresql/data
-    networks: [guild-dev]
+    networks: [guild-data]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
@@ -106,7 +106,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       STORE_MODEL_IN_DB: "false"
-    networks: [guild-dev]
+    networks: [guild-dev, guild-data]
     restart: unless-stopped
 
   # ---- Guild conductor database (governance state: engagements, decisions) -
@@ -116,12 +116,13 @@ services:
       POSTGRES_DB: guild
       POSTGRES_USER: guild
       POSTGRES_PASSWORD: ${GUILD_POSTGRES_PASSWORD:?set in .env}
-    # No host port: databases are stack-internal (security floor). The
-    # host-side dev harness (pnpm smoke / live tests) adds a loopback port
-    # via docker-compose.dev.yml - see deploy/README.md.
+    # No host port, and guild-data only (#57): databases are stack-internal
+    # (security floor). The host-side dev harness (pnpm smoke / live tests)
+    # adds a loopback port via docker-compose.dev.yml, which dual-homes this
+    # service onto guild-dev because an internal network cannot publish.
     volumes:
       - guild_pgdata:/var/lib/postgresql/data
-    networks: [guild-dev]
+    networks: [guild-data]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U guild -d guild"]
@@ -246,7 +247,7 @@ services:
       - validator_work:/var/guild/validator-work
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    networks: [guild-dev, guild-validate]
+    networks: [guild-dev, guild-validate, guild-data]
     restart: unless-stopped
 
   # ---- One-shot CLI verbs on the conductor image (D11 scope:
@@ -301,7 +302,7 @@ services:
       # No cap env here: the kill lock's cap is read from the store's persisted
       # enforced cap (written by the running conductor), never guild-kill's own
       # env — the two must agree or the lock can self-release (D14/A1).
-    networks: [guild-dev]
+    networks: [guild-dev, guild-data]
 
   # ---- Doctor: one-shot setup diagnostics (docker compose run --rm doctor).
   # A Linux container, so the single bash implementation serves every host OS.
@@ -331,6 +332,13 @@ networks:
   # trust zone for the Docker API route - only the conductor and the proxy
   guild-validate:
     name: guild-validate
+  # data trust zone (#57, hardening floor): every database lives ONLY here.
+  # internal = no default gateway, no external route, and host publishing is
+  # impossible through it — the daemon (LLM-generated code) cannot reach any
+  # Postgres; reachability is now bounded by topology, not just credentials.
+  guild-data:
+    name: guild-data
+    internal: true
 
 volumes:
   multica_pgdata:
