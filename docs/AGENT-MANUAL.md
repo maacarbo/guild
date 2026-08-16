@@ -184,7 +184,7 @@ then a hired agent stays bound, its key already revoked.
 
 ## To halt everything (emergency stop)
 
-<!-- howto: emergency-stop | covered-by: packages/orchestrator/src/application/conductor.test.ts, packages/orchestrator/features/m2b-planner-team-watchdog.feature -->
+<!-- howto: emergency-stop | covered-by: packages/orchestrator/src/application/conductor.test.ts -->
 
 Run `guild kill` (bin `guild-kill`; its compose service wires a deliberately
 smaller env than the conductor's — exactly what halting needs, nothing that

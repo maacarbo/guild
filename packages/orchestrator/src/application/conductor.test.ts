@@ -716,6 +716,28 @@ describe("template: directive shapes the plan run (M3, D12 amendment)", () => {
     expect(await w.substrate.findWorkItem("gate:stg:idea-qf:implementation:v1"), "first gate is implementation").toBeTruthy();
   });
 
+  it("an unknown template name degrades to standard and the WARNING reaches the gate body (verify trace-1)", async () => {
+    const w = makeWorld();
+    const body = "A CLI.\ntemplate: bogus";
+    const idea = seedIdea(w, "idea-b", "Idea: bogus template", body);
+    await w.conductor.handleEvent(itemCreated(idea, "operator", "Idea: bogus template", body));
+    expect((await w.store.getPlanRun("idea-b"))?.stageIds).toHaveLength(5); // standard applied
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-b:analysis:v1"))!;
+    expect(w.substrate.ticketBodies.get(gate.externalId) ?? "").toContain('Unknown template "bogus"');
+  });
+
+  it("role memory stays bounded to the newest ROLE_MEMORY_MAX_LINES — old facts age out, the trail keeps them forever (verify trace-0)", async () => {
+    const w = makeWorld();
+    const stale = Array.from({ length: 25 }, (_, i) => `analysis stg:old-${i}:analysis accepted at sha-${i}`);
+    await w.store.saveRoleMemory("analyst", stale.join("\n"));
+    await adoptIdea(w);
+    await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-new");
+    const lines = (await w.store.getRoleMemory("analyst"))!.split("\n");
+    expect(lines).toHaveLength(20);
+    expect(lines.at(-1)).toBe("analysis stg:idea-1:analysis accepted at sha-new");
+    expect(lines).not.toContain(stale[0]); // the oldest lines aged out
+  });
+
   it("an enterprise idea runs six slug-identified stages: distinct same-kind gate titles, slugged role memory (audit tdd-1/tdd-2)", async () => {
     const w = makeWorld();
     const body = "Big delivery.\ntemplate: enterprise";

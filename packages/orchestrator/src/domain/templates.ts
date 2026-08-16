@@ -26,6 +26,13 @@ export interface StageEntry {
   mission?: string;
   /** optional role override; default is the kind's role */
   role?: string;
+  /**
+   * optional acceptance-floor override (artifact checks, deterministic catalog
+   * data) replacing the kind's floor — same-kind stages must ship
+   * DISCRIMINATING floors, or acceptance fast-forward makes a later stage's
+   * contract auto-satisfied by the earlier stage's artifact (audit bdd-0)
+   */
+  floor?: readonly { path: string; mustContain: string }[];
 }
 
 export interface StageTemplate {
@@ -34,16 +41,23 @@ export interface StageTemplate {
 }
 
 /**
- * Freeze catalog data at exactly the levels it has — catalog, entries, and
- * each stages array with its elements (all leaf fields are primitives today;
- * a future nested object field needs its own freeze). Makes the D12
- * determinism claim structural, not conventional (audit hexagonal-7).
+ * Freeze catalog data at exactly the levels it has — catalog, entries, each
+ * stages array with its elements, and each stage's floor list (every other
+ * leaf is a primitive; a future nested object field needs its own freeze
+ * here). Makes the D12 determinism claim structural, not conventional
+ * (audit hexagonal-7).
  */
 function frozen<T extends Record<string, object>>(catalog: T): Readonly<T> {
   for (const entry of Object.values(catalog)) {
-    const stages = (entry as { stages?: readonly unknown[] }).stages;
+    const stages = (entry as { stages?: readonly { floor?: readonly unknown[] }[] }).stages;
     if (stages) {
-      for (const stage of stages) Object.freeze(stage);
+      for (const stage of stages) {
+        if (stage.floor) {
+          for (const check of stage.floor) Object.freeze(check);
+          Object.freeze(stage.floor);
+        }
+        Object.freeze(stage);
+      }
       Object.freeze(stages);
     }
     Object.freeze(entry);
@@ -86,7 +100,11 @@ export const TEMPLATE_CATALOG: Readonly<Record<string, StageTemplate>> = frozen(
         kind: "analysis",
         budgetPct: 10,
         mission:
-          "Refine docs/SPEC.md with the technical half: sharpen the `## Acceptance criteria` into concrete, testable criteria and record technical constraints and interfaces the design must honor.",
+          "Refine docs/SPEC.md with the technical half: sharpen the `## Acceptance criteria` into concrete, testable criteria and record technical constraints and interfaces the design must honor under a `## Technical constraints` section.",
+        floor: [
+          { path: "docs/SPEC.md", mustContain: "## Acceptance criteria" },
+          { path: "docs/SPEC.md", mustContain: "## Technical constraints" },
+        ],
       },
       {
         slug: "architecture-security",
@@ -94,6 +112,10 @@ export const TEMPLATE_CATALOG: Readonly<Record<string, StageTemplate>> = frozen(
         budgetPct: 15,
         mission:
           "Design the solution: docs/DESIGN.md with a `## Modules` section describing each module and its responsibility, plus a `## Security` section covering trust boundaries, secrets handling, and abuse cases. Keep the design as small as the idea allows.",
+        floor: [
+          { path: "docs/DESIGN.md", mustContain: "## Modules" },
+          { path: "docs/DESIGN.md", mustContain: "## Security" },
+        ],
       },
       { slug: "implementation", kind: "implementation", budgetPct: 35 },
       { slug: "test", kind: "test", budgetPct: 20 },

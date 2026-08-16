@@ -7,7 +7,7 @@ Feature: M2b — the planner, the four-role team, and the budget watchdog
   a visible explanation (D12 watchdog).
 
   Scenario: a demo idea is delivered through five gated stages and an induced overspend halts cleanly
-    Given the live stack, the four role agents, and a clean governance database
+    Given the live stack, the four role agents, a clean governance database, and an empty product repository
     When the operator posts the demo idea as a board ticket
     Then the conductor answers with an analysis plan gate awaiting feedback
     When the operator amends the analysis plan with a budget directive
