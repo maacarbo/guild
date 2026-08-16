@@ -576,7 +576,7 @@ export class Conductor {
       // the SLUG names the stage (#28) — two same-kind enterprise stages must
       // never post identically-titled approval tickets
       title: `Plan approval: ${plan.slug ?? stageSlugOf(plan.stageId)} stage (v${plan.planVersion})`,
-      body: this.renderPlanBody(plan, warnings, notes),
+      body: renderPlanBody(plan, warnings, notes),
     });
     await this.deps.substrate.setLane(ticket, "waiting_for_feedback");
     await this.deps.store.saveGateTicket(plan.stageId, plan.planVersion, ticket);
@@ -1526,42 +1526,53 @@ export class Conductor {
     return updated;
   }
 
-  private renderCheck(check: ContractCheck): string {
-    return check.kind === "artifact"
-      ? `- artifact \`${check.path}\`${check.mustContain ? ` containing \`${check.mustContain}\`` : ""}`
-      : `- command \`${check.run}\` exits ${check.expectExitCode} within ${check.timeoutSeconds}s`;
-  }
+}
 
-  private renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
-    const lines = [
-      `## Stage plan — ${plan.slug ?? stageSlugOf(plan.stageId)}`,
-      "",
-      plan.objective,
-      "",
-      `Plan version: ${plan.planVersion} · Stage budget: ${plan.budgetCents}¢`,
-      "",
-      "### Engagements",
-      ...plan.engagements.flatMap((e) => [
-        `- **${e.title}** (${e.role}, ${e.budgetCents}¢) — contract ${e.brief.contract.contractId} v${e.brief.contract.version} (authored by ${e.brief.contract.authoredBy})`,
-        ...e.brief.contract.checks.map((c) => `  ${this.renderCheck(c)}`),
-        // the WHOLE contract is what approval covers (D12) — upstream-authored
-        // gherkin included, verbatim, so nothing reaches an agent unreviewed
-        "",
-        "  Acceptance criteria (gherkin, verbatim):",
-        "  ```gherkin",
-        ...e.brief.contract.gherkin.split("\n").map((line) => `  ${line}`),
-        "  ```",
-        // approval covers what shaped the brief (M3 operator decision):
-        // role memory + prior acceptances render verbatim
-        ...(e.brief.priorDecisions.length
-          ? ["", "  Prior decisions & role memory (folded into the brief):", ...e.brief.priorDecisions.map((d) => `  - ${d}`)]
-          : []),
-      ]),
-      ...(notes.length ? ["", "### Notes", ...notes.map((n) => `- ${n}`)] : []),
-      ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
-      "",
-      "**To approve:** move this ticket to *Ready to work*. **To amend:** comment `amend: <note>` here. **To reject:** move it to *Cancelled*.",
-    ];
-    return lines.join("\n");
-  }
+function renderCheck(check: ContractCheck): string {
+  return check.kind === "artifact"
+    ? `- artifact \`${check.path}\`${check.mustContain ? ` containing \`${check.mustContain}\`` : ""}`
+    : `- command \`${check.run}\` exits ${check.expectExitCode} within ${check.timeoutSeconds}s`;
+}
+
+/** gate-body presentation — pure so the rendering is testable without a world */
+export function renderPlanBody(plan: StagePlan, warnings: string[], notes: string[] = []): string {
+  const lines = [
+    `## Stage plan — ${plan.slug ?? stageSlugOf(plan.stageId)}`,
+    "",
+    plan.objective,
+    "",
+    `Plan version: ${plan.planVersion} · Stage budget: ${plan.budgetCents}¢`,
+    "",
+    "### Engagements",
+    ...plan.engagements.flatMap((e) =>
+      e.advisory
+        ? [
+            // D13 amendment (#54): a rider is approved as what it IS — its
+            // placeholder contract is dead weight the conductor never judges,
+            // so rendering it as approvable criteria would misstate the deal
+            `- **${e.title}** (${e.role}, ${e.budgetCents}¢) — advisory rider — observe-and-flag; never validated, cancelled at stage end (#29)`,
+          ]
+        : [
+            `- **${e.title}** (${e.role}, ${e.budgetCents}¢) — contract ${e.brief.contract.contractId} v${e.brief.contract.version} (authored by ${e.brief.contract.authoredBy})`,
+            ...e.brief.contract.checks.map((c) => `  ${renderCheck(c)}`),
+            // the WHOLE contract is what approval covers (D12) — upstream-authored
+            // gherkin included, verbatim, so nothing reaches an agent unreviewed
+            "",
+            "  Acceptance criteria (gherkin, verbatim):",
+            "  ```gherkin",
+            ...e.brief.contract.gherkin.split("\n").map((line) => `  ${line}`),
+            "  ```",
+            // approval covers what shaped the brief (M3 operator decision):
+            // role memory + prior acceptances render verbatim
+            ...(e.brief.priorDecisions.length
+              ? ["", "  Prior decisions & role memory (folded into the brief):", ...e.brief.priorDecisions.map((d) => `  - ${d}`)]
+              : []),
+          ],
+    ),
+    ...(notes.length ? ["", "### Notes", ...notes.map((n) => `- ${n}`)] : []),
+    ...(warnings.length ? ["", "### Warnings", ...warnings.map((w) => `- ${w}`)] : []),
+    "",
+    "**To approve:** move this ticket to *Ready to work*. **To amend:** comment `amend: <note>` here. **To reject:** move it to *Cancelled*.",
+  ];
+  return lines.join("\n");
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ContractCheck } from "@guild/shared";
 import {
   STAGE_ORDER,
+  STANDARD_STAGE_SLUGS,
   deriveStagePlan,
   handoffPathFor,
   parseBudgetDirective,
@@ -23,6 +24,10 @@ const config: PlannerConfig = { projectId: "ws-1", defaultPlanBudgetCents: 1000 
 describe("the fixed pipeline (D12)", () => {
   it("orders the five stages analysis → architecture → implementation → test → delivery", () => {
     expect(STAGE_ORDER).toEqual(["analysis", "architecture", "implementation", "test", "delivery"]);
+  });
+
+  it("identity and behavior are separate lists — standard slugs equal kinds today, by data not by type (audit ddd-6)", () => {
+    expect(STANDARD_STAGE_SLUGS).toEqual(["analysis", "architecture", "implementation", "test", "delivery"]);
   });
 
   it("maps the four-role starter team; delivery runs on the implementer", () => {
