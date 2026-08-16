@@ -54,6 +54,13 @@ export interface DerivedStage {
 /** the standard template's pipeline kinds — the catalog is the single source (M3) */
 export const STAGE_ORDER: readonly StageKind[] = TEMPLATE_CATALOG.standard.stages.map((s) => s.kind);
 
+/**
+ * the standard template's stage IDENTITIES, for building stage ids and
+ * markers (audit ddd-6: slug names a stage, kind classes its behavior — the
+ * lists coincide for standard by data, never by type)
+ */
+export const STANDARD_STAGE_SLUGS: readonly string[] = TEMPLATE_CATALOG.standard.stages.map((s) => s.slug);
+
 const ROLE_BY_KIND: Record<StageKind, string> = {
   analysis: "analyst",
   architecture: "architect",

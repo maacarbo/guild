@@ -20,7 +20,7 @@ import type {
 import { MAX_BOUNCES } from "@guild/shared";
 import { InMemoryGovernanceStore } from "../adapters/in-memory-governance-store.js";
 import type { ValidationInput } from "./contract-validator.js";
-import { Conductor } from "./conductor.js";
+import { Conductor, renderPlanBody } from "./conductor.js";
 
 /** shared op log so cross-dependency ordering (bind-before-create) is assertable */
 type OpLog = string[];
@@ -1923,6 +1923,52 @@ describe("emergency stop (guild kill — D11 scope)", () => {
     );
     await restarted.sweep();
     expect(await w.store.getDispatchLock(), "a genuine cap raise clears the kill lock").toBeNull();
+  });
+});
+
+describe("advisory riders render distinctly at the gate (#54, D13 amendment)", () => {
+  it("a rider shows as observe-and-flag with its placeholder contract suppressed; contracted work renders in full", () => {
+    const contract = {
+      contractId: "c1",
+      version: 1,
+      authoredBy: "operator",
+      gherkin: "Feature: real acceptance criteria",
+      checks: [{ kind: "artifact" as const, path: "docs/SPEC.md" }],
+    };
+    const brief = { roleContext: "", instructions: "", contract, priorDecisions: [], artifactRefs: [], constraints: [] };
+    const body = renderPlanBody(
+      {
+        projectId: "idea-1",
+        stageId: "stg:idea-1:analysis",
+        slug: "analysis",
+        planVersion: 1,
+        kind: "analysis",
+        objective: "Analyse it.",
+        budgetCents: 100,
+        engagements: [
+          { engagementId: "eng:stg:idea-1:analysis:analyst:v1", role: "analyst", title: "analysis", brief, budgetCents: 80 },
+          {
+            engagementId: "eng:stg:idea-1:analysis:monitor:v1",
+            role: "focus-monitor",
+            title: "monitor: analysis",
+            brief,
+            budgetCents: 20,
+            advisory: true,
+          },
+        ],
+      },
+      [],
+    );
+    expect(body).toContain("advisory rider — observe-and-flag");
+    expect(body).toContain("never validated, cancelled at stage end");
+    // the rider's placeholder contract must NOT render as approvable criteria
+    const riderSection = body.slice(body.indexOf("monitor: analysis"));
+    expect(riderSection).not.toContain("Acceptance criteria");
+    expect(riderSection).not.toContain("contract c1");
+    // the contracted engagement still renders whole (D12)
+    const workerSection = body.slice(0, body.indexOf("monitor: analysis"));
+    expect(workerSection).toContain("Acceptance criteria (gherkin, verbatim):");
+    expect(workerSection).toContain("Feature: real acceptance criteria");
   });
 });
 

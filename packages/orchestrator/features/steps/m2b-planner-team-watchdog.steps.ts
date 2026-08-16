@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { After, Given, Then, When, setDefaultTimeout } from "@cucumber/cucumber";
 import pg from "pg";
-import type { ExecutionSubstrate, StageKind, WorkItemRef } from "@guild/shared";
+import type { ExecutionSubstrate, WorkItemRef } from "@guild/shared";
 import { createMulticaSubstrate } from "@guild/substrate-multica";
 import { acquireMemberToken, bootstrapLiveEnv, ensureAgent, ensureWorkspaceMember } from "@guild/substrate-multica/testkit";
 import { Conductor } from "../../src/application/conductor.js";
@@ -29,7 +29,7 @@ import { GitSourceControl } from "../../src/adapters/git-source-control.js";
 import { LiteLlmModelGateway } from "../../src/adapters/litellm-gateway.js";
 import { PgGovernanceStore } from "../../src/adapters/pg-governance-store.js";
 import { ensureIsolatedDatabase, isolatedDatabaseUrl } from "../../src/testkit/live-db.js";
-import { STAGE_ORDER } from "../../src/domain/planner.js";
+import { STANDARD_STAGE_SLUGS } from "../../src/domain/planner.js";
 import type { DecisionEntry } from "../../src/domain/decisions.js";
 import { createContractValidator } from "../../src/index.js";
 
@@ -109,8 +109,8 @@ async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, what:
   }
 }
 
-function stageIdOf(ideaId: string, kind: StageKind): string {
-  return `stg:${ideaId}:${kind}`;
+function stageIdOf(ideaId: string, slug: string): string {
+  return `stg:${ideaId}:${slug}`;
 }
 
 // a mid-scenario failure must not leave the watch loop and pg pool holding
@@ -313,16 +313,16 @@ When(
   "the operator approves each stage gate and accepts each validated stage",
   { timeout: 60 * 60 * 1000 },
   async () => {
-    for (const kind of STAGE_ORDER) {
-      const stageId = stageIdOf(world.ideaId, kind);
-      const version = kind === "analysis" ? 2 : 1;
+    for (const slug of STANDARD_STAGE_SLUGS) {
+      const stageId = stageIdOf(world.ideaId, slug);
+      const version = slug === "analysis" ? 2 : 1;
       const gate = await waitFor(
         async () => {
           const ref = await world.substrate!.findWorkItem(`gate:${stageId}:v${version}`);
           if (!ref) return null;
           return (await world.substrate!.getWorkItem(ref)).lane === "waiting_for_feedback" ? ref : null;
         },
-        `the ${kind} v${version} gate`,
+        `the ${slug} v${version} gate`,
         5 * 60 * 1000,
       );
       await operatorMovesTicket(gate.externalId, "todo");
@@ -330,21 +330,21 @@ When(
       const engagementId = `eng:${stageId}:v${version}`;
       const item = await waitFor(
         () => world.substrate!.findWorkItem(engagementId),
-        `the ${kind} engagement ticket`,
+        `the ${slug} engagement ticket`,
         3 * 60 * 1000,
       );
       await waitFor(
         async () => (await world.store!.getEngagement(engagementId))?.state === "validated",
-        `the ${kind} engagement to validate (agent work + SHA-pinned checks)`,
+        `the ${slug} engagement to validate (agent work + SHA-pinned checks)`,
         15 * 60 * 1000,
       );
       await operatorMovesTicket(item.externalId, "done");
       await waitFor(
         async () => (await world.store!.getEngagement(engagementId))?.state === "accepted",
-        `the ${kind} acceptance to terminate`,
+        `the ${slug} acceptance to terminate`,
         3 * 60 * 1000,
       );
-      console.log(`  ✓ stage ${kind} accepted`);
+      console.log(`  ✓ stage ${slug} accepted`);
     }
   },
 );
@@ -380,7 +380,7 @@ Then(
 // howto: read-verdict — validation verdicts are what the decision trail exposes to the operator
 Then("the decision trail records five gated stages with zero un-contracted advances", async () => {
   const ds = await world.store!.listDecisions();
-  const stageIds = STAGE_ORDER.map((kind) => stageIdOf(world.ideaId, kind));
+  const stageIds = STANDARD_STAGE_SLUGS.map((slug) => stageIdOf(world.ideaId, slug));
 
   for (const stageId of stageIds) {
     assert.ok(
