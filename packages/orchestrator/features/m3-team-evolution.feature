@@ -4,7 +4,9 @@
 # acceptance recorded in ROADMAP — two quick-fix runs on the Tier 1 stack,
 # 2026-08-12). Backfilled 2026-08-16 (conformance audit bdd-2): the
 # behaviors shipped with vitest coverage but no Gherkin, which the BDD rule
-# requires. Traces to ROADMAP M3's acceptance bar.
+# requires. Traces to ROADMAP M3: the acceptance bar (hiring, retirement,
+# role memory, decision provenance) and the milestone's deliverable bullets
+# (template catalog, D12 amendment; advisory riders, D13 amendment #29).
 
 Feature: Team evolution
   The plan demanding a role IS the hiring signal: Guild hires agents on
