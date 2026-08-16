@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { envNameEnv, intEnv, readEnv } from "./env.js";
+import { envNameEnv, hostEnv, intEnv, readEnv } from "./env.js";
 
 function exitSpy() {
   return vi.spyOn(process, "exit").mockImplementation(() => {
@@ -70,6 +70,30 @@ describe("intEnv", () => {
     expect(() => intEnv({ N: "0" }, "N", { min: 1 })).toThrow("process.exit called");
     expect(spy).toHaveBeenCalledWith(1);
     expect(intEnv({ N: "1" }, "N", { min: 1 })).toBe(1);
+  });
+});
+
+describe("hostEnv (audit clean-1: GUILD_GIT_CRED_HOST must be a host the helper can match literally)", () => {
+  it("accepts a bare hostname, optionally with a port, exactly as git sends host=", () => {
+    expect(hostEnv({ H: "gitlab.com" }, "H")).toBe("gitlab.com");
+    expect(hostEnv({ H: "git.example.com:8443" }, "H")).toBe("git.example.com:8443");
+    expect(hostEnv({}, "H")).toBeUndefined();
+  });
+
+  it("accepts any casing — DNS names are case-insensitive and the helper matches accordingly", () => {
+    expect(hostEnv({ H: "GitHub.com" }, "H")).toBe("GitHub.com");
+  });
+
+  it("an explicit empty value means unset — the .env idiom must not brick startup", () => {
+    expect(hostEnv({ H: "" }, "H")).toBeUndefined();
+  });
+
+  it("refuses values git would never send as host= — schemes, paths, spaces, injection shapes", () => {
+    const spy = exitSpy();
+    for (const bad of ["https://gitlab.com", "gitlab.com/group", "git lab.com", "host=evil\ninjected", "-lab.com", "lab.com:"]) {
+      expect(() => hostEnv({ H: bad }, "H")).toThrow("process.exit called");
+    }
+    expect(spy).toHaveBeenCalledWith(1);
   });
 });
 

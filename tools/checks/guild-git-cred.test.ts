@@ -94,6 +94,42 @@ describe("get: name-indirection (#6, D17)", () => {
   });
 });
 
+describe("host scoping (audit clean-1/sh-1): a token minted for one host is never offered to another", () => {
+  const scoped = {
+    GUILD_GIT_CRED: "GUILD_GIT_TOKEN_ACME",
+    GUILD_GIT_TOKEN_ACME: "proj-tok-1",
+    GUILD_GIT_CRED_HOST: "gitlab.com",
+  };
+
+  it("answers the named token when the request host matches the configured host", () => {
+    const out = run("get", scoped, "protocol=https\nhost=gitlab.com\n\n");
+    expect(out).toContain("password=proj-tok-1");
+  });
+
+  it("falls through to the ambient store when the request names a different host", () => {
+    const out = run("get", scoped, GET_REQUEST); // github.com request
+    expect(out).not.toContain("proj-tok-1");
+    expect(out).toContain("password=AMBIENT_PAT");
+  });
+
+  it("the post-mismatch fallthrough still answers per-host — the consumed request is re-fed to the ambient store", () => {
+    const out = run("get", { ...scoped, GUILD_GIT_CRED_HOST: "example.com" }, "protocol=https\nhost=gitlab.com\n\n");
+    expect(out).not.toContain("proj-tok-1");
+    expect(out).toContain("password=OTHER_PAT");
+  });
+
+  it("without a configured host the token answers any host — unscoped deployments keep working", () => {
+    const out = run("get", { GUILD_GIT_CRED: "GUILD_GIT_TOKEN_ACME", GUILD_GIT_TOKEN_ACME: "proj-tok-1" });
+    expect(out).toContain("password=proj-tok-1");
+  });
+
+  it("host matching is case-insensitive — DNS names are, and git sends the remote URL's casing verbatim (verify #56)", () => {
+    expect(run("get", { ...scoped, GUILD_GIT_CRED_HOST: "GitLab.com" }, "protocol=https\nhost=gitlab.com\n\n"))
+      .toContain("password=proj-tok-1");
+    expect(run("get", scoped, "protocol=https\nhost=GitLab.COM\n\n")).toContain("password=proj-tok-1");
+  });
+});
+
 describe("only GUILD_GIT_TOKEN_* is ever expanded — an on-shape name is not a safe name (verify sh-0)", () => {
   it.each([
     ["PATH", "PATH"],

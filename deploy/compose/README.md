@@ -230,8 +230,13 @@ git access to exactly its repos (#6):
    image's credential helper (`docker/daemon/guild-git-cred.sh` — get-only,
    spec in `tools/checks/guild-git-cred.test.ts`) resolves it at git time
    (falling back to the ambient store when unset — unconfigured projects keep
-   working). For GitLab set `GUILD_GIT_CRED_USERNAME` on the daemon if your
-   setup needs a specific username; the default `x-access-token` suits GitHub.
+   working). Optionally set `GUILD_GIT_CRED_HOST=<host[:port]>` beside the
+   name to pin the token to one request host (#56, case-insensitive): any
+   other host falls through to the ambient store, so a multi-host daemon
+   never offers one host's token to another. (Bracketed IPv6 literal
+   remotes cannot be scoped — leave the host unset for those.) For GitLab set `GUILD_GIT_CRED_USERNAME` on the
+   daemon if your setup needs a specific username; the default
+   `x-access-token` suits GitHub.
 4. **Revoke** = revoke on the host + drop the env var; other projects are
    untouched. Note the honest boundary (ARCHITECTURE.md D17): projects
    sharing one daemon container share its env — intra-daemon isolation needs

@@ -54,6 +54,29 @@ export function envNameEnv(values: Record<string, string>, name: string): string
   return value;
 }
 
+/**
+ * An optional variable whose VALUE must be a request host exactly as git
+ * sends it in a credential request's `host=` line (hostname, optional
+ * :port) — the daemon's helper compares it literally to scope the named
+ * token to one host, case-insensitively (D17 host scoping, audit clean-1).
+ * A scheme, path, or whitespace would never match a real request, silently
+ * disabling the token everywhere — refuse at startup instead. Boundary:
+ * bracketed IPv6 literal hosts are not scopable (leave the scope unset).
+ * An explicit empty value means unset.
+ */
+export function hostEnv(values: Record<string, string>, name: string): string | undefined {
+  const value = values[name];
+  if (value === undefined || value === "") return undefined;
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d+)?$/i.test(value)) {
+    console.error(
+      `${name} must be a bare request host as git sends it (hostname, optional :port), got "${value}" — ` +
+        "a scheme, path, or whitespace never matches a credential request's host= line (D17 host scoping).",
+    );
+    process.exit(1);
+  }
+  return value;
+}
+
 export function intEnv(values: Record<string, string>, name: string, opts?: { min?: number }): number {
   const min = opts?.min ?? 0;
   const n = Number.parseInt(values[name]!, 10);
