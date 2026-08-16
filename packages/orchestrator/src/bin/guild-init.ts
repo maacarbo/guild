@@ -6,11 +6,13 @@
  * terminal only — never into tracked files.
  *
  * Uses the dev-code auth flow the Tier 1 stack ships with
- * (MULTICA_DEV_VERIFICATION_CODE) via the substrate testkit — bootstrap
- * tooling shares the test bootstrap, deliberately.
+ * (MULTICA_DEV_VERIFICATION_CODE) via the substrate package's provisioning
+ * adapter — one bootstrap implementation deliberately shared with the live
+ * test harness, homed in the adapter layer so production code never imports
+ * test support (D7).
  */
 
-import { acquireMemberToken, ensureAgent, ensureWorkspaceMember, markOnboarded } from "@guild/substrate-multica/testkit";
+import { acquireMemberToken, ensureAgent, ensureWorkspaceMember, markOnboarded } from "@guild/substrate-multica";
 import { readEnv } from "./env.js";
 
 const ROLES = ["analyst", "architect", "implementer", "tester"] as const;
