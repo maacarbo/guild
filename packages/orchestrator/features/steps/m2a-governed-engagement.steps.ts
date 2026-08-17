@@ -128,7 +128,7 @@ function makeConductor(store: PgGovernanceStore): Conductor {
       repoUrl: SCRATCH_REPO,
       targetBranch: "main",
       defaultPlanBudgetCents: 50,
-      agentModel: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v3-2",
+      agentModel: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v4-flash",
     },
   );
 }
@@ -151,7 +151,7 @@ Given("the live stack, a governed workspace, and a hand-authored stage plan", as
   });
   const worker = await ensureAgent(operator.baseUrl, conductor.token, operator.workspaceId, {
     name: "guild-m2a-worker",
-    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v3-2",
+    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v4-flash",
   });
 
   world.substrate = createMulticaSubstrate(

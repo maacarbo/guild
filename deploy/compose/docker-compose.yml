@@ -236,7 +236,7 @@ services:
       GUILD_TARGET_BRANCH: ${GUILD_TARGET_BRANCH:-main}
       GUILD_PLAN_BUDGET_CENTS: ${GUILD_PLAN_BUDGET_CENTS:-300}
       # M3 hiring: the model route runtime-hired agents bind to (cheap tier, D2)
-      GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v3-2}
+      GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v4-flash}
       # D17 (#6): NAME of the daemon-env var holding this project's git token
       GUILD_GIT_CRED_NAME: ${GUILD_GIT_CRED_NAME:-}
       GUILD_PROJECT_SOFT_CAP_CENTS: ${GUILD_PROJECT_SOFT_CAP_CENTS:-}
@@ -268,7 +268,7 @@ services:
       GUILD_MULTICA_URL: http://multica-backend:8080
       GUILD_OPERATOR_EMAIL: ${GUILD_OPERATOR_EMAIL:-operator@guild.local}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
-      GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v3-2}
+      GUILD_AGENT_MODEL: ${GUILD_AGENT_MODEL:-litellm/or-deepseek-v4-flash}
       MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
     networks: [guild-dev]
 

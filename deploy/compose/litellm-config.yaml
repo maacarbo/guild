@@ -34,8 +34,34 @@ model_list:
     litellm_params:
       model: openrouter/anthropic/claude-haiku-4.5
       api_key: os.environ/OPENROUTER_API_KEY
-  # Cheap testing tier (slugs + prices verified live 2026-07-31): use these
-  # for probes, doctor checks, and demo dry-runs — 4-25x cheaper than Haiku.
+  # Cheap testing tier: probes, doctor checks, demo dry-runs, and — since
+  # 2026-08-16 (operator directive: guild setup runs on the cheapest
+  # VALIDATED agentic tier) — the setup/smoke default. Slugs + prices
+  # verified live 2026-08-16 against the OpenRouter models API:
+  #   deepseek-v4-flash             $0.08/M in  $0.16/M out  (default candidate — proven-lineage flash tier, 1M ctx)
+  #   qwen3-coder-next              $0.12/M in  $0.80/M out  (bake-off contender, newest open qwen coder)
+  #   qwen3-coder-30b-a3b-instruct  $0.07/M in  $0.28/M out  (fallback)
+  #   glm-4.7-flash                 $0.06/M in  $0.40/M out  (fallback)
+  #   deepseek-v3.2                 $0.27/M in  $0.40/M out  (previous default, cheapest PROVEN tier)
+  # gemini-2.5-flash-lite is cheapest but FLOORED for engagement work
+  # (2026-08-16: tasks execute yet the model abandons the tool loop) — doctor
+  # and conformance probes only.
+  - model_name: or-deepseek-v4-flash
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-qwen3-coder-next
+    litellm_params:
+      model: openrouter/qwen/qwen3-coder-next
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-qwen3-coder-30b
+    litellm_params:
+      model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: or-glm-4-7-flash
+    litellm_params:
+      model: openrouter/z-ai/glm-4.7-flash
+      api_key: os.environ/OPENROUTER_API_KEY
   - model_name: or-deepseek-v3-2
     litellm_params:
       model: openrouter/deepseek/deepseek-v3.2

@@ -78,11 +78,13 @@ When("the conductor dispatches the engagement through the substrate port", async
   // the smoke agent's model traffic authenticates with THIS engagement's key
   // (per-agent custom_env — the P11 hook, proven for OpenCode 2026-07-31)
   // cheap tier, but capable enough to actually clone/edit/commit/push:
-  // gemini-flash-lite "completes" without doing the work (observed live);
-  // deepseek-v3-2 is the cheapest model that reliably executes the flow
+  // gemini-flash-lite "completes" without doing the work (observed live
+  // 2026-07-31 and again 2026-08-16); deepseek-v4-flash is the cheapest
+  // proven-lineage candidate (validation gated on PR #67's live bake-off —
+  // deepseek-v3-2 remains the cheapest PROVEN tier before it)
   const live = await bootstrapLiveEnv({
     name: "smoke-worker",
-    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v3-2",
+    model: process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v4-flash",
     customEnv: { GUILD_DAEMON_VIRTUAL_KEY: world.key!.key },
   });
   world.scope = live.workspaceId;

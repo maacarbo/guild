@@ -930,3 +930,30 @@ entity, `PUT` with a `repos` array returns 200 with the field silently
 dropped, `GET /api/projects/{id}/repos` → 404 (and `PATCH` on the entity is
 405 — `PUT` is the update verb). Repo wiring remains workspace-level only;
 mapping B stays dead for repo isolation.
+
+## Addendum 2026-08-17 — cheap-tier re-validation (PR #67 bake-off)
+
+Operator directive: setup/smoke flows must run far below the
+`or-deepseek-v3-2` tier ($1.37 avg per m2b run measured on the OpenRouter
+spend panel; the session-pinned `or-claude-haiku-4-5` averaged $2.94). Live
+bake-off on the Tier 1 stack, 2026-08-17, per the standing ladder (m1
+kill-test → m2b, winner twice consecutively green):
+
+- **`openrouter/deepseek/deepseek-v4-flash`** ($0.08/M in, $0.16/M out, 1M
+  ctx; gateway route `or-deepseek-v4-flash`): m1 smoke 9/9; **m2b 12/12
+  twice consecutively** (20m and 14m; all five stages accepted, amendment
+  re-gate and overspend halt included). Whole-bake-off OpenRouter spend —
+  four m1 runs plus both m2b runs — was **$0.36**, putting a full m2b run
+  at roughly **$0.10–0.15**: ~10x under the v3.2 floor it succeeds.
+  **`or-deepseek-v4-flash` is the new cheapest PROVEN tier** and the
+  setup/smoke default from PR #67 on.
+- **`openrouter/qwen/qwen3-coder-next`** ($0.12/M in, $0.80/M out; route
+  `or-qwen3-coder-next` kept for experiments): **FLOORED** — the m1
+  kill-test failed twice identically with the hollow-completion signature
+  this file already records for `gemini-flash-lite` (task `completed`, no
+  branch pushed). Killed at the m1 rung for ~4¢ total.
+- Operational note: the first OpenCode spawn after a daemon container
+  recreate can fail in ~1s (`agent_error.process_failure`, "Unexpected
+  error", no session) and succeed on retry — a cold-start artifact observed
+  2026-08-17, worth a warm-up run before judging any model on a fresh
+  container.
