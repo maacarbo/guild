@@ -14,6 +14,13 @@ export interface FetchMulticaApiConfig {
   baseUrl: string;
   token: string;
   workspaceId: string;
+  /**
+   * runtime-owner (daemon) credential for agent CREATION — v0.4.26
+   * (MUL-6126) makes private-runtime agent create/move owner-only; archive
+   * and env updates stay admin-allowed and ride the main token (probed live
+   * 2026-08-17). Unset = main token (a stack older than v0.4.26).
+   */
+  agentLifecycleToken?: string;
 }
 
 const PAGE_SIZE = 100;
@@ -21,11 +28,11 @@ const PAGE_SIZE = 100;
 export class FetchMulticaApi implements MulticaApi {
   constructor(private readonly config: FetchMulticaApiConfig) {}
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, opts?: { token?: string }): Promise<T> {
     const res = await fetch(`${this.config.baseUrl}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${this.config.token}`,
+        authorization: `Bearer ${opts?.token ?? this.config.token}`,
         "x-workspace-id": this.config.workspaceId,
         ...(body !== undefined ? { "content-type": "application/json" } : {}),
       },
@@ -105,8 +112,16 @@ export class FetchMulticaApi implements MulticaApi {
     return this.request("GET", "/api/runtimes");
   }
 
-  createAgent(spec: { name: string; runtime_id: string; model: string; description?: string }): Promise<MulticaAgent> {
-    return this.request("POST", "/api/agents", spec);
+  createAgent(spec: {
+    name: string;
+    runtime_id: string;
+    model: string;
+    description?: string;
+    permission_mode?: "private" | "public_to";
+    invocation_targets?: { target_type: "workspace" | "member" | "team"; target_id?: string }[];
+  }): Promise<MulticaAgent> {
+    // owner-only on v0.4.26 private runtimes (MUL-6126) — hire as the daemon
+    return this.request("POST", "/api/agents", spec, { token: this.config.agentLifecycleToken });
   }
 
   async archiveAgent(id: string): Promise<void> {

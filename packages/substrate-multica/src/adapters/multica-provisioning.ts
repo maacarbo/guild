@@ -31,6 +31,12 @@ export interface AgentSpec {
   /** required — every caller pins its tier; no default model route in production code */
   model: string;
   customEnv?: Record<string, string>;
+  /**
+   * member id allowed to assign work to this agent (v0.4.26 MUL-6126:
+   * daemon-created agents are private by default). Applied at CREATE only —
+   * permission updates are owner-only and existing agents keep their mode.
+   */
+  invocableBy?: string;
 }
 
 /** D9: OpenCode is the default CLI — its runtime rows are named "Opencode (…)" */
@@ -273,6 +279,9 @@ export async function ensureAgent(
         model,
         runtime_id: online.id,
         ...(spec.customEnv ? { custom_env: spec.customEnv } : {}),
+        ...(spec.invocableBy
+          ? { permission_mode: "public_to", invocation_targets: [{ target_type: "member", target_id: spec.invocableBy }] }
+          : {}),
       },
     });
   } else {

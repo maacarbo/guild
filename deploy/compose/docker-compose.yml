@@ -223,6 +223,8 @@ services:
       GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
       # guild-init prints the five values below - see deploy/README.md
       GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
+      # v0.4.26 (MUL-6126): M3 hiring needs the runtime OWNER's credential
+      MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
       # D15 operator allowlist: the only member ids the conductor attributes as
@@ -298,6 +300,8 @@ services:
       GUILD_GATEWAY_URL: http://litellm:4000
       GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
       GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
+      # v0.4.26 (MUL-6126): M3 hiring needs the runtime OWNER's credential
+      MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}

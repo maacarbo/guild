@@ -65,13 +65,13 @@ describe("provisionTeam (D15 identity partition + D16 starter team)", () => {
     expect(new Set([team.operator.memberId, team.conductor.memberId, team.daemon.memberId]).size).toBe(3);
   });
 
-  it("ensures one agent per requested role, named guild-<role>, under the conductor identity", async () => {
+  it("ensures one agent per requested role, named guild-<role>, under the DAEMON identity — the runtime owner is the only member v0.4.26 lets create agents there (MUL-6126)", async () => {
     const port = new FakeProvisioner();
     const team = await provisionTeam(port, input);
 
     expect(port.agentCalls).toEqual(
       STARTER_ROLES.map((role) => ({
-        token: team.conductor.token,
+        token: team.daemon.token,
         workspaceId: "ws-1",
         name: `guild-${role}`,
         model: "litellm/test-model",

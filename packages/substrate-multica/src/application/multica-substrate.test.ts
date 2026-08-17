@@ -90,7 +90,9 @@ class FakeMulticaApi implements MulticaApi {
   async listRuntimes() {
     return this.runtimes;
   }
+  createdSpecs: unknown[] = [];
   async createAgent(spec: { name: string; runtime_id: string; model: string }): Promise<MulticaAgent> {
+    this.createdSpecs.push(spec);
     if ([...this.agents, ...this.archivedAgents].some((a) => a.name === spec.name)) {
       throw new MulticaHttpError(409, `an agent named "${spec.name}" already exists in this workspace`);
     }
@@ -476,6 +478,15 @@ describe("archived-agent tolerance (M3: retire = archive; reads must survive)", 
 
 describe("hire and retire (M3: dynamic team on the substrate)", () => {
   const hireSpec = { role: "security-reviewer", agentName: "guild-security-reviewer-idea9", model: "litellm/or-deepseek-v3-2" };
+
+  it("hires as a public_to agent invocable by the conductor — v0.4.26 makes daemon-created agents private by default (MUL-6126)", async () => {
+    const { api, substrate } = make();
+    await substrate.hireAgent(hireSpec);
+    expect(api.createdSpecs[0]).toMatchObject({
+      permission_mode: "public_to",
+      invocation_targets: [{ target_type: "member", target_id: "member-self" }],
+    });
+  });
 
   it("hire creates the agent on an online runtime, binds the role, dispatchable at once", async () => {
     const { api, substrate } = make();

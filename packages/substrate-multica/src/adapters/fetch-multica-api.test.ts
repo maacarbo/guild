@@ -101,6 +101,39 @@ describe("agent-management primitives (M3 hiring — live-probed 2026-08-11)", (
     expect(await api().listRuntimes()).toEqual([{ id: "rt-1", status: "online" }]);
   });
 
+  it("createAgent authenticates as the runtime OWNER when a lifecycle token is configured — v0.4.26 (MUL-6126) makes private-runtime agent creation owner-only", async () => {
+    let auth = "";
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      auth = (init?.headers as Record<string, string>).authorization;
+      return new Response(JSON.stringify({ id: "a-9" }), { status: 201 });
+    }) as typeof fetch);
+    const owner = new FetchMulticaApi({
+      baseUrl: "http://multica.test",
+      token: "mul_conductor",
+      workspaceId: "ws",
+      agentLifecycleToken: "mul_daemon",
+    });
+    await owner.createAgent({ name: "guild-sec-1", runtime_id: "rt-1", model: "litellm/or-deepseek-v4-flash" });
+    expect(auth).toBe("Bearer mul_daemon");
+  });
+
+  it("env updates and archive keep the MAIN token — both remain admin-allowed on v0.4.26 (probed live 2026-08-17)", async () => {
+    const auths: string[] = [];
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      auths.push((init?.headers as Record<string, string>).authorization);
+      return new Response(JSON.stringify({ id: "a-9" }), { status: 200 });
+    }) as typeof fetch);
+    const owner = new FetchMulticaApi({
+      baseUrl: "http://multica.test",
+      token: "mul_conductor",
+      workspaceId: "ws",
+      agentLifecycleToken: "mul_daemon",
+    });
+    await owner.updateAgentEnv("a-9", { K: "v" });
+    await owner.archiveAgent("a-9");
+    expect(auths).toEqual(["Bearer mul_conductor", "Bearer mul_conductor"]);
+  });
+
   it("createAgent POSTs the spec — runtime_id is REQUIRED by the backend, so the type demands it", async () => {
     vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("http://multica.test/api/agents");

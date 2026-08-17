@@ -61,7 +61,9 @@ NOT the operator — D15/#17 A5d) — plus the fixed four-role starter team, and
 prints every generated value. Paste them into `.env`:
 
 - conductor: `GUILD_MULTICA_TOKEN`, `GUILD_WORKSPACE_ID`, `GUILD_ROLE_AGENTS`,
-  `GUILD_OPERATOR_MEMBER_IDS` (the allowlist), `GUILD_DAEMON_MEMBER_ID`
+  `GUILD_OPERATOR_MEMBER_IDS` (the allowlist), `GUILD_DAEMON_MEMBER_ID`, and
+  `MULTICA_DAEMON_TOKEN` (shared with the daemon — since v0.4.26, MUL-6126,
+  agent hiring is runtime-owner-only, so the conductor hires as the daemon)
 - daemon: `MULTICA_DAEMON_TOKEN`
 
 Then set `GUILD_REPO_URL` (HTTPS with the scoped PAT embedded).

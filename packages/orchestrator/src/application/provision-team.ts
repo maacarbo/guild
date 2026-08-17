@@ -76,9 +76,14 @@ export async function provisionTeam(port: TeamProvisioner, input: ProvisionTeamI
 
   const roleAgents: Record<string, AgentBinding> = {};
   for (const role of input.roles) {
-    roleAgents[role] = await port.ensureAgent(conductor.token, input.workspaceId, {
+    // the DAEMON owns the runtime, and v0.4.26 (MUL-6126) makes private-
+    // runtime agent creation owner-only — hire under the runtime owner
+    roleAgents[role] = await port.ensureAgent(daemon.token, input.workspaceId, {
       name: `guild-${role}`,
       model: input.agentModel,
+      // the CONDUCTOR dispatches to the starter team — allow-list it on the
+      // daemon-created (otherwise-private) agents
+      invocableBy: conductor.memberId,
     });
   }
 
