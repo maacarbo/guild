@@ -6,7 +6,7 @@
 #
 # Pinned versions (bump = lockstep pair with docker/daemon image; run the
 # conformance suite green before either moves — docker/daemon/README.md):
-#   Multica control plane  v0.4.15   (LICENSE diff reviewed — see README.md here)
+#   Multica control plane  v0.4.26   (LICENSE diff reviewed — see README.md here)
 #   LiteLLM                v1.94.0   (by digest)
 #
 # Usage:
