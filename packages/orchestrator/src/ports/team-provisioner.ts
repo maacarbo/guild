@@ -29,6 +29,6 @@ export interface TeamProvisioner {
   ensureAgent(
     token: string,
     workspaceId: string,
-    spec: { name: string; model: string },
+    spec: { name: string; model: string; invocableBy?: string },
   ): Promise<AgentBinding>;
 }

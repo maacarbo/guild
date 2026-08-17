@@ -309,7 +309,18 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       }
       let agentId: string;
       try {
-        agentId = (await this.api.createAgent({ name: spec.agentName, runtime_id: online.id, model: spec.model })).id;
+        agentId = (
+          await this.api.createAgent({
+            name: spec.agentName,
+            runtime_id: online.id,
+            model: spec.model,
+            // the hire is created by the runtime OWNER's credential (v0.4.26
+            // MUL-6126) and would be private to it — allow-list the conductor
+            // (selfMemberId) so dispatch can assign work to what it hired
+            permission_mode: "public_to",
+            invocation_targets: [{ target_type: "member", target_id: this.config.selfMemberId }],
+          })
+        ).id;
       } catch (e) {
         // crashed-hire re-drive: the same-name agent already exists — adopt it
         // rather than duplicate (names are unique per hire by contract)

@@ -6,7 +6,7 @@ class FakeProvisioner implements TeamProvisioner {
   tokenCalls: { email: string; cacheName: string }[] = [];
   memberCalls: { ownerToken: string; workspaceId: string; email: string; role: string }[] = [];
   onboardedTokens: string[] = [];
-  agentCalls: { token: string; workspaceId: string; name: string; model: string }[] = [];
+  agentCalls: { token: string; workspaceId: string; name: string; model: string; invocableBy?: string }[] = [];
   /** email → minted identity; a shared identity models a collapsed partition */
   identities = new Map<string, MemberIdentity>();
   /** tokens whose onboarding pre-mark fails (the stock-UI route is flaky, #16) */
@@ -34,9 +34,9 @@ class FakeProvisioner implements TeamProvisioner {
   async ensureAgent(
     token: string,
     workspaceId: string,
-    spec: { name: string; model: string },
+    spec: { name: string; model: string; invocableBy?: string },
   ): Promise<AgentBinding> {
-    this.agentCalls.push({ token, workspaceId, name: spec.name, model: spec.model });
+    this.agentCalls.push({ token, workspaceId, name: spec.name, model: spec.model, invocableBy: spec.invocableBy });
     return { agentId: `agent-${spec.name}`, agentName: spec.name };
   }
 }
@@ -65,16 +65,19 @@ describe("provisionTeam (D15 identity partition + D16 starter team)", () => {
     expect(new Set([team.operator.memberId, team.conductor.memberId, team.daemon.memberId]).size).toBe(3);
   });
 
-  it("ensures one agent per requested role, named guild-<role>, under the conductor identity", async () => {
+  it("ensures one agent per requested role, named guild-<role>, under the DAEMON identity — the runtime owner is the only member v0.4.26 lets create agents there (MUL-6126)", async () => {
     const port = new FakeProvisioner();
     const team = await provisionTeam(port, input);
 
     expect(port.agentCalls).toEqual(
       STARTER_ROLES.map((role) => ({
-        token: team.conductor.token,
+        token: team.daemon.token,
         workspaceId: "ws-1",
         name: `guild-${role}`,
         model: "litellm/test-model",
+        // daemon-created agents are assignment-private (v0.4.26) — the
+        // conductor must be allow-listed or it cannot dispatch to its team
+        invocableBy: team.conductor.memberId,
       })),
     );
     expect(Object.keys(team.roleAgents)).toEqual([...STARTER_ROLES]);

@@ -28,7 +28,12 @@ let live: LiveEnv;
 
 describeExecutionSubstrateConformance(async () => {
   live = await bootstrapLiveEnv();
-  const apiConfig = { baseUrl: live.baseUrl, token: live.token, workspaceId: live.workspaceId };
+  const apiConfig = {
+    baseUrl: live.baseUrl,
+    token: live.token,
+    workspaceId: live.workspaceId,
+    agentLifecycleToken: live.agentLifecycleToken,
+  };
   const roleAgents = { worker: { agentId: live.agentId, agentName: live.agentName } };
   return {
     substrate: createMulticaSubstrate(apiConfig, {

@@ -957,3 +957,33 @@ kill-test → m2b, winner twice consecutively green):
   error", no session) and succeed on retry — a cold-start artifact observed
   2026-08-17, worth a warm-up run before judging any model on a fresh
   container.
+
+
+## Addendum 2026-08-17b — v0.4.26 agent-lifecycle authz (PR #47 bump gate)
+
+The v0.4.26 conformance run went 16/20: every failure traced to upstream
+MUL-6126 ("make private runtimes owner-only in the API and CLI too",
+multica#6905). Probed live on the upgraded guild-dev stack:
+
+- `POST /api/agents` (hire) — conductor (workspace admin) → **403** "this
+  runtime is private; only its owner can create agents on it"; daemon
+  (runtime owner) → 201.
+- `PUT /api/agents/{id}` runtime move — conductor → **403** "only its owner
+  can move agents onto it"; daemon → 200.
+- `PUT /api/agents/{id}/env` — conductor → 200 (admin still allowed).
+- `POST /api/agents/{id}/archive` — conductor → 200 (admin still allowed).
+
+A second layer sits behind the first: daemon-created agents default to
+`visibility/permission_mode: private`, and issue ASSIGNMENT to a private
+agent is refused for everyone but its owner (conductor assign → 403
+"cannot assign to private agent"). The resolution is the new permission
+surface: create with `permission_mode: "public_to"` and
+`invocation_targets: [{target_type: "member", target_id: <member>}]` —
+probed live: daemon-created public_to[conductor] agent, conductor assign →
+200. Consequence: D16 hiring and every rebind ride the daemon credential
+from v0.4.26 on (`agentLifecycleToken` in the adapter; D16 amendment
+2026-08-17), and every hire/provisioned agent allow-lists its dispatcher.
+The 2026-08-02 note "admin suffices on private runtimes" is superseded for
+create/move. Also re-observed: a task dispatched to a just-recreated
+daemon's FIRST OpenCode spawn can fail (`process_failure`, ~1s) and succeed
+on retry — warm up fresh containers before judging.

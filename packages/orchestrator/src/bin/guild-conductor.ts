@@ -18,6 +18,10 @@ import { envNameEnv, hostEnv, intEnv, readEnv } from "./env.js";
 const env = readEnv([
   { name: "GUILD_MULTICA_URL", source: "compose service URL, e.g. http://multica-backend:8080" },
   { name: "GUILD_MULTICA_TOKEN", source: "the CONDUCTOR member's PAT — guild-init prints it" },
+  // v0.4.26 (MUL-6126): private-runtime agent creation is owner-only — M3
+  // hiring rides the daemon (runtime-owner) credential; every other call
+  // stays on the conductor's own token
+  { name: "MULTICA_DAEMON_TOKEN", source: "the DAEMON member's PAT (runtime owner) — guild-init prints it" },
   { name: "GUILD_WORKSPACE_ID", source: "the project workspace — guild-init prints it" },
   { name: "GUILD_ROLE_AGENTS", source: "role→agent JSON — guild-init prints it" },
   { name: "GUILD_OPERATOR_MEMBER_IDS", source: "comma-separated operator member id(s) — guild-init prints them (D15 allowlist)" },
@@ -103,7 +107,12 @@ async function main(): Promise<void> {
   }
 
   const substrate = createMulticaSubstrate(
-    { baseUrl: env.GUILD_MULTICA_URL, token: env.GUILD_MULTICA_TOKEN, workspaceId: env.GUILD_WORKSPACE_ID },
+    {
+      baseUrl: env.GUILD_MULTICA_URL,
+      token: env.GUILD_MULTICA_TOKEN,
+      workspaceId: env.GUILD_WORKSPACE_ID,
+      agentLifecycleToken: env.MULTICA_DAEMON_TOKEN,
+    },
     {
       projectScope: env.GUILD_WORKSPACE_ID,
       roleAgents: JSON.parse(env.GUILD_ROLE_AGENTS) as Record<string, { agentId: string; agentName: string }>,

@@ -61,7 +61,9 @@ NOT the operator — D15/#17 A5d) — plus the fixed four-role starter team, and
 prints every generated value. Paste them into `.env`:
 
 - conductor: `GUILD_MULTICA_TOKEN`, `GUILD_WORKSPACE_ID`, `GUILD_ROLE_AGENTS`,
-  `GUILD_OPERATOR_MEMBER_IDS` (the allowlist), `GUILD_DAEMON_MEMBER_ID`
+  `GUILD_OPERATOR_MEMBER_IDS` (the allowlist), `GUILD_DAEMON_MEMBER_ID`, and
+  `MULTICA_DAEMON_TOKEN` (shared with the daemon — since v0.4.26, MUL-6126,
+  agent hiring is runtime-owner-only, so the conductor hires as the daemon)
 - daemon: `MULTICA_DAEMON_TOKEN`
 
 Then set `GUILD_REPO_URL` (HTTPS with the scoped PAT embedded).
@@ -197,8 +199,15 @@ git diff vOLD vNEW -- LICENSE        # empty = no license change; anything else
                                      # → stop and review before bumping
 ```
 
-Record the outcome in the bump commit message. Last review: `v0.4.15`
-(2026-07-30) — LICENSE identical to the version frozen in
+Record the outcome in the bump commit message. Last review: `v0.4.26`
+(2026-08-16/17, PR #47) — SUBSTANTIVE rewrite into the two-part "Multica
+License" (Part I additional conditions + verbatim Apache 2.0): new
+attribution condition for non-UI products, hosted-service restriction
+explicit even free of charge, broader UI definition, whole-file
+redistribution rule. Reviewed and **accepted by the operator 2026-08-17**;
+full analysis on PR #47. Guild's posture unaffected (self-hosted, single
+org, unmodified UI, attribution already in README/PRODUCT). Prior review:
+`v0.4.15` (2026-07-30) — identical to the version frozen in
 `docs/research/multica-investigation-2026-07-29.md`.
 
 Then bump `MULTICA_VERSION` in `versions.env` (and its mirror locations — the

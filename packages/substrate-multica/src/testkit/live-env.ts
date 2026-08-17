@@ -12,6 +12,7 @@
 
 import { join } from "node:path";
 import {
+  acquireMemberToken,
   acquireTokenAt,
   api,
   ensureAgent,
@@ -30,6 +31,8 @@ export {
 export interface LiveEnv {
   baseUrl: string;
   token: string;
+  /** daemon (runtime-owner) PAT — agent create/move is owner-only since v0.4.26 (MUL-6126) */
+  agentLifecycleToken: string;
   workspaceId: string;
   agentId: string;
   agentName: string;
@@ -81,11 +84,15 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
     );
   }
 
-  const ensured = await ensureAgent(baseUrl, token, picked.workspaceId, spec);
+  // v0.4.26 (MUL-6126): agent create/move on a private runtime is owner-only
+  // — the harness ensures its agent as the DAEMON member, the runtime owner
+  const daemon = await acquireMemberToken(baseUrl, "daemon@guild.local", "guild-daemon-token.json");
+  const ensured = await ensureAgent(baseUrl, daemon.token, picked.workspaceId, { ...spec, invocableBy: memberId });
 
   return {
     baseUrl,
     token,
+    agentLifecycleToken: daemon.token,
     workspaceId: picked.workspaceId,
     agentId: ensured.agentId,
     agentName: ensured.agentName,

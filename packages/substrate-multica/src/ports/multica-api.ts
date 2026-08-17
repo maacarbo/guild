@@ -39,7 +39,15 @@ export interface MulticaApi {
   listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]>;
   /** M3 hiring: agents bind to an existing runtime at creation (backend rejects runtime_id-less creates) */
   listRuntimes(): Promise<MulticaRuntime[]>;
-  createAgent(spec: { name: string; runtime_id: string; model: string; description?: string }): Promise<MulticaAgent>;
+  createAgent(spec: {
+    name: string;
+    runtime_id: string;
+    model: string;
+    description?: string;
+    /** v0.4.26 (MUL-6126): daemon-created agents are private by default — public_to + a member target lets that member assign work */
+    permission_mode?: "private" | "public_to";
+    invocation_targets?: { target_type: "workspace" | "member" | "team"; target_id?: string }[];
+  }): Promise<MulticaAgent>;
   /** the ONLY retire the API exposes (DELETE is 405); archive is one-way by Guild decision — never /restore */
   archiveAgent(id: string): Promise<void>;
   /** wholesale custom_env replacement — v0.4.15 dedicated endpoint, member-token auth (M1b live) */
