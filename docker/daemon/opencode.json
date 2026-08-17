@@ -15,6 +15,8 @@
         "or-claude-sonnet-5": { "name": "Claude Sonnet 5 (gateway, OpenRouter)" },
         "or-claude-haiku-4-5": { "name": "Claude Haiku 4.5 (gateway, OpenRouter)" },
         "or-deepseek-v3-2": { "name": "DeepSeek V3.2 (gateway, cheap testing tier)" },
+        "or-deepseek-v4-flash": { "name": "DeepSeek V4 Flash (gateway, cheap setup tier)" },
+        "or-qwen3-coder-next": { "name": "Qwen3 Coder Next (gateway, cheap setup tier)" },
         "or-qwen3-coder-30b": { "name": "Qwen3 Coder 30B A3B (gateway, cheap setup tier)" },
         "or-glm-4-7-flash": { "name": "GLM 4.7 Flash (gateway, cheap setup tier)" },
         "or-gemini-flash-lite": { "name": "Gemini 2.5 Flash Lite (gateway, cheap testing tier)" }

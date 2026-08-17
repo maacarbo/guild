@@ -41,7 +41,7 @@ const SCRATCH_REPO = process.env.GUILD_SCRATCH_REPO ?? "git@github.com:maacarbo/
 const MULTICA_URL = process.env.GUILD_MULTICA_URL ?? "http://127.0.0.1:8080";
 const GATEWAY_URL = process.env.GUILD_GATEWAY_URL ?? "http://127.0.0.1:4000";
 const VALIDATOR_IMAGE = process.env.GUILD_VALIDATOR_NODE_IMAGE ?? "node:22-alpine";
-const AGENT_MODEL = process.env.GUILD_SMOKE_MODEL ?? "litellm/or-qwen3-coder-30b";
+const AGENT_MODEL = process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v4-flash";
 const ROLES: readonly string[] = ["analyst", "architect", "implementer", "tester"];
 
 function envValue(name: string): string {
