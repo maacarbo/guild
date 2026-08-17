@@ -2,7 +2,7 @@
 
 *Repositioned 2026-07-29 after ecosystem research — see [research/multica-comparison-2026-07-29.md](research/multica-comparison-2026-07-29.md) and [research/multica-investigation-2026-07-29.md](research/multica-investigation-2026-07-29.md). The original whole-platform spec is in git history.*
 
-**Guild is an open-source autonomous-SDLC governance layer.** You give it a product idea; it produces a staged delivery plan, gates each stage on your approval, dispatches scoped work to a team of coding agents running on a self-hosted [Multica](https://github.com/multica-ai/multica) instance, validates every handoff against a machine-checkable contract before the pipeline advances, and enforces a spend budget with a kill-switch. Guild does not rebuild the agent platform — Multica's board, runtimes, and skills are the execution substrate; Guild is the discipline on top.
+**Guild is an open-source autonomous-SDLC governance layer, built on [Multica](https://github.com/multica-ai/multica).** You give it a product idea; it produces a staged delivery plan, gates each stage on your approval, dispatches scoped work to a team of coding agents running on a self-hosted [Multica](https://github.com/multica-ai/multica) instance, validates every handoff against a machine-checkable contract before the pipeline advances, and enforces a spend budget with a kill-switch. Guild does not rebuild the agent platform — Multica's board, runtimes, and skills are the execution substrate; Guild is the discipline on top.
 
 ## Principles
 

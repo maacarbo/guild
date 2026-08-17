@@ -147,11 +147,15 @@ Given("the live stack, the four role agents, a clean governance database, and an
     role: "admin",
   });
 
+  // v0.4.26 (MUL-6126): agent create/move is runtime-owner-only — ensure as
+  // the daemon, allow-listing the conductor that will assign the work
+  const daemonM2b = await acquireMemberToken(operator.baseUrl, "daemon@guild.local", "guild-daemon-token.json");
   const roleAgents: Record<string, { agentId: string; agentName: string }> = {};
   for (const role of ROLES) {
-    const agent = await ensureAgent(operator.baseUrl, conductor.token, operator.workspaceId, {
+    const agent = await ensureAgent(operator.baseUrl, daemonM2b.token, operator.workspaceId, {
       name: `guild-m2b-${role}`,
       model: AGENT_MODEL,
+      invocableBy: conductor.memberId,
     });
     roleAgents[role] = agent;
   }
