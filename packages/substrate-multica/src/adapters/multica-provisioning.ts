@@ -23,6 +23,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { newestOnlineRuntime } from "../domain/runtime-selection.js";
 import { fileURLToPath } from "node:url";
 
 /** the agent to provision; the smoke passes its per-engagement key via customEnv */
@@ -250,14 +251,15 @@ export async function ensureAgent(
   token: string,
   workspaceId: string,
   spec: AgentSpec,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ agentId: string; agentName: string }> {
-  const runtimes = await api<Array<{ id: string; name: string; status: string }>>(
+  const runtimes = await api<Array<{ id: string; name: string; status: string; last_seen_at?: string }>>(
     baseUrl,
     "GET",
     "/api/runtimes",
-    { token, workspaceId },
+    { token, workspaceId, fetchImpl },
   );
-  const online = runtimes.find((r) => r.status === "online" && r.name.startsWith(RUNTIME_PREFIX));
+  const online = newestOnlineRuntime(runtimes, RUNTIME_PREFIX);
   if (!online) {
     throw new Error(`no online ${RUNTIME_PREFIX} runtime in workspace ${workspaceId} — is the daemon up?`);
   }
@@ -267,13 +269,14 @@ export async function ensureAgent(
     baseUrl,
     "GET",
     "/api/agents",
-    { token, workspaceId },
+    { token, workspaceId, fetchImpl },
   );
   let agent = agents.find((a) => a.name === spec.name);
   if (!agent) {
     agent = await api(baseUrl, "POST", "/api/agents", {
       token,
       workspaceId,
+      fetchImpl,
       body: {
         name: spec.name,
         model,
@@ -289,6 +292,7 @@ export async function ensureAgent(
       await api(baseUrl, "PUT", `/api/agents/${agent.id}`, {
         token,
         workspaceId,
+        fetchImpl,
         body: { runtime_id: online.id, model },
       });
     }
@@ -298,6 +302,7 @@ export async function ensureAgent(
       await api(baseUrl, "PUT", `/api/agents/${agent.id}/env`, {
         token,
         workspaceId,
+        fetchImpl,
         body: { custom_env: spec.customEnv },
       });
     }

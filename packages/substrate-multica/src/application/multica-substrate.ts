@@ -21,6 +21,7 @@ import type {
 import { renderBounceComment } from "../domain/bounce.js";
 import { renderBrief } from "../domain/brief.js";
 import { substrateEventFromFrame } from "../domain/events.js";
+import { newestOnlineRuntime } from "../domain/runtime-selection.js";
 import { deriveSnapshot } from "../domain/snapshot.js";
 import {
   actorFrom,
@@ -303,7 +304,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       // creates) and only an ONLINE runtime's daemon dispatches — probed live
       // 2026-08-11: creation on the online runtime reached task_run running
       // with no daemon restart
-      const online = (await this.api.listRuntimes()).find((r) => r.status === "online");
+      const online = newestOnlineRuntime(await this.api.listRuntimes());
       if (!online) {
         throw new SubstrateFault("substrate_internal", true, "no online runtime to hire onto — is the daemon up?");
       }

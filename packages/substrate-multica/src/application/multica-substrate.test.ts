@@ -86,7 +86,7 @@ class FakeMulticaApi implements MulticaApi {
   async listAgents(opts?: { includeArchived?: boolean }): Promise<MulticaAgent[]> {
     return opts?.includeArchived ? [...this.agents, ...this.archivedAgents] : [...this.agents];
   }
-  runtimes: Array<{ id: string; status: string }> = [{ id: "rt-1", status: "online" }];
+  runtimes: Array<{ id: string; status: string; last_seen_at?: string }> = [{ id: "rt-1", status: "online" }];
   async listRuntimes() {
     return this.runtimes;
   }
@@ -486,6 +486,16 @@ describe("hire and retire (M3: dynamic team on the substrate)", () => {
       permission_mode: "public_to",
       invocation_targets: [{ target_type: "member", target_id: "member-self" }],
     });
+  });
+
+  it("hire lands on the NEWEST online runtime — a dead daemon's row lingers 'online' through its heartbeat grace window (#70)", async () => {
+    const { api, substrate } = make();
+    api.runtimes = [
+      { id: "rt-corpse", status: "online", last_seen_at: "2026-08-22T10:00:00Z" },
+      { id: "rt-live", status: "online", last_seen_at: "2026-08-22T10:05:00Z" },
+    ];
+    await substrate.hireAgent(hireSpec);
+    expect(api.agents.find((a) => a.name === hireSpec.agentName)?.runtime_id).toBe("rt-live");
   });
 
   it("hire creates the agent on an online runtime, binds the role, dispatchable at once", async () => {
