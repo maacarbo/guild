@@ -55,6 +55,15 @@ describe("one versions file (#14)", () => {
     expect(compose).toContain(`tecnativa/docker-socket-proxy@${v.SOCKET_PROXY_IMAGE_DIGEST}`);
   });
 
+  it("compose comments never repeat a version pin — the release watcher's rewrites cannot reach prose (#14)", () => {
+    const compose = read("deploy", "compose", "docker-compose.yml");
+    const offending = compose
+      .split("\n")
+      // look-arounds keep IP addresses (127.0.0.1) out of the match
+      .filter((line) => /^\s*#/.test(line) && /(?<![\d.])v?\d+\.\d+\.\d+(?![\d.])/.test(line));
+    expect(offending, "comment lines carrying a version literal — point at versions.env instead").toEqual([]);
+  });
+
   it("every GUILD_IMAGE_TAG interpolation default agrees — five sites, one tag (audit docs-8)", () => {
     const compose = read("deploy", "compose", "docker-compose.yml") + read("deploy", "compose", "docker-compose.dev.yml");
     const defaults = [...compose.matchAll(/\$\{GUILD_IMAGE_TAG:-([^}]+)\}/g)].map((m) => m[1]);
