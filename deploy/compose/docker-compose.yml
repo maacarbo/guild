@@ -4,10 +4,11 @@
 # pre-existing infrastructure. All host ports bind to 127.0.0.1 only (Docker
 # bypasses host firewalls; see upstream docker-compose.selfhost.yml for why).
 #
-# Pinned versions (bump = lockstep pair with docker/daemon image; run the
-# conformance suite green before either moves — docker/daemon/README.md):
-#   Multica control plane  v0.4.26   (LICENSE diff reviewed — see README.md here)
-#   LiteLLM                v1.94.0   (by digest)
+# Pinned versions live in versions.env (#14, one versions file) — the
+# interpolation defaults below mirror it, CI-checked. Multica bump =
+# lockstep pair with the docker/daemon image; run the conformance suite
+# green before either moves (docker/daemon/README.md); LICENSE review per
+# README.md here.
 #
 # Usage:
 #   cp .env.example .env   # fill in secrets — see README.md
@@ -89,7 +90,7 @@ services:
       retries: 5
 
   litellm:
-    # Pinned by digest: v1.94.0
+    # pinned by digest — the version label lives beside it in versions.env
     image: ghcr.io/berriai/litellm-database@sha256:528774743b9efc02ee4612e99a79810df91188689ff4e569d9bcc79216b1e906
     depends_on:
       litellm-postgres:
@@ -189,7 +190,7 @@ services:
   # network so agents and the daemon can never reach the Docker API.
   docker-socket-proxy:
     profiles: [conductor]
-    # Pinned by digest: 0.3.0 (repo convention: third-party infra pins are immutable)
+    # pinned by digest (label in versions.env) — third-party infra pins are immutable
     image: tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
     environment:
       CONTAINERS: 1
@@ -223,7 +224,7 @@ services:
       GUILD_POSTGRES_URL: postgres://guild:${GUILD_POSTGRES_PASSWORD}@guild-postgres:5432/guild
       # guild-init prints the five values below - see deploy/README.md
       GUILD_MULTICA_TOKEN: ${GUILD_MULTICA_TOKEN:-}
-      # v0.4.26 (MUL-6126): M3 hiring needs the runtime OWNER's credential
+      # MUL-6126: M3 hiring needs the runtime OWNER's credential
       MULTICA_DAEMON_TOKEN: ${MULTICA_DAEMON_TOKEN:-}
       GUILD_WORKSPACE_ID: ${GUILD_WORKSPACE_ID:-}
       GUILD_ROLE_AGENTS: ${GUILD_ROLE_AGENTS:-}
