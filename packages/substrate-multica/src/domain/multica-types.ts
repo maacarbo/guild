@@ -44,6 +44,8 @@ export interface MulticaRuntime {
   id: string;
   status: string;
   name?: string;
+  /** last heartbeat — selection prefers the newest (#70: dead rows linger online) */
+  last_seen_at?: string;
 }
 
 export interface MulticaComment {

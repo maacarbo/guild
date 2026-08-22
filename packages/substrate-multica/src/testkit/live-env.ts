@@ -20,6 +20,7 @@ import {
   RUNTIME_PREFIX,
   type AgentSpec,
 } from "../adapters/multica-provisioning.js";
+import { newestOnlineRuntime } from "../domain/runtime-selection.js";
 
 export {
   acquireMemberToken,
@@ -66,13 +67,13 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
   const workspaces = await api<Array<{ id: string; name: string }>>(baseUrl, "GET", "/api/workspaces", { token });
   let picked: { workspaceId: string; runtimeId: string } | null = null;
   for (const ws of workspaces) {
-    const runtimes = await api<Array<{ id: string; name: string; status: string }>>(
+    const runtimes = await api<Array<{ id: string; name: string; status: string; last_seen_at?: string }>>(
       baseUrl,
       "GET",
       "/api/runtimes",
       { token, workspaceId: ws.id },
     );
-    const online = runtimes.find((r) => r.status === "online" && r.name.startsWith(RUNTIME_PREFIX));
+    const online = newestOnlineRuntime(runtimes, RUNTIME_PREFIX);
     if (online) {
       picked = { workspaceId: ws.id, runtimeId: online.id };
       break;
