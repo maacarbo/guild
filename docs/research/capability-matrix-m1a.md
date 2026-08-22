@@ -987,3 +987,19 @@ The 2026-08-02 note "admin suffices on private runtimes" is superseded for
 create/move. Also re-observed: a task dispatched to a just-recreated
 daemon's FIRST OpenCode spawn can fail (`process_failure`, ~1s) and succeed
 on retry — warm up fresh containers before judging.
+
+## Addendum 2026-08-22 — v0.4.32 bump gate (PR #69)
+
+Six upstream releases (v0.4.27–v0.4.32) in one hop; LICENSE byte-identical
+to the accepted v0.4.26 text. Conformance against live v0.4.32: **20/20 with
+zero code adaptation** — notably MUL-6380 ("align private-agent invoke
+surfaces with the owner-only contract", v0.4.30) is compatible with the
+public_to + member-allow-list shape Guild adopted for MUL-6126, and
+MUL-6463's run-promotion confirmation did not surface on the API dispatch
+path. One first-run failure reproduced the KNOWN stale-runtime-row race
+(not a v0.4.32 regression): right after a daemon recreate the dead
+container's runtime row is still inside its heartbeat grace window, and
+`ensureAgent`/`hireAgent` pick the FIRST online row — the conformance
+agent bound to the corpse and its task sat `queued` forever. Clean re-run
+once the row expired. Fix tracked as an issue: prefer the newest
+(`last_seen_at`) online row.
