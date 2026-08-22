@@ -304,6 +304,7 @@ export class MulticaSubstrate implements ExecutionSubstrate {
       // creates) and only an ONLINE runtime's daemon dispatches — probed live
       // 2026-08-11: creation on the online runtime reached task_run running
       // with no daemon restart
+      // no name-prefix filter, faithful to the pre-#70 behavior at this site
       const online = newestOnlineRuntime(await this.api.listRuntimes());
       if (!online) {
         throw new SubstrateFault("substrate_internal", true, "no online runtime to hire onto — is the daemon up?");

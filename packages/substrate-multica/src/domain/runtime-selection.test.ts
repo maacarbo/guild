@@ -23,6 +23,13 @@ describe("newestOnlineRuntime (#70: a dead daemon's row stays 'online' through i
     expect(newestOnlineRuntime([offline, foreign, ours], "Opencode")?.id).toBe("rt-ours");
   });
 
+  it("compares instants, not strings — fractional-second timestamps must not sort older than whole-second ones (verify #70)", () => {
+    const whole = row("rt-whole", "online", "2026-08-22T10:00:05Z");
+    const fractional = row("rt-frac", "online", "2026-08-22T10:00:05.900Z");
+    expect(newestOnlineRuntime([fractional, whole])?.id).toBe("rt-frac");
+    expect(newestOnlineRuntime([whole, fractional])?.id).toBe("rt-frac");
+  });
+
   it("a row without last_seen_at sorts oldest — never preferred over a heartbeating one", () => {
     const unseen = row("rt-unseen", "online");
     const seen = row("rt-seen", "online", "2026-08-22T00:00:01Z");

@@ -14,7 +14,10 @@ export interface RuntimeRow {
 }
 
 export function newestOnlineRuntime<R extends RuntimeRow>(rows: readonly R[], namePrefix?: string): R | undefined {
+  // compare instants, not strings: lexicographic order mis-ranks mixed
+  // precision ('.' < 'Z'); a missing or unparseable heartbeat sorts oldest
+  const seen = (r: RuntimeRow) => (r.last_seen_at ? Date.parse(r.last_seen_at) || 0 : 0);
   return rows
     .filter((r) => r.status === "online" && (!namePrefix || (r.name ?? "").startsWith(namePrefix)))
-    .sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""))[0];
+    .sort((a, b) => seen(b) - seen(a))[0];
 }

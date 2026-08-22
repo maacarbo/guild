@@ -67,7 +67,7 @@ export async function bootstrapLiveEnv(agentSpec?: LiveAgentSpec): Promise<LiveE
   const workspaces = await api<Array<{ id: string; name: string }>>(baseUrl, "GET", "/api/workspaces", { token });
   let picked: { workspaceId: string; runtimeId: string } | null = null;
   for (const ws of workspaces) {
-    const runtimes = await api<Array<{ id: string; name: string; status: string }>>(
+    const runtimes = await api<Array<{ id: string; name: string; status: string; last_seen_at?: string }>>(
       baseUrl,
       "GET",
       "/api/runtimes",
