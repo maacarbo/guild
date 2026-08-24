@@ -74,11 +74,6 @@ export function advisoryRiders(plan: StagePlan): EngagementPlan[] {
   return plan.engagements.filter((e) => e.advisory === true);
 }
 
-/** whether this engagement is an advisory rider of its plan (#29: never contract-judged) */
-export function isAdvisory(plan: StagePlan, engagementId: string): boolean {
-  return plan.engagements.find((e) => e.engagementId === engagementId)?.advisory === true;
-}
-
 /**
  * One open engagement per agent (D6): the substrate's engagement-key binding
  * is role-keyed with wholesale env replacement, so two concurrently-open

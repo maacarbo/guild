@@ -63,8 +63,3 @@ Feature: Team evolution
     And the rider's budget is a deterministic carve the worker's remainder completes
     And the rider's brief carries no acceptance contract
     And an idea without the directive derives no rider at all
-
-  Scenario: A reported engagement is judged from a single plan read
-    Given a worker engagement that reported done
-    When the conductor judges the report
-    Then the advisory check and the contract come from one stage-plan read

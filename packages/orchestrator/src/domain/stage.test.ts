@@ -7,7 +7,6 @@ import {
   duplicateOpenRole,
   engagementIdFor,
   gateMarker,
-  isAdvisory,
   stageComplete,
   stageIdFor,
   stageSlugOf,
@@ -83,15 +82,12 @@ describe("stage completion is a domain rule (audit ddd-2; #29 semantics, D12/D13
     ).toBe(false);
   });
 
-  it("selects the riders a completed stage must cancel, and answers advisory membership", () => {
+  it("selects the riders a completed stage must cancel", () => {
     const plan = planWith([
       { engagementId: "e1", role: "implementer" },
       { engagementId: "m1", role: "focus-monitor", advisory: true },
     ]);
     expect(advisoryRiders(plan).map((e) => e.engagementId)).toEqual(["m1"]);
-    expect(isAdvisory(plan, "m1")).toBe(true);
-    expect(isAdvisory(plan, "e1")).toBe(false);
-    expect(isAdvisory(plan, "missing")).toBe(false);
   });
 });
 
