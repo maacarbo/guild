@@ -137,15 +137,24 @@ const governedContext = (role: string) =>
  * Per-role template data (M3). The four starter roles are explicit entries so
  * their context can diverge as the catalog grows; an unknown role gets the
  * same governed context by construction — hiring must never brief blind.
+ * The focus-monitor ships opt-in (D13/#54): its context is observe-and-flag
+ * with zero discretion (D11) — the one role whose work is never validated.
  */
-export const ROLE_TEMPLATES: Readonly<Record<string, RoleTemplate>> = frozen(
-  Object.fromEntries(
+export const ROLE_TEMPLATES: Readonly<Record<string, RoleTemplate>> = frozen({
+  ...Object.fromEntries(
     ["analyst", "architect", "implementer", "tester"].map((role) => [
       role,
       { role, roleContext: governedContext(role) },
     ]),
   ),
-);
+  "focus-monitor": {
+    role: "focus-monitor",
+    roleContext:
+      "You are the focus-monitor on a governed delivery team: an advisory observer with zero discretion. " +
+      "You observe a stage's work and flag drift, risk, and waste as ticket comments. " +
+      "You never move tickets, never redirect work, and produce no deliverable — your report is never judged.",
+  },
+});
 
 export function roleTemplateFor(role: string): RoleTemplate {
   return ROLE_TEMPLATES[role] ?? { role, roleContext: governedContext(role) };

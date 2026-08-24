@@ -7,8 +7,8 @@
  * persisting/posting plans is the conductor's job (I/O stays outside domain).
  */
 
-import type { ContractCheck, HandoffContract, StageKind, StagePlan } from "@guild/shared";
-import { engagementIdFor, stageIdFor } from "./stage.js";
+import type { ContractCheck, EngagementPlan, HandoffContract, StageKind, StagePlan } from "@guild/shared";
+import { advisoryEngagementIdFor, engagementIdFor, stageIdFor } from "./stage.js";
 import { TEMPLATE_CATALOG, roleTemplateFor, templateFor, type StageEntry, type StageTemplate } from "./templates.js";
 
 export interface Idea {
@@ -133,6 +133,29 @@ export const MAX_PLAN_BUDGET_CENTS = 10_000;
 /** the amendment-note grammar — ONE definition shared by the live comment path and the reconcile recovery scan (#12) */
 export function isAmendNote(text: string): boolean {
   return /^amend\b/i.test(text.trim());
+}
+
+/**
+ * The focus-monitor rider's share of a stage budget (#54, D13): a fixed,
+ * deliberately small carve — the extra eyes are visible, budgeted cost the
+ * gate approval covers, never an add-on above the stage's allocation.
+ */
+export const MONITOR_BUDGET_PCT = 10;
+
+/**
+ * `monitor: on` opt-in directive (D13's focus-monitor) — same own-line
+ * discipline as `budget:`/`template:` (C4): prose mentioning a monitor never
+ * hires one. `off` (the default) is silent; any other value stays off with a
+ * warning the gate body renders — never a silent hire, never a silent typo.
+ */
+export function parseMonitorDirective(text: string): { enabled: boolean; warning?: string } {
+  const m = /^monitor:\s*(\S+)\s*$/m.exec(text);
+  if (!m || m[1] === "off") return { enabled: false };
+  if (m[1] === "on") return { enabled: true };
+  return {
+    enabled: false,
+    warning: `Unknown monitor directive "monitor: ${m[1]}" — only \`monitor: on\` adds the focus-monitor rider; none was added.`,
+  };
 }
 
 export function planBudgetCents(idea: Idea, config: PlannerConfig): number {
@@ -294,6 +317,22 @@ function missionFor(entry: StageEntry): string {
   return entry.mission ?? stageMission(entry.kind);
 }
 
+/** the rider's observe-and-flag briefing (#54): what to watch, where to flag, how it ends */
+function monitorInstructionsFor(entry: StageEntry, idea: Idea): string {
+  return [
+    `Observe the ${entry.slug} stage of "${idea.title}" as its advisory focus-monitor: watch the ` +
+      `${roleForEntry(entry)}'s work for drift from the idea, contract risk, and budget-burning detours, ` +
+      `and flag each observation as a concise comment on this ticket.`,
+    "",
+    `The ${entry.slug} stage's mission: ${missionFor(entry)}`,
+    "",
+    `The idea (verbatim from the operator's ticket "${idea.title}"):`,
+    idea.body,
+    "",
+    "You have no deliverable and no acceptance contract — your report is never judged, and Guild closes this engagement when the stage completes.",
+  ].join("\n");
+}
+
 function instructionsFor(entry: StageEntry, idea: Idea, template: StageTemplate): string {
   // next stage per the ACTIVE template — briefing a role to author checks for
   // a stage the template never runs would be dead instruction (#35)
@@ -382,6 +421,18 @@ export function deriveStagePlan(
   const stageId = stageIdFor(idea.ideaId, entry.slug);
   const engagementId = engagementIdFor(stageId, planVersion);
 
+  const monitor = parseMonitorDirective(idea.body);
+  if (monitor.warning) warnings.push(monitor.warning);
+  // integer-cent carve (published-language money rules); the worker keeps the
+  // remainder, so the engagements always sum to the stage total
+  const riderCents = monitor.enabled ? Math.floor((budgetCents * MONITOR_BUDGET_PCT) / 100) : 0;
+  const workerCents = budgetCents - riderCents;
+  if (monitor.enabled && riderCents === 0 && budgetCents > 0) {
+    warnings.push(
+      "The focus-monitor rider's budget carve is 0¢ — its engagement key would mint with a $0 cap and can never dispatch. Raise the idea's `budget:` directive.",
+    );
+  }
+
   // A 0¢ stage mints a $0-cap virtual key and can never dispatch — `budget: 0`
   // zeroes every stage, and a sub-~10¢ plan total floors small stages to 0¢.
   // Silent 0¢ stages read as a stuck pipeline; surface it in the gate body so
@@ -437,6 +488,52 @@ export function deriveStagePlan(
   ].join(" ");
 
   const role = roleForEntry(entry);
+  const rulesConstraint = opts.projectRules
+    ? [`Project rules (${opts.projectRules.path} @ ${opts.projectRules.sha.slice(0, 8)}):\n${opts.projectRules.content}`]
+    : [];
+  const engagements: EngagementPlan[] = [
+    {
+      engagementId,
+      role,
+      title: `${entry.slug}: ${idea.title}`,
+      budgetCents: workerCents,
+      brief: {
+        roleContext: roleTemplateFor(role).roleContext,
+        instructions: instructionsFor(entry, idea, template),
+        contract,
+        priorDecisions: opts.priorDecisions ?? [],
+        artifactRefs: [],
+        constraints: [
+          "Zero-dependency Node.js ≥ 22 only — no npm installs; tests run offline via `node --test`.",
+          "Work only inside the repository; push to your task branch; never merge or tag.",
+          ...rulesConstraint,
+          ...amendments,
+        ],
+      },
+    },
+  ];
+  if (monitor.enabled) {
+    // the rider watches against the same amended intent and project rules the
+    // worker is held to — drift is only flaggable against the current deal
+    engagements.push({
+      engagementId: advisoryEngagementIdFor(stageId, planVersion, "focus-monitor"),
+      role: "focus-monitor",
+      title: `focus-monitor: ${entry.slug}: ${idea.title}`,
+      budgetCents: riderCents,
+      advisory: true,
+      brief: {
+        roleContext: roleTemplateFor("focus-monitor").roleContext,
+        instructions: monitorInstructionsFor(entry, idea),
+        priorDecisions: opts.priorDecisions ?? [],
+        artifactRefs: [],
+        constraints: [
+          "Observe and flag only (D11 zero discretion): comment observations on this ticket; never push code, never move tickets, never redirect work.",
+          ...rulesConstraint,
+          ...amendments,
+        ],
+      },
+    });
+  }
   return {
     plan: {
       projectId: config.projectId,
@@ -446,29 +543,7 @@ export function deriveStagePlan(
       kind,
       objective,
       budgetCents,
-      engagements: [
-        {
-          engagementId,
-          role,
-          title: `${entry.slug}: ${idea.title}`,
-          budgetCents,
-          brief: {
-            roleContext: roleTemplateFor(role).roleContext,
-            instructions: instructionsFor(entry, idea, template),
-            contract,
-            priorDecisions: opts.priorDecisions ?? [],
-            artifactRefs: [],
-            constraints: [
-              "Zero-dependency Node.js ≥ 22 only — no npm installs; tests run offline via `node --test`.",
-              "Work only inside the repository; push to your task branch; never merge or tag.",
-              ...(opts.projectRules
-                ? [`Project rules (${opts.projectRules.path} @ ${opts.projectRules.sha.slice(0, 8)}):\n${opts.projectRules.content}`]
-                : []),
-              ...amendments,
-            ],
-          },
-        },
-      ],
+      engagements,
     },
     warnings,
   };

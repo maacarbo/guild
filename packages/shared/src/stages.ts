@@ -60,28 +60,53 @@ export interface EngagementBrief {
   constraints: string[];
 }
 
-export interface EngagementPlan {
+/**
+ * An advisory rider's brief (#54): identical transport, but there IS no
+ * contract — the rider's report is never judged (#29), so a placeholder
+ * contract would misstate what the operator approves. `contract?: never`
+ * keeps the field readable (as undefined) across the union.
+ */
+export interface AdvisoryBrief extends Omit<EngagementBrief, "contract"> {
+  contract?: never;
+}
+
+interface EngagementPlanBase {
   /** single owner of the engagement identity */
   engagementId: string;
   /**
    * invariant: one open engagement per agent — a plan repeating a role is
    * flagged at its gate before anything can dispatch (orchestrator
-   * domain/stage.ts `duplicateOpenRole`; the planner emits one engagement
-   * per stage today, so a repeat can only arrive by hand)
+   * domain/stage.ts `duplicateOpenRole`)
    */
   role: string;
   title: string;
-  brief: EngagementBrief;
   /** enforced cap: minted into the engagement's gateway virtual key as max_budget at dispatch */
   budgetCents: number;
-  /**
-   * observe-and-flag rider (#29, D13's focus-monitor): dispatched, budgeted,
-   * and swept like any engagement, but it never gates stage completion, its
-   * reports are never contract-judged, and stage completion cancels it
-   * (`advisory_stage_end`) through the spend-capturing termination path.
-   */
-  advisory?: true;
 }
+
+/** contracted work: acceptance criteria exist before dispatch and are judged (D6) */
+export interface WorkEngagementPlan extends EngagementPlanBase {
+  advisory?: never;
+  brief: EngagementBrief;
+}
+
+/**
+ * observe-and-flag rider (#29, D13's focus-monitor): dispatched, budgeted,
+ * and swept like any engagement, but it never gates stage completion, its
+ * reports are never contract-judged, and stage completion cancels it
+ * (`advisory_stage_end`) through the spend-capturing termination path.
+ */
+export interface AdvisoryEngagementPlan extends EngagementPlanBase {
+  advisory: true;
+  brief: AdvisoryBrief;
+}
+
+/**
+ * The `advisory` flag discriminates: contracted work carries a full
+ * EngagementBrief; a rider's brief carries no contract at all (#54) — the
+ * type owns the D13 rule instead of a placeholder convention.
+ */
+export type EngagementPlan = WorkEngagementPlan | AdvisoryEngagementPlan;
 
 export interface StagePlan {
   projectId: string;

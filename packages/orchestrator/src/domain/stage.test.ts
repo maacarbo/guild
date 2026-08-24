@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { EngagementState, StagePlan } from "@guild/shared";
+import type { EngagementPlan, EngagementState, StagePlan } from "@guild/shared";
 import {
   acceptanceLine,
+  advisoryEngagementIdFor,
   advisoryRiders,
   duplicateOpenRole,
   engagementIdFor,
@@ -22,19 +23,17 @@ function planWith(
     kind: "analysis",
     objective: "o",
     budgetCents: 100,
-    engagements: engagements.map((e) => ({
-      ...e,
-      title: e.engagementId,
-      budgetCents: 50,
-      brief: {
-        roleContext: "",
-        instructions: "",
-        contract: { contractId: "c", version: 1, authoredBy: "operator", gherkin: "", checks: [] },
-        priorDecisions: [],
-        artifactRefs: [],
-        constraints: [],
-      },
-    })),
+    engagements: engagements.map((e): EngagementPlan => {
+      const base = { engagementId: e.engagementId, role: e.role, title: e.engagementId, budgetCents: 50 };
+      const brief = { roleContext: "", instructions: "", priorDecisions: [], artifactRefs: [], constraints: [] };
+      // a rider's brief carries no contract by type (#54) — the fixture mirrors the planner
+      return e.advisory
+        ? { ...base, advisory: true, brief }
+        : {
+            ...base,
+            brief: { ...brief, contract: { contractId: "c", version: 1, authoredBy: "operator", gherkin: "", checks: [] } },
+          };
+    }),
   };
 }
 
@@ -53,6 +52,15 @@ describe("the domain owns the stage identity grammar (audit hexagonal-3/clean-3)
 
   it("acceptanceLine is the ONE canonical phrasing role memory and prior decisions dedup on", () => {
     expect(acceptanceLine("stg:idea-1:analysis", "sha-a")).toBe("analysis stg:idea-1:analysis accepted at sha-a");
+  });
+
+  it("an advisory rider's id carries its role and stays version-terminal — distinct from the worker within the same (stage, version) (#54)", () => {
+    expect(advisoryEngagementIdFor("stg:idea-1:analysis", 2, "focus-monitor")).toBe(
+      "eng:stg:idea-1:analysis:focus-monitor:v2",
+    );
+    expect(advisoryEngagementIdFor("stg:idea-1:analysis", 2, "focus-monitor")).not.toBe(
+      engagementIdFor("stg:idea-1:analysis", 2),
+    );
   });
 });
 

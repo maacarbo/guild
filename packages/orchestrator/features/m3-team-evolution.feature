@@ -1,8 +1,8 @@
 # Scenarios for M3 team evolution (D16 hiring, role memory, template
-# catalog, advisory riders), executed by src/application/conductor.test.ts
-# and src/domain/templates.test.ts (unit; the live proof is the M3
-# acceptance recorded in ROADMAP — two quick-fix runs on the Tier 1 stack,
-# 2026-08-12). Backfilled 2026-08-16 (conformance audit bdd-2): the
+# catalog, advisory riders), executed by src/application/conductor.test.ts,
+# src/domain/templates.test.ts, and src/domain/planner.test.ts (unit; the
+# live proof is the M3 acceptance recorded in ROADMAP — two quick-fix runs
+# on the Tier 1 stack, 2026-08-12). Backfilled 2026-08-16 (conformance audit bdd-2): the
 # behaviors shipped with vitest coverage but no Gherkin, which the BDD rule
 # requires. Traces to ROADMAP M3: the acceptance bar (hiring, retirement,
 # role memory, decision provenance) and the milestone's deliverable bullets
@@ -55,3 +55,16 @@ Feature: Team evolution
     Then the stage completes on the non-advisory acceptance alone
     And the rider is cancelled at stage end through the spend-capturing path
     And the rider's reports are never contract-judged
+
+  Scenario: The monitor directive adds a focus-monitor rider to every stage
+    Given an idea whose body carries the monitor directive on its own line
+    When the planner derives each stage's plan
+    Then every stage carries a focus-monitor rider beside its worker engagement
+    And the rider's budget is a deterministic carve the worker's remainder completes
+    And the rider's brief carries no acceptance contract
+    And an idea without the directive derives no rider at all
+
+  Scenario: A reported engagement is judged from a single plan read
+    Given a worker engagement that reported done
+    When the conductor judges the report
+    Then the advisory check and the contract come from one stage-plan read

@@ -1224,17 +1224,24 @@ async function driveStageToAccepted(w: World, stageId: string, branch: string, s
 
 describe("advisory engagements (#29: observe-and-flag riders never gate completion)", () => {
   /** fold an advisory monitor engagement into an already-derived stage plan —
-   * the planner emits none yet (opt-in role, D13); the machinery is
-   * N-engagement-capable by design */
+   * the conductor machinery is N-engagement-capable regardless of how the
+   * rider got there (the planner's monitor: directive is the producer, #54) */
   async function addAdvisory(w: World, stageId: string): Promise<string> {
     const plan = (await w.store.getLatestStagePlan(stageId))!;
-    const advisoryId = `eng:${stageId}:monitor:v${plan.planVersion}`;
+    const advisoryId = `eng:${stageId}:focus-monitor:v${plan.planVersion}`;
     const worker = plan.engagements[0]!;
     await w.store.saveStagePlan({
       ...plan,
       engagements: [
         ...plan.engagements,
-        { ...worker, engagementId: advisoryId, role: "focus-monitor", title: `monitor: ${worker.title}`, advisory: true },
+        {
+          engagementId: advisoryId,
+          role: "focus-monitor",
+          title: `monitor: ${worker.title}`,
+          budgetCents: worker.budgetCents,
+          advisory: true,
+          brief: { roleContext: "observer", instructions: "observe", priorDecisions: [], artifactRefs: [], constraints: [] },
+        },
       ],
     });
     // what ensureEngagementsGated would have produced had the advisory been in
@@ -1279,10 +1286,19 @@ describe("advisory engagements (#29: observe-and-flag riders never gate completi
     const worker = plan.engagements[0]!;
     await w.store.saveStagePlan({
       ...plan,
-      engagements: [{ ...worker, engagementId: `eng:${stageId}:monitor:v1`, role: "focus-monitor", advisory: true }],
+      engagements: [
+        {
+          engagementId: `eng:${stageId}:focus-monitor:v1`,
+          role: "focus-monitor",
+          title: `monitor: ${worker.title}`,
+          budgetCents: worker.budgetCents,
+          advisory: true,
+          brief: { roleContext: "observer", instructions: "observe", priorDecisions: [], artifactRefs: [], constraints: [] },
+        },
+      ],
     });
     await w.store.saveEngagement({
-      engagementId: `eng:${stageId}:monitor:v1`,
+      engagementId: `eng:${stageId}:focus-monitor:v1`,
       stageId,
       planVersion: plan.planVersion,
       state: "gated",
@@ -1313,6 +1329,24 @@ describe("advisory engagements (#29: observe-and-flag riders never gate completi
       (d) => d.kind === "verdict" && d.engagementId === advisoryId,
     );
     expect(verdicts).toHaveLength(0);
+  });
+
+  it("judges a reported engagement with ONE stage-plan read — the advisory check and the contract share it (#54)", async () => {
+    const w = makeWorld();
+    await adoptIdea(w);
+    const gate = (await w.substrate.findWorkItem("gate:stg:idea-1:analysis:v1"))!;
+    await w.conductor.handleEvent(laneMove(gate, "ready_to_work", "operator"));
+    const item = (await w.substrate.findWorkItem("eng:stg:idea-1:analysis:v1"))!;
+    await w.conductor.handleEvent(statusEv(item, "running"));
+    w.substrate.snapshots.set(item.externalId, {
+      status: "done",
+      report: { summary: "done", branchHint: "agent/analyst/a1", attemptId: "a1-run1" },
+    });
+    w.source.shas.set("agent/analyst/a1", "sha-analysis");
+    const reads = vi.spyOn(w.store, "getStagePlan");
+    await w.conductor.handleEvent(statusEv(item, "done"));
+    expect((await w.store.getEngagement("eng:stg:idea-1:analysis:v1"))?.state).toBe("validated");
+    expect(reads).toHaveBeenCalledTimes(1);
   });
 
   it("a second engagement in a stage hires with full provenance — run from the record, never id surgery (audit ddd-0)", async () => {
@@ -1368,7 +1402,7 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
     const arch = await w.store.getLatestStagePlan("stg:idea-1:architecture");
     expect(arch, "architecture plan opened").toBeTruthy();
     expect(arch!.engagements[0]!.brief.priorDecisions).toEqual(["analysis stg:idea-1:analysis accepted at sha-analysis"]);
-    const contract = arch!.engagements[0]!.brief.contract;
+    const contract = arch!.engagements[0]!.brief.contract!;
     expect(contract.authoredBy).toBe("analyst");
     expect(contract.checks).toContainEqual({ kind: "artifact", path: "docs/ADR-1.md" });
     const gate2 = await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1");
@@ -1381,7 +1415,7 @@ describe("stage sequencing (D12: stage k opens only after k-1 is accepted)", () 
     await adoptIdea(w);
     await driveStageToAccepted(w, "stg:idea-1:analysis", "agent/analyst/a1", "sha-analysis");
     const arch = (await w.store.getLatestStagePlan("stg:idea-1:architecture"))!;
-    expect(arch.engagements[0]!.brief.contract.authoredBy).toBe("guild-floor");
+    expect(arch.engagements[0]!.brief.contract!.authoredBy).toBe("guild-floor");
     const gate2 = (await w.substrate.findWorkItem("gate:stg:idea-1:architecture:v1"))!;
     expect((await w.substrate.getWorkItem(gate2)).title).toContain("architecture");
     // the warning must actually render in the gate body (audit tdd-3: the old
@@ -1927,7 +1961,7 @@ describe("emergency stop (guild kill — D11 scope)", () => {
 });
 
 describe("advisory riders render distinctly at the gate (#54, D13 amendment)", () => {
-  it("a rider shows as observe-and-flag with its placeholder contract suppressed; contracted work renders in full", () => {
+  it("a rider shows as observe-and-flag with no contract rendered; contracted work renders in full", () => {
     const contract = {
       contractId: "c1",
       version: 1,
@@ -1948,10 +1982,10 @@ describe("advisory riders render distinctly at the gate (#54, D13 amendment)", (
         engagements: [
           { engagementId: "eng:stg:idea-1:analysis:analyst:v1", role: "analyst", title: "analysis", brief, budgetCents: 80 },
           {
-            engagementId: "eng:stg:idea-1:analysis:monitor:v1",
+            engagementId: "eng:stg:idea-1:analysis:focus-monitor:v1",
             role: "focus-monitor",
             title: "monitor: analysis",
-            brief,
+            brief: { roleContext: "", instructions: "", priorDecisions: [], artifactRefs: [], constraints: [] },
             budgetCents: 20,
             advisory: true,
           },

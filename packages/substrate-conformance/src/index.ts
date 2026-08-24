@@ -12,7 +12,7 @@
  */
 
 import { afterAll, describe, expect, it } from "vitest";
-import type { ContractVerdict, ExecutionSubstrate, Lane, SubstrateEvent, WorkItemRef, WorkItemSpec, WorkItemStatus } from "@guild/shared";
+import type { ContractVerdict, EngagementBrief, ExecutionSubstrate, Lane, SubstrateEvent, WorkItemRef, WorkItemSpec, WorkItemStatus } from "@guild/shared";
 import { isSubstrateError } from "@guild/shared";
 
 export interface ConformanceEnv {
@@ -27,8 +27,8 @@ export interface ConformanceEnv {
   hirableRole: string;
   /** the model route hires bind to — the environment's cheap tier */
   hireModel: string;
-  /** minimal valid spec with a fresh, unique engagementId per call */
-  makeSpec(overrides?: Partial<Omit<WorkItemSpec, "engagementId">>): WorkItemSpec;
+  /** minimal valid CONTRACTED spec with a fresh, unique engagementId per call (advisory riders are governance-side, not a substrate capability) */
+  makeSpec(overrides?: Partial<Omit<WorkItemSpec, "engagementId" | "brief">> & { brief?: EngagementBrief }): WorkItemSpec & { brief: EngagementBrief };
   /** same substrate wired with invalid credentials — for auth classification */
   unauthenticatedSubstrate(): ExecutionSubstrate;
   /** the same environment wired as a NEW process: static config only, no carried-over in-memory state (M3 restart contract) */
@@ -71,7 +71,7 @@ export function describeExecutionSubstrateConformance(setup: () => Promise<Confo
     const env = () => (envPromise ??= setup());
 
     /** create + register for cleanup */
-    async function createItem(e: ConformanceEnv, overrides?: Partial<Omit<WorkItemSpec, "engagementId">>) {
+    async function createItem(e: ConformanceEnv, overrides?: Parameters<ConformanceEnv["makeSpec"]>[0]) {
       const spec = e.makeSpec(overrides);
       const ref = await e.substrate.createWorkItem(spec);
       created.push(ref);
