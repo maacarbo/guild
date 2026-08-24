@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ContractCheck } from "@guild/shared";
 import {
+  MONITOR_BUDGET_PCT,
   STAGE_ORDER,
   STANDARD_STAGE_SLUGS,
   deriveStagePlan,
   handoffPathFor,
   parseBudgetDirective,
   parseHandoffChecks,
+  parseMonitorDirective,
   planBudgetCents,
   roleForEntry,
   type Idea,
   type PlannerConfig,
 } from "./planner.js";
+import { advisoryEngagementIdFor, duplicateOpenRole } from "./stage.js";
 import { TEMPLATE_CATALOG } from "./templates.js";
 
 const idea: Idea = {
@@ -144,7 +147,7 @@ describe("identity and versioning", () => {
     expect(plan.stageId).toBe("stg:94440df3:analysis");
     expect(plan.planVersion).toBe(2);
     expect(plan.engagements[0].engagementId).toBe("eng:stg:94440df3:analysis:v2");
-    expect(plan.engagements[0].brief.contract.version).toBe(2);
+    expect(plan.engagements[0].brief.contract!.version).toBe(2);
   });
 
   it("objective carries the idea title and body", () => {
@@ -173,7 +176,7 @@ describe("floor contracts are offline-capable (D12)", () => {
   it("every stage gets a floor contract; commands never require dependency installation", () => {
     for (const kind of STAGE_ORDER) {
       const { plan } = deriveStagePlan(idea, config, kind, 1);
-      const contract = plan.engagements[0].brief.contract;
+      const contract = plan.engagements[0].brief.contract!;
       expect(contract.checks.length).toBeGreaterThan(0);
       for (const check of contract.checks) {
         if (check.kind === "command") {
@@ -186,7 +189,7 @@ describe("floor contracts are offline-capable (D12)", () => {
 
   it("analysis demands the spec artifact with acceptance criteria; authored by the operator (the idea is upstream)", () => {
     const { plan } = deriveStagePlan(idea, config, "analysis", 1);
-    const contract = plan.engagements[0].brief.contract;
+    const contract = plan.engagements[0].brief.contract!;
     expect(contract.authoredBy).toBe("operator");
     expect(contract.checks).toContainEqual({
       kind: "artifact",
@@ -198,7 +201,7 @@ describe("floor contracts are offline-capable (D12)", () => {
   it("implementation and test both prove node --test green", () => {
     for (const kind of ["implementation", "test"] as const) {
       const { plan } = deriveStagePlan(idea, config, kind, 1);
-      const commands = plan.engagements[0].brief.contract.checks.filter((c) => c.kind === "command");
+      const commands = plan.engagements[0].brief.contract!.checks.filter((c) => c.kind === "command");
       expect(commands.some((c) => c.kind === "command" && c.run.includes("node --test"))).toBe(true);
     }
   });
@@ -216,7 +219,7 @@ describe("upstream-authored augmentation (D6 applied — parseHandoffChecks boun
     const { plan, warnings } = deriveStagePlan(idea, config, "implementation", 1, {
       upstream: { handoff: upstream!, authoredBy: "architect" },
     });
-    const contract = plan.engagements[0].brief.contract;
+    const contract = plan.engagements[0].brief.contract!;
     expect(contract.authoredBy).toBe("architect");
     expect(contract.checks).toContainEqual({ kind: "artifact", path: "src/count.mjs" });
     expect(contract.checks.some((c) => c.kind === "command" && c.run.includes("node --test"))).toBe(true);
@@ -247,7 +250,7 @@ describe("upstream-authored augmentation (D6 applied — parseHandoffChecks boun
     const { plan, warnings } = deriveStagePlan(idea, config, "implementation", 1, {
       upstream: { handoff: null, authoredBy: "architect" },
     });
-    expect(plan.engagements[0].brief.contract.authoredBy).toBe("guild-floor");
+    expect(plan.engagements[0].brief.contract!.authoredBy).toBe("guild-floor");
     expect(warnings.some((w) => w.includes(handoffPathFor("implementation")))).toBe(true);
   });
 
@@ -266,7 +269,7 @@ describe("stage-inappropriate upstream checks warn in the gate body (#35, D12 re
       ...upstreamOf([{ kind: "command", run: "node bin/wc.mjs --help", expectExitCode: 0, timeoutSeconds: 60 }]),
     });
     expect(warnings.some((w) => w.includes("bin/wc.mjs") && w.includes("outside docs/"))).toBe(true);
-    expect(plan.engagements[0].brief.contract.checks.some((c) => c.kind === "command" && c.run.includes("bin/wc.mjs"))).toBe(true);
+    expect(plan.engagements[0].brief.contract!.checks.some((c) => c.kind === "command" && c.run.includes("bin/wc.mjs"))).toBe(true);
   });
 
   it("an architecture-stage artifact check outside docs/ warns", () => {
@@ -325,18 +328,18 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
     const { plan } = deriveStagePlan(enterprise, config, "architecture-security", 1);
     expect(plan.objective).toMatch(/## Security/);
     expect(plan.engagements[0]!.brief.instructions).toMatch(/trust boundaries/);
-    expect(plan.engagements[0]!.brief.contract.checks.some((c) => c.kind === "artifact" && c.path === "docs/DESIGN.md")).toBe(true);
+    expect(plan.engagements[0]!.brief.contract!.checks.some((c) => c.kind === "artifact" && c.path === "docs/DESIGN.md")).toBe(true);
   });
 
   it("the FIRST template stage is operator-authored regardless of slug; budget splits by entry percent", () => {
     const { plan } = deriveStagePlan(enterprise, config, "business-analysis", 1);
-    expect(plan.engagements[0]!.brief.contract.authoredBy).toBe("operator");
+    expect(plan.engagements[0]!.brief.contract!.authoredBy).toBe("operator");
     expect(plan.budgetCents).toBe(100); // 10% of $10.00
   });
 
   it("enterprise floors discriminate same-kind stages — a stage's contract must be satisfiable only by ITS work (audit bdd-0)", () => {
     const checksOf = (slug: string) =>
-      deriveStagePlan(enterprise, config, slug, 1).plan.engagements[0]!.brief.contract.checks;
+      deriveStagePlan(enterprise, config, slug, 1).plan.engagements[0]!.brief.contract!.checks;
     const biz = checksOf("business-analysis");
     const tech = checksOf("technical-analysis");
     const arch = checksOf("architecture-security");
@@ -354,9 +357,9 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
       for (const entry of template.stages) {
         if (!entry.floor) continue;
         const kindIdea = { ...idea, body: `x\ntemplate: ${template.name}` };
-        const checks = deriveStagePlan(kindIdea, config, entry.slug, 1).plan.engagements[0]!.brief.contract.checks;
+        const checks = deriveStagePlan(kindIdea, config, entry.slug, 1).plan.engagements[0]!.brief.contract!.checks;
         // the kind's own floor must survive inside the override
-        const kindFloor = deriveStagePlan(idea, config, entry.kind, 1).plan.engagements[0]!.brief.contract.checks;
+        const kindFloor = deriveStagePlan(idea, config, entry.kind, 1).plan.engagements[0]!.brief.contract!.checks;
         for (const check of kindFloor.filter((c) => c.kind === "artifact")) {
           expect(checks, `${template.name}/${entry.slug} keeps the ${entry.kind} kind floor`).toContainEqual(check);
         }
@@ -375,7 +378,7 @@ describe("enterprise template derivation (#28: slug carries identity, kind carri
 describe("floor gherkin derives from the floor checks — concrete criteria, never a self-report (audit bdd-4, D6)", () => {
   it("classic implementation: the Then-steps state the artifact and command floor verbatim", () => {
     const { plan } = deriveStagePlan(idea, config, "implementation", 1);
-    expect(plan.engagements[0]!.brief.contract.gherkin).toBe(
+    expect(plan.engagements[0]!.brief.contract!.gherkin).toBe(
       [
         'Feature: implementation stage of "Idea: word-count utility"',
         "  Scenario: the implementer hands off implementation work that meets the acceptance floor",
@@ -388,7 +391,7 @@ describe("floor gherkin derives from the floor checks — concrete criteria, nev
 
   it("never pivots on the implementer's self-report — that is what D6 forbids a contract to do", () => {
     for (const slug of ["analysis", "implementation", "delivery"] as const) {
-      expect(deriveStagePlan(idea, config, slug, 1).plan.engagements[0]!.brief.contract.gherkin).not.toContain(
+      expect(deriveStagePlan(idea, config, slug, 1).plan.engagements[0]!.brief.contract!.gherkin).not.toContain(
         "reports done",
       );
     }
@@ -396,8 +399,8 @@ describe("floor gherkin derives from the floor checks — concrete criteria, nev
 
   it("enterprise: two analysis-kind floors read distinctly, each stating its own criteria", () => {
     const enterprise = { ...idea, body: "A big idea.\ntemplate: enterprise" };
-    const biz = deriveStagePlan(enterprise, config, "business-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
-    const tech = deriveStagePlan(enterprise, config, "technical-analysis", 1).plan.engagements[0]!.brief.contract.gherkin;
+    const biz = deriveStagePlan(enterprise, config, "business-analysis", 1).plan.engagements[0]!.brief.contract!.gherkin;
+    const tech = deriveStagePlan(enterprise, config, "technical-analysis", 1).plan.engagements[0]!.brief.contract!.gherkin;
     expect(biz).toContain('Feature: business-analysis stage of "Idea: word-count utility"');
     expect(biz).toContain('Then the engagement branch carries docs/SPEC.md containing "## Acceptance criteria"');
     expect(tech).toContain('Feature: technical-analysis stage of "Idea: word-count utility"');
@@ -464,6 +467,105 @@ describe("briefs carry what fresh context needs (D6/M2b: priorDecisions ride exp
       priorDecisions: ["analysis validated at abc123"],
     });
     expect(plan.engagements[0].brief.priorDecisions).toEqual(["analysis validated at abc123"]);
+  });
+});
+
+describe("the monitor: directive produces an advisory rider (#54; D13's opt-in focus-monitor)", () => {
+  const monitored: Idea = { ...idea, body: `${idea.body}\nmonitor: on` };
+
+  it("parses only the own-line grammar — prose never hires a monitor (C4 discipline)", () => {
+    expect(parseMonitorDirective("monitor: on").enabled).toBe(true);
+    expect(parseMonitorDirective("some text\nmonitor: on\nmore").enabled).toBe(true);
+    expect(parseMonitorDirective("please monitor: on this").enabled).toBe(false);
+    expect(parseMonitorDirective("monitor: off").enabled).toBe(false);
+    expect(parseMonitorDirective("no directive").enabled).toBe(false);
+  });
+
+  it("an unknown directive value stays off and warns at the gate — never a silent hire", () => {
+    const parsed = parseMonitorDirective("monitor: yes");
+    expect(parsed.enabled).toBe(false);
+    expect(parsed.warning).toContain("monitor: on");
+    const { plan, warnings } = deriveStagePlan({ ...idea, body: "monitor: yes" }, config, "analysis", 1);
+    expect(plan.engagements).toHaveLength(1);
+    expect(warnings.some((w) => w.includes("monitor"))).toBe(true);
+  });
+
+  it("no directive → no rider: exactly the one worker engagement, nothing advisory", () => {
+    for (const slug of STANDARD_STAGE_SLUGS) {
+      const { plan } = deriveStagePlan(idea, config, slug, 1);
+      expect(plan.engagements).toHaveLength(1);
+      expect(plan.engagements[0].advisory).toBeUndefined();
+    }
+  });
+
+  it("monitor: on appends a focus-monitor rider beside the worker on every stage — ≥1 non-advisory always holds (#29)", () => {
+    for (const slug of STANDARD_STAGE_SLUGS) {
+      const { plan } = deriveStagePlan(monitored, config, slug, 1);
+      expect(plan.engagements).toHaveLength(2);
+      const [worker, rider] = plan.engagements;
+      expect(worker.advisory).toBeUndefined();
+      expect(rider.advisory).toBe(true);
+      expect(rider.role).toBe("focus-monitor");
+      expect(plan.engagements.filter((e) => !e.advisory).length).toBeGreaterThanOrEqual(1);
+      // distinct roles: the one-open-engagement-per-agent gate guard stays quiet (D6)
+      expect(duplicateOpenRole(plan)).toBeNull();
+    }
+  });
+
+  it("the rider's budget is a deterministic integer carve; the worker keeps the remainder; the stage total is unchanged", () => {
+    // analysis: 15% of 1000¢ = 150¢ stage; carve 10% → 15¢ rider, 135¢ worker
+    const { plan } = deriveStagePlan(monitored, config, "analysis", 1);
+    expect(plan.budgetCents).toBe(150);
+    const [worker, rider] = plan.engagements;
+    expect(rider.budgetCents).toBe(Math.floor((150 * MONITOR_BUDGET_PCT) / 100));
+    expect(rider.budgetCents).toBe(15);
+    expect(worker.budgetCents).toBe(135);
+    expect(worker.budgetCents + rider.budgetCents).toBe(plan.budgetCents);
+  });
+
+  it("a rider carve flooring to 0¢ warns — a $0-cap key can never dispatch (C1 discipline)", () => {
+    // budget: 0.60 → analysis 15% = 9¢ stage; 10% carve floors to 0¢
+    const tiny: Idea = { ...idea, body: "budget: 0.60\nmonitor: on" };
+    const { plan, warnings } = deriveStagePlan(tiny, config, "analysis", 1);
+    expect(plan.budgetCents).toBe(9);
+    expect(plan.engagements[1].budgetCents).toBe(0);
+    expect(warnings.some((w) => w.includes("focus-monitor") && w.includes("0¢"))).toBe(true);
+  });
+
+  it("rider ids are distinct from the worker's and across plan versions — supersede must cancel the right rows", () => {
+    const v1 = deriveStagePlan(monitored, config, "analysis", 1).plan;
+    const v2 = deriveStagePlan(monitored, config, "analysis", 2).plan;
+    const ids = [...v1.engagements, ...v2.engagements].map((e) => e.engagementId);
+    expect(new Set(ids).size).toBe(4);
+    expect(v1.engagements[1].engagementId).toBe(
+      advisoryEngagementIdFor(v1.stageId, 1, "focus-monitor"),
+    );
+  });
+
+  it("the rider's brief carries NO contract — nothing is ever judged, so nothing placeholder is approved (#29)", () => {
+    const { plan } = deriveStagePlan(monitored, config, "test", 1);
+    const [worker, rider] = plan.engagements;
+    expect(rider.advisory).toBe(true);
+    expect(rider.brief.contract).toBeUndefined();
+    expect(worker.advisory).toBeUndefined();
+    expect(worker.brief.contract!.checks.length).toBeGreaterThan(0);
+  });
+
+  it("the rider is briefed observe-and-flag with zero discretion (D11); rules and amendments still fold in", () => {
+    const { plan } = deriveStagePlan(monitored, config, "implementation", 1, {
+      amendments: ["amend: prefer streaming IO."],
+      projectRules: { path: "AGENTS.md", sha: "abcdef1234567890", content: "Use tabs." },
+    });
+    const rider = plan.engagements[1];
+    expect(rider.role).toBe("focus-monitor");
+    expect(rider.brief.roleContext).toMatch(/observe/i);
+    expect(rider.brief.instructions).toContain(idea.title);
+    expect(rider.brief.instructions).toMatch(/comment/i);
+    const constraints = rider.brief.constraints.join("\n");
+    expect(constraints).toMatch(/never push code/i);
+    expect(constraints).toMatch(/never move tickets/i);
+    expect(constraints).toContain("Use tabs.");
+    expect(constraints).toContain("amend: prefer streaming IO.");
   });
 });
 

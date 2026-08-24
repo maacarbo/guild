@@ -68,6 +68,14 @@ describe("role templates are catalog data (D13 global layer, M3)", () => {
     expect(t.role).toBe("security-reviewer");
     expect(t.roleContext).toContain("security-reviewer");
   });
+
+  it("the focus-monitor template is observe-and-flag with zero discretion (D13/#54) — not the generic governed context", () => {
+    const t = roleTemplateFor("focus-monitor");
+    expect(t.role).toBe("focus-monitor");
+    expect(t.roleContext).toMatch(/observ/i);
+    expect(t.roleContext).toMatch(/never move tickets/i);
+    expect(t.roleContext).toMatch(/never redirect/i);
+  });
 });
 
 describe("template: directive (same line-anchored discipline as budget:)", () => {

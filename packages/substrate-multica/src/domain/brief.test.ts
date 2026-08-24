@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EngagementBrief } from "@guild/shared";
+import type { AdvisoryBrief, EngagementBrief } from "@guild/shared";
 import { renderBrief } from "./brief.js";
 
 const brief: EngagementBrief = {
@@ -41,5 +41,30 @@ describe("renderBrief (issue body an agent starts from, context-fresh)", () => {
     const body = renderBrief(brief).toLowerCase();
     expect(body).toContain("validated");
     expect(body).toContain("push");
+  });
+});
+
+describe("renderBrief for an advisory rider (#54: no contract exists, so none is shown)", () => {
+  const riderBrief: AdvisoryBrief = {
+    roleContext: "You are the focus-monitor: an advisory observer.",
+    instructions: "Observe the implementation stage and flag drift.",
+    priorDecisions: [],
+    artifactRefs: [],
+    constraints: ["Observe and flag only: never push code, never move tickets."],
+  };
+
+  it("renders no acceptance-contract section and no push-to-validate closing", () => {
+    const body = renderBrief(riderBrief);
+    expect(body).toContain("focus-monitor");
+    expect(body).toContain("flag drift");
+    expect(body).not.toContain("Acceptance contract");
+    expect(body).not.toContain("validated automatically");
+  });
+
+  it("closes observe-and-flag: observations are ticket comments and Guild ends the engagement at stage end (#29)", () => {
+    const body = renderBrief(riderBrief).toLowerCase();
+    expect(body).toContain("comment");
+    expect(body).toContain("stage end");
+    expect(body).toContain("never judged");
   });
 });

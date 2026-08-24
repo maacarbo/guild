@@ -92,6 +92,11 @@ Directives are **own-line** grammar (prose that merely ends in
   (business-analysis → technical-analysis → architecture-security →
   implementation → test → delivery, 10/10/15/35/20/10 — #28). Unknown names
   degrade to `standard` with a gate-body warning.
+- `monitor: on` — adds an advisory focus-monitor rider to every stage (#54,
+  D13): observe-and-flag only, budgeted at a 10% carve of each stage's
+  allocation (the worker keeps the remainder). Riders never gate stage
+  completion and are cancelled at stage end; any value other than `on`/`off`
+  warns at the gate and stays off.
 
 Expected outcome: within a reconcile tick the conductor comments a plan
 reference on your ticket and posts the first stage's **gate ticket** in the

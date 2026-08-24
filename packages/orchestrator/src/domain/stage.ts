@@ -20,6 +20,16 @@ export function engagementIdFor(stageId: string, planVersion: number): string {
   return `eng:${stageId}:v${planVersion}`;
 }
 
+/**
+ * An advisory rider's id (#54): the role names the rider, the version stays
+ * terminal like every other minted id — distinct from the worker's id within
+ * the same (stage, planVersion), so supersede and dispatch address the right
+ * rows.
+ */
+export function advisoryEngagementIdFor(stageId: string, planVersion: number, role: string): string {
+  return `eng:${stageId}:${role}:v${planVersion}`;
+}
+
 /** the gate ticket's substrate marker — the dedup key for idempotent posts */
 export function gateMarker(stageId: string, planVersion: number): string {
   return `gate:${stageId}:v${planVersion}`;
@@ -62,11 +72,6 @@ export function stageComplete(
 /** the observe-and-flag riders a completed stage must cancel (#29: `advisory_stage_end`) */
 export function advisoryRiders(plan: StagePlan): EngagementPlan[] {
   return plan.engagements.filter((e) => e.advisory === true);
-}
-
-/** whether this engagement is an advisory rider of its plan (#29: never contract-judged) */
-export function isAdvisory(plan: StagePlan, engagementId: string): boolean {
-  return plan.engagements.find((e) => e.engagementId === engagementId)?.advisory === true;
 }
 
 /**

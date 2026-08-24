@@ -6,7 +6,7 @@
  * pushed commit, never taken from the agent's self-report (D6).
  */
 
-import type { ContractCheck, EngagementBrief } from "@guild/shared";
+import type { AdvisoryBrief, ContractCheck, EngagementBrief } from "@guild/shared";
 
 function describeCheck(check: ContractCheck): string {
   return check.kind === "command"
@@ -14,7 +14,7 @@ function describeCheck(check: ContractCheck): string {
     : `file \`${check.path}\` exists${check.mustContain ? ` and contains "${check.mustContain}"` : ""}`;
 }
 
-export function renderBrief(brief: EngagementBrief): string {
+export function renderBrief(brief: EngagementBrief | AdvisoryBrief): string {
   const sections = [
     `## Role`,
     brief.roleContext,
@@ -29,14 +29,23 @@ export function renderBrief(brief: EngagementBrief): string {
     ...(brief.constraints.length
       ? [`## Constraints`, ...brief.constraints.map((c) => `- ${c}`)]
       : []),
-    `## Acceptance contract (\`${brief.contract.contractId}\` v${brief.contract.version})`,
-    "```gherkin",
-    brief.contract.gherkin,
-    "```",
-    `Checks that will be executed:`,
-    ...brief.contract.checks.map((c) => `- ${describeCheck(c)}`),
-    ``,
-    `When you are done, commit and push your work to your engagement branch. Your pushed commit will be validated automatically against these checks — the verdict comes from that validation, not from your report.`,
+    // an advisory rider has no contract (#54): showing acceptance criteria that
+    // are never judged would brief the agent into a deal Guild never makes
+    ...(brief.contract
+      ? [
+          `## Acceptance contract (\`${brief.contract.contractId}\` v${brief.contract.version})`,
+          "```gherkin",
+          brief.contract.gherkin,
+          "```",
+          `Checks that will be executed:`,
+          ...brief.contract.checks.map((c) => `- ${describeCheck(c)}`),
+          ``,
+          `When you are done, commit and push your work to your engagement branch. Your pushed commit will be validated automatically against these checks — the verdict comes from that validation, not from your report.`,
+        ]
+      : [
+          ``,
+          `You are an advisory observer: comment your observations on this ticket as you make them. There is no acceptance contract and your report is never judged — Guild closes this engagement at stage end.`,
+        ]),
   ];
   return sections.join("\n");
 }

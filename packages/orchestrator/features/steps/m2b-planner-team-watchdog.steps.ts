@@ -43,6 +43,10 @@ const GATEWAY_URL = process.env.GUILD_GATEWAY_URL ?? "http://127.0.0.1:4000";
 const VALIDATOR_IMAGE = process.env.GUILD_VALIDATOR_NODE_IMAGE ?? "node:22-alpine";
 const AGENT_MODEL = process.env.GUILD_SMOKE_MODEL ?? "litellm/or-deepseek-v4-flash";
 const ROLES: readonly string[] = ["analyst", "architect", "implementer", "tester"];
+// #54 opt-in: the demo idea carries `monitor: on`, so every stage adds a
+// focus-monitor rider whose role is NOT pre-bound — dispatch live-fires the
+// D16 API-backed hire path. Default off keeps the plain smoke byte-stable.
+const MONITOR = process.env.GUILD_SMOKE_MONITOR === "1";
 
 function envValue(name: string): string {
   if (process.env[name]) return process.env[name]!;
@@ -263,6 +267,7 @@ When("the operator posts the demo idea as a board ticket", async () => {
       // a 2026-08-12 run hit a genuine bounce and the 15% architecture split
       // of $3 (45c) capped out mid-rework (the budget doing its job)
       "budget: 10.00",
+      ...(MONITOR ? ["monitor: on"] : []),
     ].join("\n"),
   });
   assert.ok(res.ok, `idea ticket → ${res.status}`);
@@ -411,26 +416,31 @@ Then("the decision trail records five gated stages with zero un-contracted advan
   // Run-scoped EXACT counts (#12): `>= 5` over the whole store could never
   // catch a duplicate dispatch. Every stage dispatches exactly once at its
   // expected version (analysis is v2 — the scenario amends it pre-approval),
-  // and no OTHER engagement of this idea dispatched at all.
+  // plus its focus-monitor rider when the monitor is on (#54), and no OTHER
+  // engagement of this idea dispatched at all.
   const counts = new Map<string, number>();
   for (const { id } of dispatches) {
     if (!id.startsWith(`eng:stg:${world.ideaId}:`)) continue;
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
-  for (const stageId of stageIds) {
-    const version = stageId.endsWith(":analysis") ? 2 : 1;
-    const engagementId = `eng:${stageId}:v${version}`;
+  const versionOf = (stageId: string) => (stageId.endsWith(":analysis") ? 2 : 1);
+  const expectedIds = stageIds.flatMap((stageId) => [
+    `eng:${stageId}:v${versionOf(stageId)}`,
+    ...(MONITOR ? [`eng:${stageId}:focus-monitor:v${versionOf(stageId)}`] : []),
+  ]);
+  for (const engagementId of expectedIds) {
     assert.equal(counts.get(engagementId), 1, `exactly one dispatch of ${engagementId} (got ${counts.get(engagementId) ?? 0})`);
   }
   assert.equal(
     counts.size,
-    stageIds.length,
+    expectedIds.length,
     `no unexpected dispatches for ${world.ideaId} (saw: ${[...counts.keys()].sort().join(", ")})`,
   );
   for (const { id, i } of dispatches) {
     if (!id.startsWith(`eng:stg:${world.ideaId}:`)) continue;
-    // engagement ids are `eng:<stageId>:v<n>` — strip the prefix to get the approval key
-    const gateIdx = approvedAt.get(id.replace(/^eng:/, ""));
+    // engagement ids are `eng:<stageId>[:<rider-role>]:v<n>` — strip the eng:
+    // prefix and any rider-role segment to get the stage approval key
+    const gateIdx = approvedAt.get(id.replace(/^eng:/, "").replace(":focus-monitor", ""));
     assert.ok(gateIdx !== undefined && gateIdx < i, `dispatch of ${id} follows its gate approval`);
   }
   for (const stageId of stageIds) {
@@ -444,6 +454,35 @@ Then("the decision trail records five gated stages with zero un-contracted advan
     );
     assert.ok(passedIdx >= 0, `passed verdict for ${engagementId}`);
     assert.ok(acceptedIdx > passedIdx, `acceptance of ${engagementId} follows its passed verdict`);
+  }
+
+  if (MONITOR) {
+    // #54 live proof: the unbound focus-monitor role was HIRED at dispatch
+    // (D16 API-backed hire), each stage's rider ended advisory_stage_end —
+    // never accepted, never contract-judged — and run completion retired the
+    // hired monitor again.
+    assert.ok(
+      ds.some((d) => d.kind === "hire" && d.role === "focus-monitor" && d.planId === world.ideaId),
+      "focus-monitor hire recorded on the trail",
+    );
+    assert.ok(
+      ds.some((d) => d.kind === "retire" && d.role === "focus-monitor" && d.planId === world.ideaId),
+      "focus-monitor retired at run completion",
+    );
+    for (const stageId of stageIds) {
+      const riderId = `eng:${stageId}:focus-monitor:v${versionOf(stageId)}`;
+      const term = ds.find(
+        (d): d is Extract<DecisionEntry, { kind: "termination" }> =>
+          d.kind === "termination" && d.terminated.engagementId === riderId,
+      );
+      assert.ok(term, `rider termination recorded for ${riderId}`);
+      assert.equal(term.terminated.reason, "advisory_stage_end", `${riderId} ended advisory_stage_end`);
+      assert.equal(term.terminated.finalState, "cancelled", `${riderId} cancelled, never accepted`);
+      assert.ok(
+        !ds.some((d) => d.kind === "verdict" && d.engagementId === riderId),
+        `${riderId} was never contract-judged`,
+      );
+    }
   }
 });
 

@@ -25,6 +25,7 @@ import type {
   EngagementState,
   ExecutionSubstrate,
   GateDecision,
+  HandoffContract,
   KeySpend,
   ModelGateway,
   ProjectBudget,
@@ -42,7 +43,6 @@ import {
   advisoryRiders,
   duplicateOpenRole,
   gateMarker,
-  isAdvisory,
   stageComplete,
   stageIdFor,
   stageSlugOf,
@@ -879,11 +879,16 @@ export class Conductor {
    * same SHA-pinned input.
    */
   private async judgeReported(record: EngagementRecord): Promise<void> {
+    // ONE plan read serves the advisory check AND the contract (#54): the
+    // report path is hot, and both facts live on the same engagement plan.
+    const ep = await this.engagementPlanFor(record);
     // Advisory riders have no contract and are never judged (#29): their
     // observations live as ticket comments; a "done" report neither validates
     // nor bounces. They terminate when their stage completes (closeAdvisories).
-    const reportedPlan = await this.deps.store.getStagePlan(record.stageId, record.planVersion);
-    if (reportedPlan && isAdvisory(reportedPlan, record.engagementId)) return;
+    if (ep?.advisory) return;
+    if (!ep) {
+      throw new Error(`engagement ${record.engagementId} has no persisted plan (${record.stageId} v${record.planVersion})`);
+    }
     let reported = record;
     const snapshot = await this.deps.substrate.getWorkItem(reported.item!);
     const resolved = await this.resolveReport(reported, snapshot);
@@ -901,7 +906,7 @@ export class Conductor {
       };
       await this.deps.store.saveEngagement(reported);
     }
-    const verdict = await this.judge(reported, snapshot, resolved);
+    const verdict = await this.judge(reported, snapshot, resolved, ep.brief.contract);
     await this.deps.store.appendDecision({ kind: "verdict", engagementId: reported.engagementId, verdict });
 
     if (verdict.outcome === "validator_error") {
@@ -982,8 +987,8 @@ export class Conductor {
     record: EngagementRecord,
     snapshot: WorkItemSnapshot,
     resolved: { branch: string; sha: string } | null,
+    contract: HandoffContract,
   ): Promise<ContractVerdict> {
-    const contract = await this.contractFor(record);
     if (!resolved) {
       const branch = snapshot.report?.branchHint;
       const detail = branch
@@ -1482,12 +1487,6 @@ export class Conductor {
   private async engagementPlanFor(rec: EngagementRecord): Promise<EngagementPlan | null> {
     const plan = await this.deps.store.getStagePlan(rec.stageId, rec.planVersion);
     return plan?.engagements.find((e) => e.engagementId === rec.engagementId) ?? null;
-  }
-
-  private async contractFor(rec: EngagementRecord) {
-    const ep = await this.engagementPlanFor(rec);
-    if (!ep) throw new Error(`engagement ${rec.engagementId} has no persisted plan (${rec.stageId} v${rec.planVersion})`);
-    return ep.brief.contract;
   }
 
   private async findByItem(item: WorkItemRef): Promise<EngagementRecord | null> {

@@ -11,7 +11,7 @@
  * must never strand an engagement.
  */
 
-import type { EngagementBrief, Lane } from "./stages.js";
+import type { AdvisoryBrief, EngagementBrief, Lane } from "./stages.js";
 import type { ContractVerdict } from "./contract.js";
 import type { CancellationReason } from "./governance.js";
 
@@ -121,7 +121,7 @@ export interface WorkItemSpec {
   role: string;
   title: string;
   /** structured brief; the adapter serializes it into the substrate's native body format */
-  brief: EngagementBrief;
+  brief: EngagementBrief | AdvisoryBrief;
 }
 
 /**
