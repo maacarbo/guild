@@ -165,7 +165,10 @@ Given("the live stack, the four role agents, a clean governance database, and an
   }
 
   world.substrate = createMulticaSubstrate(
-    { baseUrl: operator.baseUrl, token: conductor.token, workspaceId: operator.workspaceId },
+    // agentLifecycleToken mirrors the production bin (MULTICA_DAEMON_TOKEN):
+    // since v0.4.26 agent creation is runtime-OWNER-only, so a monitored run's
+    // focus-monitor hire must create as the daemon, not the conductor (D16)
+    { baseUrl: operator.baseUrl, token: conductor.token, workspaceId: operator.workspaceId, agentLifecycleToken: daemonM2b.token },
     // the workspace-owner member is the operator; approvals/acceptances/amendments come
     // from it, so it is the allowlisted operator identity (D15)
     { projectScope: operator.workspaceId, roleAgents, selfMemberId: conductor.memberId, operatorMemberIds: [operator.memberId] },
