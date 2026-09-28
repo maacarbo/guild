@@ -7,7 +7,7 @@
 # control-plane tag are a lockstep pair.
 FROM node:22-bookworm-slim
 
-ARG MULTICA_VERSION=v0.4.32
+ARG MULTICA_VERSION=v0.6.0
 ARG OPENCODE_VERSION=1.18.10
 
 RUN apt-get update \
